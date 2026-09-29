@@ -59,6 +59,8 @@ export default function App() {
   // The answer on screen as of the last render, so it can be kept in Recent when something replaces it.
   const display = useRef<Snapshot & { complete: boolean }>({ question: '', answer: '', mode: 'STANDARD', kind: 'answer', complete: false });
   const provider = useCallback((): LLMProvider => source === 'claude' ? new ClaudeCodeProvider(claudeModel) : source === 'openai' ? new OpenAICompatibleProvider(endpoint, apiKey, model) : new LocalDemoProvider(), [source, claudeModel, endpoint, apiKey, model]);
+  // Start Claude Code now so the first answer skips its startup (the bridge then keeps one ready after every answer).
+  useEffect(() => { if (source === 'claude') ClaudeCodeProvider.warm(claudeModel); }, [source, claudeModel]);
   const detectAudioInputs = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) { setDeviceMessage('This page cannot access microphones. Open Roomside on 127.0.0.1 or localhost in a supported browser.'); return; }
     setDeviceMessage('Requesting microphone permission…');
@@ -397,7 +399,7 @@ export default function App() {
       <button className="primary full" onClick={() => setPanel(null)}>Done</button>
     </section></div>}
     {panel === 'context' && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="context-title"><div className="modal-head"><div><div className="eyebrow">ANSWER CONTEXT</div><h2 id="context-title">Your context</h2></div><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close context"><X size={18}/></button></div>
-      <p className="context-intro">Add what your answers should know about you. Claude uses it to personalize answers and STAR stories, and does not invent experience that is not here.</p>
+      <p className="context-intro">Add what your answers should know about you. Claude answers as you and tells STAR stories from your real projects; it may fill in believable details of a moment, but never new jobs, titles, or metrics.</p>
       <label className="field-label">Interviewing for<input className="text-input" value={role} onChange={event => setRole(event.target.value)} placeholder="e.g. Software Engineer Intern at Stripe"/></label>
       <label className="field-label">About you<textarea value={about} onChange={event => setAbout(event.target.value)} placeholder="Experience, projects, skills, stories you want to use, things to emphasize…" rows={5}/></label>
       <div className="field-label">Files

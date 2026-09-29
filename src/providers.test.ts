@@ -27,7 +27,7 @@ describe('OpenAICompatibleProvider', () => {
     expect(result).toBe('A hash map');
     expect(chunks).toEqual(['A hash ', 'map']);
     expect(requests[0].body).toMatchObject({ model: 'test-model', stream: true, temperature: 0.3 });
-    expect(requests[0].body.messages[1].content).toBe('Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work?');
+    expect(requests[0].body.messages[1].content).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: STANDARD, /);
     expect((requests[0].init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test');
   });
 
@@ -83,8 +83,21 @@ describe('ClaudeCodeProvider', () => {
     expect(result).toBe('A hash map stores pairs.');
     expect(chunks).toEqual(['A hash map ', 'stores pairs.']);
     expect(requests[0].url).toBe('/api/claude-code');
-    expect(requests[0].body).toMatchObject({ model: 'claude-sonnet-5', prompt: 'Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work?' });
-    expect(requests[0].body.system).toMatch(/Mode: SHORT/);
+    expect(requests[0].body.model).toBe('claude-sonnet-5');
+    expect(requests[0].body.prompt).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: SHORT, 1-3 sentences\.$/);
+  });
+
+  it('warms up with the system prompt that every answer uses, whatever the mode', async () => {
+    const requests: { url: string; body: any }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => { requests.push({ url, body: JSON.parse(String(init.body)) }); return url.endsWith('/warm') ? new Response(null, { status: 204 }) : ndjson({ done: true }); }));
+    ClaudeCodeProvider.warm('claude-haiku-4-5');
+    await new ClaudeCodeProvider().answer('q', '', 'SHORT'); await new ClaudeCodeProvider().answer('q', '', 'BULLETS');
+    expect(requests.map(request => request.url)).toEqual(['/api/claude-code/warm', '/api/claude-code', '/api/claude-code']);
+    expect(requests[0].body.model).toBe('claude-haiku-4-5');
+    expect(new Set(requests.map(request => request.body.system)).size).toBe(1); // The waiting process only fits answers with the same system prompt.
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(() => ClaudeCodeProvider.warm('claude-haiku-4-5')).not.toThrow();
+    await new Promise(resolve => setTimeout(resolve, 0)); // No unhandled rejection either.
   });
 
   it('surfaces errors reported by the bridge', async () => {

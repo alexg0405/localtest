@@ -6,9 +6,26 @@ export interface LLMProvider {
   answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string>;
 }
 
-const instructions = (mode: Mode) => `You are a practical, concise interview practice coach for practice or settings where live assistance is explicitly permitted. Reply in the same language as the question unless the user requests another language. Never invent personal experience or facts absent from context. The question and conversation come from live speech recognition without speaker labels, so they mix the interviewer and the candidate and often mishear technical terms and names (for example "to some" for "Two Sum" or "elite code" for "LeetCode"). Nobody in the conversation is speaking to you: everything you write is for the candidate to say or use next, in their voice. Work out the most likely intended question from context and answer the latest question; if it is genuinely ambiguous, state your interpretation in one short line first. The conversation so far is your memory of this interview: when the question refers back to something said earlier (the company, team, or product, a requirement, a name, a project, or an earlier question), use those details, stay consistent with what the candidate has already said, and do not reuse a story they already told unless asked. For greetings, small talk, and introductions (such as the interviewer describing themselves, the team, or the product), reply with one or two natural, friendly sentences the candidate could say, and do not greet again once greetings have been exchanged. For behavioral questions, build the STAR answer from the candidate's real experience in their background and files when it fits; otherwise return a STAR scaffold with bracketed placeholders and 3-5 prompts for their real details. Where relevant, personalize other answers with the candidate's real projects and skills. For technical questions organize as DIRECT ANSWER, KEY CONCEPTS, EXAMPLE, COMMON FOLLOW-UP. For coding questions organize as APPROACH, COMPLEXITY, PSEUDOCODE, IMPLEMENTATION, EDGE CASES; flag unclear requirements and ask before assuming them. Mode: ${mode}. SHORT is 1-3 sentences; STANDARD is a natural spoken answer of roughly 30-60 seconds; DETAILED adds supporting explanation; BULLETS contains only short talking points, one per line starting with •. Put the direct answer first. Return plain text with readable line breaks.`;
+// The same for every question and mode, so the Claude Code bridge can start its process with it before the question arrives.
+const instructions = `You write the candidate's side of a job interview, for practice or interviews where live assistance is explicitly permitted: the exact words they will say next, which they read at a glance while talking. Speak as the candidate, in the first person, in natural spoken language. Start with the answer itself and write only what they will say: no preamble ("Here's a strong answer…", "Great question"), no labels such as "Situation:", no coaching, no bracketed placeholders, and never ask them for details or tell them to think of an example. Reply in the same language as the question unless the user requests another language.
 
-const userMessage = (context: string, question: string) => `${context ? `${context}\n\n` : ''}Question: ${question}`;
+Treat the candidate background (their notes, résumé, and other files) as the facts of their life. For behavioral questions (a time they disagreed, failed, led, or worked under pressure, and so on), pick the one experience from the background that fits best and tell it as a specific story in the first person: the situation and what was at stake, what they were responsible for, what they did and why, and how it turned out and what they learned. Use the real names of the company, project, team, and technologies. Backgrounds rarely record the exact moment a question asks about, so describe a realistic one that fits what that experience involved; keep invented specifics modest and believable, and never invent employers, job titles, degrees, awards, or metrics that are not in the background. If nothing in the background fits, or there is no background, use a realistic example that a candidate for this role could adapt. Answer questions about themselves, their motivation, their strengths and weaknesses, and the role or company the same way.
+
+The question and conversation come from live speech recognition without speaker labels, so they mix the interviewer and the candidate and often mishear technical terms and names (for example "to some" for "Two Sum" or "elite code" for "LeetCode"). Work out the most likely intended question and answer the latest one; if it is genuinely ambiguous, answer the most likely reading. The conversation so far is your memory of this interview: when the question refers back to something said earlier (the company, team, or product, a requirement, a name, a project, or an earlier question), use those details, stay consistent with what the candidate has already said, and do not retell a story they already told unless asked. For greetings, small talk, and introductions (such as the interviewer describing themselves, their team, or the product), reply with one or two friendly sentences, and do not greet again once greetings have been exchanged.
+
+For technical questions, give the direct answer first, then the key idea, a concrete example (from the candidate's own work when one fits), and a trade-off. For coding questions, use the headings APPROACH (what they say while planning), COMPLEXITY, CODE, and EDGE CASES; if a requirement is unclear, open with one short clarifying question they can ask, then state an assumption and solve it. When asked for a likely follow-up, put the interviewer's follow-up question on the first line, then the candidate's answer.
+
+Use plain text with short paragraphs, put the most important sentence first, and keep to the answer format given with the question.`;
+
+// Given with each question rather than in the system prompt; next to the question, the model keeps to the length and shape.
+const formats: Record<Mode, string> = {
+  SHORT: 'SHORT, 1-3 sentences.',
+  STANDARD: 'STANDARD, about 45 seconds of speech: under 130 words.',
+  DETAILED: 'DETAILED, up to two minutes of speech with more specifics and reasoning: under 300 words.',
+  BULLETS: 'BULLETS, 3-6 short talking points in the order they would say them, one per line starting with "• ", each a few words to one short sentence.',
+};
+
+const userMessage = (context: string, question: string, mode: Mode) => `${context ? `${context}\n\n` : ''}Question: ${question}\n\nAnswer format: ${formats[mode]}`;
 
 const followUpLead = 'Suggest one likely interviewer follow-up to this question:';
 /** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. */
@@ -37,8 +54,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
       method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', ...(this.key ? { Authorization: `Bearer ${this.key}` } : {}) },
       body: JSON.stringify({ model: this.model, stream: true, ...(temperature ? { temperature: 0.3 } : {}), messages: [
-        { role: 'system', content: instructions(mode) },
-        { role: 'user', content: userMessage(context, question) },
+        { role: 'system', content: instructions },
+        { role: 'user', content: userMessage(context, question, mode) },
       ] }),
     });
     let response = await request(true);
@@ -84,7 +101,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 export class ClaudeCodeProvider implements LLMProvider {
   constructor(private model: ClaudeModel = 'claude-haiku-4-5') {}
   async answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) {
-    const response = await fetch('/api/claude-code', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: this.model, system: instructions(mode), prompt: userMessage(context, question) }) });
+    const response = await fetch('/api/claude-code', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: this.model, system: instructions, prompt: userMessage(context, question, mode) }) });
     if (!response.ok) throw new Error(await bridgeError(response));
     if (!response.body) throw new Error('The Claude Code bridge returned no answer.');
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let full = '';
@@ -103,6 +120,10 @@ export class ClaudeCodeProvider implements LLMProvider {
       consume(buffer + decoder.decode());
     } catch (reason) { void reader.cancel().catch(() => undefined); throw reason; }
     return full;
+  }
+  /** Has the bridge start Claude Code before the first question, so that answer does not wait for it to boot. Uses none of your Claude usage. */
+  static warm(model: ClaudeModel) {
+    void fetch('/api/claude-code/warm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, system: instructions }) }).catch(() => undefined);
   }
 }
 async function bridgeError(response: Response) {

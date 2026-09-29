@@ -84,7 +84,7 @@ describe('ClaudeCodeProvider', () => {
     expect(chunks).toEqual(['A hash map ', 'stores pairs.']);
     expect(requests[0].url).toBe('/api/claude-code');
     expect(requests[0].body.model).toBe('claude-sonnet-5');
-    expect(requests[0].body.prompt).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: SHORT, 1-3 sentences\.$/);
+    expect(requests[0].body.prompt).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: SHORT, 1-3 sentences\. If the interviewer is only greeting, making small talk, or introducing themselves, the team, or the product, reply with one or two friendly sentences instead\.$/);
   });
 
   it('warms up with the system prompt that every answer uses, whatever the mode', async () => {

@@ -25,7 +25,10 @@ const formats: Record<Mode, string> = {
   BULLETS: 'BULLETS, 3-6 short talking points in the order they would say them, one per line starting with "• ", each a few words to one short sentence.',
 };
 
-const userMessage = (context: string, question: string, mode: Mode) => `${context ? `${context}\n\n` : ''}Question: ${question}\n\nAnswer format: ${formats[mode]}`;
+// Beside the format too, or a mode's length (such as STANDARD's 45 seconds) wins over the system prompt's small-talk rule.
+const smallTalk = 'If the interviewer is only greeting, making small talk, or introducing themselves, the team, or the product, reply with one or two friendly sentences instead.';
+
+const userMessage = (context: string, question: string, mode: Mode) => `${context ? `${context}\n\n` : ''}Question: ${question}\n\nAnswer format: ${formats[mode]} ${smallTalk}`;
 
 const followUpLead = 'Suggest one likely interviewer follow-up to this question:';
 /** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. */

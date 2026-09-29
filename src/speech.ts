@@ -71,7 +71,7 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
   private active = false;
   private listening = false;
   private resetting = false;
-  private aborts: number[] = [];
+  private interruptions: number[] = [];
   private microphone: MicrophoneInput | null = null;
   private callbacks: SpeechCallbacks | null = null;
   constructor(private language = 'en-US') {}
@@ -100,11 +100,12 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
     };
     recognition.onerror = (event: any) => {
       if (!this.active || event.error === 'no-speech') return;
-      if (event.error === 'aborted') {
-        if (this.resetting) { this.resetting = false; return; } // Our own reset(); onend restarts recognition.
-        // Chrome aborts recognition when another tab or app starts it; stop instead of taking it back forever.
-        const now = Date.now(); this.aborts = [...this.aborts.filter(at => now - at < 10000), now];
-        if (this.aborts.length < 3) return;
+      if (event.error === 'aborted' || event.error === 'network') {
+        if (event.error === 'aborted' && this.resetting) { this.resetting = false; return; } // Our own reset(); onend restarts recognition.
+        // Ride out brief network drops and another tab taking the recognizer (onend restarts it),
+        // but stop if it keeps happening rather than retrying forever.
+        const now = Date.now(); this.interruptions = [...this.interruptions.filter(at => now - at < 15000), now];
+        if (this.interruptions.length < 3) return;
       }
       this.active = false; this.releaseMicrophone(); try { recognition.stop(); } catch { /* Already ended. */ }
       callbacks.onError(browserErrors[event.error] || `Speech recognition stopped (${event.error}). You can still enter a question manually.`, event.error === 'not-allowed');

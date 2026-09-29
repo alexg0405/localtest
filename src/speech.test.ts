@@ -101,8 +101,8 @@ class FakeRecognition {
   abort() { this.calls.push('abort'); if (this.started) { this.started = false; queueMicrotask(() => { this.onerror?.({ error: 'aborted' }); this.onend?.(); }); } }
   /** Chrome ends continuous recognition on its own now and then. */
   endOnItsOwn() { this.started = false; this.onend?.(); }
-  /** Another tab or app took the recognizer. */
-  takenElsewhere() { this.started = false; this.onerror?.({ error: 'aborted' }); this.onend?.(); }
+  /** Chrome reports an error ('aborted' when another tab or app takes the recognizer), then ends. */
+  interrupt(error: string) { this.started = false; this.onerror?.({ error }); this.onend?.(); }
 }
 
 describe('BrowserSpeechToTextProvider', () => {
@@ -142,10 +142,30 @@ describe('BrowserSpeechToTextProvider', () => {
 
   it('gives up after repeated aborts from another tab', async () => {
     const { events, recognition } = await listen();
-    recognition.takenElsewhere(); recognition.takenElsewhere();
+    recognition.interrupt('aborted'); recognition.interrupt('aborted');
     expect(events).toEqual(['listening:true']);
-    recognition.takenElsewhere(); await settle();
+    recognition.interrupt('aborted'); await settle();
     expect(events.slice(1)).toEqual(['error:Speech recognition keeps being interrupted, probably by another tab or app that is listening. Close it, then start again.', 'listening:false']);
+  });
+
+  it('keeps listening through a brief network drop', async () => {
+    const { events, recognition } = await listen();
+    recognition.interrupt('network'); await settle();
+    expect(recognition.calls).toEqual(['start', 'start']);
+    expect(events).toEqual(['listening:true']);
+  });
+
+  it('stops when the network keeps failing', async () => {
+    const { events, recognition } = await listen();
+    for (let attempt = 0; attempt < 3; attempt++) { recognition.interrupt('network'); await settle(); }
+    expect(events.slice(1)).toEqual(['error:Speech recognition lost its network connection. Check your connection and start listening again, or type questions manually.', 'listening:false']);
+  });
+
+  it('fails right away on errors that a restart cannot fix', async () => {
+    const { events, recognition } = await listen();
+    recognition.interrupt('audio-capture'); await settle();
+    expect(recognition.calls).toEqual(['start', 'stop']);
+    expect(events.slice(1)).toEqual(['error:The microphone could not be captured. Check that it is connected and not in use by another app.', 'listening:false']);
   });
 
   it('creates no recognizer when stopped while waiting for microphone permission', async () => {

@@ -19,3 +19,22 @@ button:focus-visible,.settings-modal select:focus-visible{outline:2px solid #77a
 .context-meter{height:4px;border-radius:2px;background:#eef1ec;margin-top:14px;overflow:hidden}.context-meter span{display:block;height:100%;background:#8ab393}
 .context-link{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;margin-top:12px;border-top:1px solid var(--line)}.context-link span{display:flex;flex-direction:column;gap:4px}.context-link b{font-size:12px}.context-link small{font-size:10px;color:#92978e}
 .mic-notice{font-size:10px;line-height:1.5;color:#65705f;background:#f3f6f1;border-radius:6px;margin-top:9px;padding:8px 10px}.vocabulary-toggle{margin-top:14px}.on-device-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0 2px}.on-device-row .settings-hint{margin-top:0}
+.rail-button{position:relative}
+.rail-badge{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:#d9b86c;box-shadow:0 0 0 2px #f0f1eb}
+.rail-badge.live{background:#70a580}
+.phone-chip{display:flex;align-items:center;gap:6px;border:1px solid #e3e6df;background:#f7f8f4;color:#80857c;border-radius:20px;padding:5px 10px;font:500 11px system-ui;cursor:pointer}
+.phone-chip.live{color:#477252;background:#eaf3ec;border-color:#d7e6d9}
+.phone-pair{display:flex;gap:16px;align-items:center;margin:16px 0 4px}
+.qr{flex:0 0 auto;width:168px;height:168px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.phone-pair-copy{display:flex;flex-direction:column;gap:9px;min-width:0}
+.phone-pair-copy b{font-size:12px}
+.phone-url{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;color:#5d625a;background:#f5f6f2;border-radius:6px;padding:7px 8px;word-break:break-all;line-height:1.45;user-select:all}
+.phone-pair-copy .text-button{align-self:flex-start}
+.phone-count{display:flex;align-items:center;gap:7px;font-size:11px;color:#92978e}
+.phone-count i{width:7px;height:7px;border-radius:50%;background:#d9b86c}
+.phone-count.live{color:#477252}
+.phone-count.live i{background:#70a580;box-shadow:0 0 0 3px #e3efe4}
+.phone-hint{margin-top:10px}
+.phone-other{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;line-height:1.5;color:#5d625a;background:#f5f8f4;border:1px solid #e8eee5;border-radius:7px;padding:10px 12px}
+.phone-message{margin-top:10px}
+.phone-stop{margin-bottom:8px}

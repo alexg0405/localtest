@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { childEnv, claudeArgs, findClaudeBinary, isLocalRequest, streamAnswer, translateLine, type BridgeEvent } from './claude-code-bridge';
+import { childEnv, claudeArgs, findClaudeBinary, streamAnswer, translateLine, type BridgeEvent } from './claude-code-bridge';
 
 const root = mkdtempSync(join(tmpdir(), 'roomside-bridge-test-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -54,16 +54,6 @@ describe('command line and environment', () => {
   it('never passes API keys or other Claude session variables to the CLI', () => {
     const env = childEnv({ HOME: '/Users/me', PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-ant-secret', ANTHROPIC_BASE_URL: 'http://127.0.0.1:1', CLAUDE_CODE_OAUTH_TOKEN: 'secret' });
     expect(env).toEqual({ HOME: '/Users/me', PATH: '/usr/bin', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
-  });
-});
-
-describe('isLocalRequest', () => {
-  it('accepts only same-origin requests on this computer', () => {
-    expect(isLocalRequest({ host: '127.0.0.1:5173', origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-origin' })).toBe(true);
-    expect(isLocalRequest({ host: 'localhost:5173' })).toBe(true);
-    expect(isLocalRequest({ host: '127.0.0.1:5173', origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' })).toBe(false);
-    expect(isLocalRequest({ host: '127.0.0.1:5173', 'sec-fetch-site': 'cross-site' })).toBe(false);
-    expect(isLocalRequest({ host: 'evil.example:5173', origin: 'http://evil.example:5173' })).toBe(false); // DNS rebinding
   });
 });
 

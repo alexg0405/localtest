@@ -1,11 +1,13 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AudioLines, BookUser, ChevronDown, Clipboard, Cpu, FileText, HelpCircle, Mic, MicOff, Pin, Send, Settings2, Sparkles, Square, Upload, Wifi, X, Volume2, Trash2 } from 'lucide-react';
+import { Activity, AudioLines, BookUser, ChevronDown, Clipboard, Cpu, FileText, HelpCircle, Mic, MicOff, Pin, Send, Settings2, Smartphone, Sparkles, Square, Upload, Wifi, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
 import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
 import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
 import { acceptedFiles, extractText } from './documents';
 import { keytermsFor } from './vocabulary';
+import { conversationMemory, heardCharacters, memoryBudget } from './memory';
+import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
 import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
 
 type Line = { text: string; time: string; at: number; confidence?: number };
@@ -34,7 +36,7 @@ export default function App() {
   const [status, setStatus] = useState('Demo answer ready'); const [error, setError] = useState(''); const [answerError, setAnswerError] = useState(''); const [voiceDetected, setVoiceDetected] = useState(false);
   const [generating, setGenerating] = useState(false); const [speaking, setSpeaking] = useState(false); const utterance = useRef<SpeechSynthesisUtterance | null>(null);
   const [providerCheck, setProviderCheck] = useState(''); const [checkingProvider, setCheckingProvider] = useState(false);
-  const [pinned, setPinned] = useState<Snapshot | null>(null); const [recent, setRecent] = useState<Snapshot[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | null>(null); const settings = panel === 'settings';
+  const [pinned, setPinned] = useState<Snapshot | null>(null); const [recent, setRecent] = useState<Snapshot[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | 'phone' | null>(null); const settings = panel === 'settings';
   const [source, setSource] = useState<AnswerSource>('demo'); const sourceChosen = useRef(false); const [claudeModel, setClaudeModel] = useState<ClaudeModel>('claude-haiku-4-5'); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
   const [apiKey, setApiKey] = useState(''); const [model, setModel] = useState('gpt-4o-mini');
   const [speechEngine, setSpeechEngine] = useState<'browser' | 'deepgram'>('browser'); const [deepgramKey, setDeepgramKey] = useState(''); const [language, setLanguage] = useState('en-US');
@@ -45,6 +47,8 @@ export default function App() {
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
   const [role, setRole] = useState(savedContext?.role ?? ''); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
   const [dragging, setDragging] = useState(false); const [preview, setPreview] = useState<string | null>(null); const [contextNotice, setContextNotice] = useState('');
+  const [mirror, setMirror] = useState<MirrorStatus | null>(null); const [mirrorBusy, setMirrorBusy] = useState(false); const [mirrorMessage, setMirrorMessage] = useState(''); const [mirrorLink, setMirrorLink] = useState(0);
+  const mirrorConnection = useRef<MirrorConnection | null>(null); const mirrorCommand = useRef<(command: MirrorCommand) => void>(() => undefined);
   const profile = useMemo(() => buildProfile({ role, about, files }), [role, about, files]);
   const speech = useRef<SpeechToTextProvider | null>(null); const controller = useRef<AbortController | null>(null); const partialTimer = useRef<number | null>(null);
   const partialAnswer = useRef(false); const samplePending = useRef(true); // The sample question and answer shown until something is asked.
@@ -65,12 +69,12 @@ export default function App() {
       setAudioInputs(inputs); setAudioDeviceId(current => inputs.some(input => input.deviceId === current) ? current : ''); setDeviceMessage(inputs.length ? `${inputs.length} microphone${inputs.length === 1 ? '' : 's'} found.` : 'No microphones found.');
     } catch (reason: any) { setDeviceMessage(reason?.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow access in browser settings.' : reason?.message || 'Could not list microphones.'); }
   }, []);
+  // Every answer sees the whole conversation (within memoryBudget), so later questions can refer back to anything said earlier.
   const context = useCallback((q: string) => {
-    const cutoff = Date.now() - 10 * 60 * 1000;
-    const lines = transcriptRef.current.filter(line => line.at > cutoff).slice(-45).map(line => line.text);
-    if (lines.length && compactText(lines[lines.length - 1]) === compactText(q)) lines.pop(); // The question itself is sent separately.
-    const recent = lines.join('\n').slice(-7500);
-    return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, recent && `Recent conversation transcript (oldest first; speech recognition may contain errors):\n${recent}`].filter(Boolean).join('\n\n');
+    const lines = transcriptRef.current.slice();
+    if (lines.length && compactText(lines[lines.length - 1].text) === compactText(q)) lines.pop(); // The question itself is sent separately.
+    const memory = conversationMemory(lines).text;
+    return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, memory && `Conversation so far (oldest first; live speech recognition without speaker labels, so it may contain errors):\n${memory}`].filter(Boolean).join('\n\n');
   }, [profile]);
   const addFiles = useCallback((list: FileList | File[]) => {
     for (const file of Array.from(list)) {
@@ -110,8 +114,7 @@ export default function App() {
   }, [mode, provider, context, stopReading, rememberShown]);
 
   const addLine = useCallback((line: Line) => {
-    const cutoff = Date.now() - 10 * 60 * 1000;
-    const next = [...transcriptRef.current.filter(item => item.at > cutoff), line].slice(-90);
+    const next = [...transcriptRef.current, line].slice(-3000); // Hours of conversation; Clear conversation empties it.
     transcriptRef.current = next; setTranscript(next);
   }, []);
 
@@ -202,10 +205,12 @@ export default function App() {
     });
   }, [speechEngine, deepgramKey, language, audioDeviceId, extraTerms, boostVocabulary, stopReading, abortAnswer]);
 
-  const submitManual = useCallback(() => {
-    const q = draft.trim(); if (!q) return;
-    addLine({ text: q, time: stamp(), at: Date.now() }); setDraft(''); void generate(q);
-  }, [draft, addLine, generate]);
+  // A typed question joins the transcript like a spoken one, so later answers remember it.
+  const ask = useCallback((text: string) => {
+    const q = text.trim(); if (!q) return;
+    addLine({ text: q, time: stamp(), at: Date.now() }); void generate(q);
+  }, [addLine, generate]);
+  const submitManual = useCallback(() => { const q = draft.trim(); if (!q) return; setDraft(''); ask(q); }, [draft, ask]);
   const currentPinned = !!pinned && pinned.question === question && pinned.answer === answer;
   const canPin = !!answer.trim() && !generating;
   const togglePin = useCallback(() => { if (currentPinned) setPinned(null); else if (canPin) setPinned({ question, answer, mode: shownMode, kind: answerKind }); }, [currentPinned, canPin, question, answer, shownMode, answerKind]);
@@ -250,6 +255,24 @@ export default function App() {
   const detailed = useCallback(() => void generate(question, { mode: 'DETAILED', uncertain: lowConfidence }), [question, generate, lowConfidence]);
   const followUp = useCallback(() => void generate(question, { mode: 'SHORT', followUp: true, uncertain: lowConfidence }), [question, generate, lowConfidence]);
   const regenerate = useCallback(() => void generate(question, { mode: shownMode, followUp: answerKind === 'followup', uncertain: lowConfidence }), [question, generate, shownMode, answerKind, lowConfidence]);
+  // Taps and typed questions from the phone mirror do exactly what the matching controls here do.
+  useLayoutEffect(() => {
+    mirrorCommand.current = command => {
+      if (command.type === 'listen') { if (!activeRef.current) start(); }
+      else if (command.type === 'stop') { if (activeRef.current) stop(); }
+      else if (command.type === 'ask') ask(command.text);
+      else if (command.type === 'mode') chooseMode(command.mode);
+      else ({ shorter, detailed, followup: followUp, regenerate })[command.type]();
+    };
+  });
+  const toggleMirror = useCallback(async (on: boolean) => {
+    setMirrorBusy(true); setMirrorMessage('');
+    try { setMirror(await (on ? startMirror() : stopMirror())); setMirrorLink(0); }
+    catch (reason: any) { setMirrorMessage(reason?.message || 'Could not change the phone mirror.'); }
+    finally { setMirrorBusy(false); }
+  }, []);
+  const mirrorHere = useCallback(async () => { setMirrorMessage(''); try { await mirrorConnection.current?.claim(); } catch (reason: any) { setMirrorMessage(reason?.message || 'Could not mirror this tab.'); } }, []);
+  const copyMirrorLink = useCallback(async (url: string) => { try { await navigator.clipboard.writeText(url); setMirrorMessage('Link copied.'); } catch { setMirrorMessage('Clipboard access is blocked. Select the link and copy it instead.'); } }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -288,13 +311,38 @@ export default function App() {
   }, [panel, speechEngine, boostVocabulary, language]);
   // The sample answer only illustrates the offline demo; with a real provider, start from an empty panel.
   useEffect(() => { if (source !== 'demo' && samplePending.current) { samplePending.current = false; setQuestion(''); setAnswer(''); setStatus('Waiting for a question'); } }, [source]);
+  // Phone mirroring needs the dev server, so its button appears only when the server answers.
+  useEffect(() => { void mirrorStatus().then(setMirror); }, []);
+  useEffect(() => { if (panel === 'phone') void mirrorStatus().then(status => { if (status) setMirror(status); }); }, [panel]);
+  const mirrorRunning = !!mirror?.running;
+  useEffect(() => {
+    if (!mirrorRunning) return;
+    const connection = new MirrorConnection({
+      status: setMirror,
+      command: command => mirrorCommand.current(command),
+      stopped: () => setMirror(current => current && { ...current, running: false, owner: 'none', phones: 0, links: [] }),
+    });
+    mirrorConnection.current = connection;
+    return () => { connection.close(); if (mirrorConnection.current === connection) mirrorConnection.current = null; };
+  }, [mirrorRunning]);
   // Answer with the Claude subscription by default when Claude Code is signed in on this computer.
   useEffect(() => { void claudeCodeStatus().then(status => { if (status?.loggedIn && !sourceChosen.current) setSource('claude'); }); }, []);
   useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
 
   const blocks = parseAnswer(answer);
-  const tag = isFollowUp(question, transcript.slice(0, -1).map(line => line.text).join(' ')) ? 'FOLLOW-UP' : questionKind(question);
+  const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
+  const heardMinutes = transcript.length ? Math.max(1, Math.round((transcript[transcript.length - 1].at - transcript[0].at) / 60_000)) : 0;
+  const memoryLabel = !transcript.length || source === 'demo' ? '' : heardCharacters(transcript) > memoryBudget ? ` · remembers the opening and latest part of the conversation (${heardMinutes} min)` : ` · remembers the conversation (${heardMinutes} min)`;
   const providerLabel = source === 'claude' ? `${claudeModelLabel(claudeModel)} · your Claude subscription` : source === 'openai' ? `${model.trim() || 'No model set'} · ${(() => { try { return new URL(endpoint).host; } catch { return 'invalid endpoint URL'; } })()}` : 'Offline demo answers';
+  // Sends what the phone shows after every render; the connection skips renders that changed nothing it shows.
+  useEffect(() => {
+    mirrorConnection.current?.publish({
+      listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
+      question, tag, possible: lowConfidence, kind: answerKind, answerMode: shownMode, mode, blocks: mirrorBlocks(blocks), generating, status, answerError,
+      heard: transcript.slice(-8).map(({ time, text }) => ({ time, text })), interim, provider: providerLabel,
+    });
+  });
+  const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];
   const copyAnswer = async () => { try { await navigator.clipboard.writeText(answer); setStatus('Answer copied'); } catch { setAnswerError('Clipboard access is blocked. Select and copy the answer instead.'); } };
   const readAloud = () => {
     if (speaking) { stopReading(); return; }
@@ -308,9 +356,9 @@ export default function App() {
   };
 
   return <main className="app">
-    <aside className="rail" ref={rail}><div className="brand">r<span>.</span></div><div className="rail-sep"/><button className="rail-button selected" title="Session"><Activity/></button><button className="rail-button" onClick={() => setPanel('context')} title="Your context" aria-label="Your context"><BookUser/></button><button className="rail-button" onClick={() => setPanel('settings')} title="Settings" aria-label="Settings"><Settings2/></button><div className="rail-bottom"><button className="rail-button" title="Help" onClick={() => setPanel('settings')}><HelpCircle/></button><div className="avatar">A</div></div></aside>
+    <aside className="rail" ref={rail}><div className="brand">r<span>.</span></div><div className="rail-sep"/><button className="rail-button selected" title="Session"><Activity/></button><button className="rail-button" onClick={() => setPanel('context')} title="Your context" aria-label="Your context"><BookUser/></button>{mirror && <button className="rail-button" onClick={() => setPanel('phone')} title="Phone mirror" aria-label="Phone mirror"><Smartphone/>{mirror.running && mirror.owner === 'this' && <i className={'rail-badge ' + (mirror.phones ? 'live' : '')}/>}</button>}<button className="rail-button" onClick={() => setPanel('settings')} title="Settings" aria-label="Settings"><Settings2/></button><div className="rail-bottom"><button className="rail-button" title="Help" onClick={() => setPanel('settings')}><HelpCircle/></button><div className="avatar">A</div></div></aside>
     <section className="workspace" ref={workspace}>
-      <header className="topbar"><div><div className="eyebrow">PRACTICE SESSION <span className="dot"/></div><div className="session-title">Interview copilot <ChevronDown size={15}/></div></div><div className="top-actions"><div className="privacy"><span className="privacy-dot"/> Memory only · no saved transcript</div><button className="icon-button" onClick={() => setPanel('settings')} aria-label="Settings" title="Settings"><Settings2 size={17}/></button><button className="icon-button" onClick={clear} aria-label="Clear conversation" title="Clear transcript and answers"><Trash2 size={17}/></button></div></header>
+      <header className="topbar"><div><div className="eyebrow">PRACTICE SESSION <span className="dot"/></div><div className="session-title">Interview copilot <ChevronDown size={15}/></div></div><div className="top-actions">{mirror?.running && mirror.owner === 'this' && <button className={'phone-chip ' + (mirror.phones ? 'live' : '')} onClick={() => setPanel('phone')} title="Phone mirror"><Smartphone size={13}/>{mirror.phones ? 'Phone connected' : 'Waiting for phone'}</button>}<div className="privacy"><span className="privacy-dot"/> Memory only · no saved transcript</div><button className="icon-button" onClick={() => setPanel('settings')} aria-label="Settings" title="Settings"><Settings2 size={17}/></button><button className="icon-button" onClick={clear} aria-label="Clear conversation" title="Clear transcript and answers"><Trash2 size={17}/></button></div></header>
       <div className="content">
         <div className="left-col">
           <div className="section-head"><div><div className="eyebrow">YOUR ROOM AUDIO</div><h2>Live transcript</h2></div><div className={'mic-state ' + (active ? 'on' : '')}><i/>{active ? micReady ? voiceDetected ? 'Voice detected' : 'Listening' : 'Starting…' : 'Mic off'}</div></div>
@@ -328,7 +376,7 @@ export default function App() {
           <div className="question-card"><div className="question-label"><span className="question-mark">?</span>{lowConfidence ? 'POSSIBLE QUESTION' : 'DETECTED QUESTION'}{tag && <span className="tag">{tag}</span>}</div><div className="question-text">{question || 'Waiting for a question…'}</div><div className="question-actions"><button onClick={() => { setDraft(question); manualInput.current?.focus(); }} disabled={!question}><Clipboard size={13}/> Edit question</button><button onClick={regenerate} disabled={!question}><Sparkles size={13}/> Regenerate</button></div></div>
           <div className="response-card"><div className="response-top"><span><Sparkles size={14}/> {answerKind === 'followup' ? 'LIKELY FOLLOW-UP' : 'RESPONSE'} · {shownMode}</span><button className="icon-button small" onClick={copyAnswer} disabled={!answer.trim()} title="Copy answer" aria-label="Copy answer"><Clipboard size={14}/></button></div><div className="response-content" aria-live="polite" aria-busy={generating}>{blocks.map((block, index) => block.type === 'heading' ? <h4 key={index}>{inline(block.text)}</h4> : block.type === 'bullet' ? <div className="bullet" key={index}><i/><span>{inline(block.text)}</span></div> : block.type === 'code' ? <pre key={index}><code>{block.text}</code></pre> : block.type === 'label' ? <p key={index}><b>{block.label}:</b> {inline(block.text)}</p> : <p key={index}>{inline(block.text)}</p>)}{!blocks.length && !answerError && <p className="muted">{generating ? 'Preparing response…' : 'Your answer will appear here.'}</p>}{answerError && <div className="answer-error" role="alert">{answerError}</div>}</div><div className="response-foot"><span><span className={'green-dot ' + (answerError ? 'error-dot' : '')}/>{status}</span><button onClick={readAloud} disabled={!speaking && (!answer.trim() || active)} title={active ? 'Stop listening first so the microphone does not pick up the read-aloud audio' : undefined}>{speaking ? <Square size={12}/> : <Volume2 size={14}/>} {speaking ? 'Stop reading' : 'Read aloud'}</button></div></div>
           <div className="quick-actions"><button onClick={shorter} disabled={!question}><span className="qa-icon">↘</span><span><b>Shorter answer</b><small>Get to the point</small></span><kbd>{mod} 1</kbd></button><button onClick={detailed} disabled={!question}><span className="qa-icon">＋</span><span><b>Explain more</b><small>Add useful detail</small></span><kbd>{mod} 2</kbd></button><button onClick={followUp} disabled={!question}><span className="qa-icon">↗</span><span><b>Generate follow-up</b><small>Prepare for what’s next</small></span></button></div>
-          <div className="answer-status"><Cpu size={13}/>{providerLabel}{profile.used && source !== 'demo' ? ' · using your context' : ''}{pinned ? ' · Pinned for this session' : ''}</div>
+          <div className="answer-status"><Cpu size={13}/>{providerLabel}{profile.used && source !== 'demo' ? ' · using your context' : ''}{memoryLabel}{pinned ? ' · Pinned for this session' : ''}</div>
         </div>
       </div>
       <footer className="bottom-bar"><div><span className="ready-led"/> {active ? micReady ? 'Listening' : 'Starting microphone…' : 'Session ready'} <span className="divider">/</span> <span className="memory"><span className="privacy-dot"/> Memory only</span></div><div className="shortcuts"><span><kbd>{mod}</kbd> + <kbd>↵</kbd> send question</span><span>{listenKeys.map((key, index) => <Fragment key={key}>{index ? ' + ' : ''}<kbd>{key}</kbd></Fragment>)} listen</span><span><kbd>esc</kbd> stop</span><button onClick={() => setPanel('settings')}>Settings <Settings2 size={13}/></button></div></footer>
@@ -363,6 +411,18 @@ export default function App() {
       <label className="toggle-row"><span><b>Keep on this computer</b><small>Saves this text in this browser only (never transcripts or keys). Turn it off to delete the saved copy.</small></span><input type="checkbox" checked={keepContext} onChange={event => setKeepContext(event.target.checked)}/></label>
       {contextNotice && <div className="provider-result">{contextNotice}</div>}
       <div className="settings-note"><div className="privacy-dot"/><div><b>Where it goes</b><p>Files are read in this browser. Their text is sent with each question to your answer provider{source === 'claude' ? ' (Claude, through your subscription)' : ''} and nowhere else.{source === 'demo' ? ' The offline demo answers do not use it.' : ''}</p></div></div>
+      <button className="primary full" onClick={() => setPanel(null)}>Done</button>
+    </section></div>}
+    {panel === 'phone' && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="phone-title"><div className="modal-head"><div><div className="eyebrow">PHONE MIRROR</div><h2 id="phone-title">Use your phone</h2></div><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close phone mirror"><X size={18}/></button></div>
+      <p className="context-intro">See each question and suggested answer on your phone, type questions there, and start or stop listening. Audio still comes only from this computer's microphone, so keep this page open; it can stay in the background.</p>
+      {!mirror?.running ? <><button className="primary full" onClick={() => void toggleMirror(true)} disabled={mirrorBusy}>{mirrorBusy ? 'Starting…' : 'Start phone mirror'}</button><div className="settings-hint phone-hint">Your phone needs to be on the same Wi-Fi network as this computer.</div></>
+        : mirror.owner === 'other' ? <div className="phone-other"><span>Another Roomside tab is mirrored to your phone right now.</span><button className="secondary" onClick={() => void mirrorHere()}>Mirror this tab</button></div>
+          : link && <><div className="phone-pair"><img className="qr" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(link.qr)}`} alt="QR code that opens Roomside on your phone" width={168} height={168}/><div className="phone-pair-copy"><b>Scan with your phone's camera</b><code className="phone-url">{link.url}</code><button className="text-button" onClick={() => void copyMirrorLink(link.url)}><Clipboard size={12}/> Copy link</button><span className={'phone-count ' + (mirror.phones ? 'live' : '')}><i/>{mirror.phones ? `${mirror.phones} phone${mirror.phones === 1 ? '' : 's'} connected` : 'Waiting for your phone…'}</span></div></div>
+            {mirror.links.length > 1 && <label className="field-label">Network address<select value={mirrorLink} onChange={event => setMirrorLink(Number(event.target.value))}>{mirror.links.map((item, index) => <option key={item.url} value={index}>{new URL(item.url).hostname}{index === 0 ? ' (most likely)' : ''}</option>)}</select></label>}
+            <div className="settings-hint phone-hint">Phone can't open it? Both devices must be on the same network, and campus or office Wi-Fi often blocks connections between devices; your phone's hotspot works instead. If macOS asks whether "node" may accept incoming connections, choose Allow.</div></>}
+      {mirrorMessage && <div className={'provider-result phone-message ' + (mirrorMessage === 'Link copied.' ? 'success' : '')}>{mirrorMessage}</div>}
+      <div className="settings-note"><div className="privacy-dot"/><div><b>Who can see it</b><p>Anyone with the link on your network can see this session's transcript and answers, and start or stop listening, until you stop mirroring. The link changes every time you start. Your context files are never sent to the phone.</p></div></div>
+      {mirror?.running && <button className="secondary full phone-stop" onClick={() => void toggleMirror(false)} disabled={mirrorBusy}>Stop phone mirror</button>}
       <button className="primary full" onClick={() => setPanel(null)}>Done</button>
     </section></div>}
   </main>;

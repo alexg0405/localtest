@@ -25,7 +25,13 @@ class MicrophoneInput {
 
   async start(onVoiceActivity: (active: boolean) => void) {
     const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioContextConstructor) { this.context = new AudioContextConstructor(); await this.context.resume(); }
+    if (AudioContextConstructor) {
+      const context: AudioContext = new AudioContextConstructor(); this.context = context;
+      // Chrome can hold audio until the page is clicked, which never happens when the phone mirror starts listening.
+      // Recognition does not need it (only the voice meter does), so continue and resume on the next click or key press.
+      await Promise.race([context.resume(), new Promise(resolve => setTimeout(resolve, 500))]);
+      if (context.state !== 'running') for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, () => { if (context.state === 'suspended') void context.resume().catch(() => undefined); }, { once: true });
+    }
     if (!this.active) return;
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser cannot access a microphone here. Open Roomside on localhost or use Manual Question.');
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(this.deviceId ? { deviceId: { exact: this.deviceId } } : {}) } });

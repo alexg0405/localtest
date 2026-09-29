@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { isClaudeModel, type ClaudeModel } from '../src/claude';
+import { isLocalRequest, readBody } from './http';
 
 export type BridgeEvent = { text: string } | { error: string } | { done: true };
 
@@ -73,15 +74,6 @@ export function streamAnswer(options: { binary: string; model: ClaudeModel; syst
   });
 }
 
-/** Accepts only same-origin requests from this computer, so other websites cannot spend your Claude usage. */
-export function isLocalRequest(headers: IncomingMessage['headers']) {
-  const host = headers.host ?? '';
-  if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host)) return false;
-  if (headers.origin && headers.origin !== `http://${host}`) return false;
-  const site = headers['sec-fetch-site'];
-  return !site || site === 'same-origin';
-}
-
 function authStatus(binary: string, cwd: string) {
   return new Promise<{ loggedIn: boolean; authMethod?: string }>(resolve => {
     execFile(binary, ['auth', 'status', '--json'], { cwd, env: childEnv(), timeout: 15_000 }, (_error, stdout) => {
@@ -90,23 +82,17 @@ function authStatus(binary: string, cwd: string) {
   });
 }
 
-const readBody = (req: IncomingMessage, limit: number) => new Promise<string>((resolve, reject) => {
-  let data = ''; req.setEncoding('utf8');
-  req.on('data', (chunk: string) => { data += chunk; if (data.length > limit) { reject(new Error('Request too large.')); req.destroy(); } });
-  req.on('end', () => resolve(data)); req.on('error', reject);
-});
-
 async function handle(req: IncomingMessage, res: ServerResponse, cwd: string) {
   const reply = (status: number, body: object) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
-  if (!isLocalRequest(req.headers)) return reply(403, { error: 'Only the Roomside page on this computer can use the Claude Code bridge.' });
+  if (!isLocalRequest(req.headers, req.socket.remoteAddress)) return reply(403, { error: 'Only the Roomside page on this computer can use the Claude Code bridge.' });
   const binary = findClaudeBinary(); const path = (req.url ?? '/').split('?')[0];
   if (req.method === 'GET' && path === '/status') return reply(200, binary ? { available: true, ...(await authStatus(binary, cwd)) } : { available: false, loggedIn: false });
   if (req.method !== 'POST' || path !== '/') return reply(404, { error: 'Not found.' });
   if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return reply(415, { error: 'Send JSON.' });
   if (!binary) return reply(503, { error: 'Claude Code was not found. Install the Claude desktop app or Claude Code, or set CLAUDE_BIN to its path.' });
-  let body: any; try { body = JSON.parse(await readBody(req, 64_000)); } catch { return reply(400, { error: 'Invalid request.' }); }
+  let body: any; try { body = JSON.parse(await readBody(req, 1_000_000)); } catch { return reply(400, { error: 'Invalid request.' }); }
   const { model, system, prompt } = body ?? {};
-  if (!isClaudeModel(model) || typeof system !== 'string' || typeof prompt !== 'string' || !prompt.trim() || system.length > 8000 || prompt.length > 40_000) return reply(400, { error: 'Invalid request.' });
+  if (!isClaudeModel(model) || typeof system !== 'string' || typeof prompt !== 'string' || !prompt.trim() || system.length > 8000 || prompt.length > 120_000) return reply(400, { error: 'Invalid request.' });
   res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' });
   const controller = new AbortController(); res.on('close', () => controller.abort()); // The page moved on to another question.
   await streamAnswer({ binary, model, system, prompt, cwd, signal: controller.signal, onEvent: event => { if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`); } });

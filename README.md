@@ -4,7 +4,7 @@ A desktop-sized, memory-only interview practice copilot prototype. It uses only 
 
 ## Run
 
-Install Node.js 20+ and npm, then double-click `run.command` on macOS, or run `./run.sh` in a terminal. The first run installs dependencies and opens the app in your browser. You can also run `npm install` and `npm start`. The development server listens on this computer only (`127.0.0.1`). Use a browser with Web Speech API support (Chrome is recommended). Browser speech recognition availability and audio processing depend on the browser and its provider.
+Install Node.js 20+ and npm, then double-click `run.command` on macOS, or run `./run.sh` in a terminal. The first run installs dependencies and opens the app in your browser. You can also run `npm install` and `npm start`. The development server listens on this computer only (`127.0.0.1`); the optional phone mirror opens one more port on your network, only while it is on. Use a browser with Web Speech API support (Chrome is recommended). Browser speech recognition availability and audio processing depend on the browser and its provider.
 
 ## Desktop app
 
@@ -16,7 +16,7 @@ If macOS blocks the microphone, open the site in Chrome and allow microphone acc
 
 ## Tests
 
-Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer); GitHub Actions runs them, plus the production build, on every push and pull request. They cover question detection, answer formatting, the OpenAI-compatible and demo answer providers (with `fetch` mocked), Deepgram message handling, and how browser speech recognition starts, restarts, and fails.
+Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer); GitHub Actions runs them, plus the production build, on every push and pull request. They cover question detection, answer formatting, conversation memory, the OpenAI-compatible and demo answer providers (with `fetch` mocked), Deepgram message handling, how browser speech recognition starts, restarts, and fails, and the phone mirror's relay, secret link, and tab handover (over real local HTTP servers).
 
 ## Answers from your Claude subscription
 
@@ -27,6 +27,15 @@ claude auth login
 ```
 
 If `claude` is not on your PATH, use the copy bundled with the Claude desktop app: `"$HOME/Library/Application Support/Claude/claude-code/<version>/claude.app/Contents/MacOS/claude" auth login`. Roomside then picks **Claude, with your Claude subscription** automatically; choose Claude Haiku 4.5 (fastest) or Claude Sonnet 5 in Settings. The dev server runs Claude Code with every tool disabled, in an empty temporary folder, and only for requests from the Roomside page itself (`server/claude-code-bridge.ts`); the question goes over stdin, not the command line. Set `CLAUDE_BIN` to use a specific Claude Code binary. This bridge exists only in the dev server, not in `npm run build` or the desktop app.
+
+## Phone mirror
+
+With `npm start`, you can follow the session on your phone: open **Phone mirror** in the sidebar, choose **Start phone mirror**, and scan the QR code with your phone's camera. The phone shows the listening state, what was just heard, the detected question, and the suggested answer as it streams. From the phone you can start or stop listening, type a question, switch between Short, Standard, Detailed, and Bullets, and ask for a shorter, expanded, follow-up, or regenerated answer. Audio still comes only from the laptop's microphone, so keep Roomside open there (it can stay in the background).
+
+- The phone must be on the same network as the laptop. Campus and office Wi-Fi often block connections between devices; if the page does not load, connect the laptop to your phone's hotspot and scan again.
+- The phone page runs on a second server (`server/phone-mirror.ts`) that starts only while mirroring is on and answers only under a random secret link, which changes every time you start. Anyone with the link on your network can see the session and control listening until you stop mirroring. Phones receive only text (transcript, question, answer); your context files are never sent, and the Claude Code bridge still accepts requests only from this computer. The link is plain HTTP on your local network.
+- Only one Roomside tab is mirrored at a time. Reloading that tab keeps the phone connected; if you open another tab, the Phone mirror panel lets you move the mirror to it.
+- Phone browsers do not let plain-HTTP pages keep the screen awake, so turn off Auto-Lock (or keep tapping) while you practice.
 
 ## Providers
 
@@ -41,7 +50,8 @@ If `claude` is not on your PATH, use the copy bundled with the Claude desktop ap
 
 - Start / Stop Listening: start or stop recognition; Escape stops listening (or closes Settings). Words still being recognized when you stop are kept in the transcript.
 - Type a question and press Enter (or `⌘/Ctrl + Enter` from anywhere) to submit it.
-- Clear conversation removes the transcript and current answer without stopping the microphone.
+- Answers remember the whole conversation: every question is sent with the transcript so far (up to about 40,000 characters, which covers a typical 45 to 60 minute interview; beyond that the opening and the most recent part are kept), so a later question can refer back to anything said earlier. Typed questions join the transcript too.
+- Clear conversation removes the transcript, its memory, and the current answer without stopping the microphone.
 - Choose Short, Standard, Detailed, or Bullets for all answers. The quick actions are one-off requests for a shorter, expanded, or likely follow-up answer and keep the selected mode; the response header shows which mode produced the current answer.
 - Pin the current answer to keep a snapshot while exploring other responses (pinning another answer replaces it); Restore brings the pinned answer back.
 - **Recent** lists the last few finished answers that a new question, regeneration, or mode change replaced, so an answer you were reading is never lost; Clear conversation empties it.

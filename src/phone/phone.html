@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f7f7f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141613" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex, nofollow">
+<title>Roomside on your phone</title>
+<link rel="stylesheet" href="phone.css">
+<script type="module" src="phone.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">r<span>.</span></div>
+  <div class="connection" id="connection" role="status">Connecting…</div>
+</header>
+<main>
+  <div class="banner" id="banner" role="alert" hidden></div>
+  <section class="listen">
+    <div class="mic" id="mic"><i></i><span id="mic-label">Mic off</span></div>
+    <button class="listen-button" id="listen" type="button" disabled>Start listening</button>
+  </section>
+  <p class="heard-line" id="heard-line" hidden></p>
+  <div class="mic-message" id="mic-message" hidden></div>
+  <section class="card" id="question-card">
+    <div class="eyebrow"><span id="question-label">Detected question</span><span class="tag" id="tag" hidden></span></div>
+    <p class="question" id="question">Waiting for a question…</p>
+  </section>
+  <section class="card">
+    <div class="eyebrow" id="answer-label">Response</div>
+    <div class="answer" id="answer" aria-live="polite"></div>
+    <div class="status" id="status"></div>
+  </section>
+  <div class="modes" id="modes" role="group" aria-label="Answer length"></div>
+  <div class="actions" id="actions">
+    <button type="button" data-command="shorter">Shorter</button>
+    <button type="button" data-command="detailed">Explain more</button>
+    <button type="button" data-command="followup">Follow-up</button>
+    <button type="button" data-command="regenerate">Regenerate</button>
+  </div>
+  <details class="card transcript">
+    <summary>Transcript</summary>
+    <div id="transcript"></div>
+  </details>
+  <p class="footnote" id="provider"></p>
+</main>
+<form class="ask" id="ask" autocomplete="off">
+  <input id="ask-input" type="text" placeholder="Type a question…" maxlength="2000" enterkeyhint="send" aria-label="Question">
+  <button id="ask-send" type="submit" aria-label="Send question" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+</form>
+</body>
+</html>

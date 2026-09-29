@@ -13,8 +13,10 @@ import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, 
 import type { VoicePrint } from './voice';
 import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
 import { AnswerContent, PastAnswer, QuestionLabel, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
+import { SessionMenu } from './SessionMenu';
+import { deleteSession, lastIds, listSessions, loadSession, newSessionId, storeSession, type SavedSession, type SessionLine, type SessionSummary } from './sessions';
 
-type Line = { id: number; text: string; time: string; at: number; confidence?: number; speaker?: Speaker; by?: SpeakerSource; voice?: number; print?: VoicePrint; heard?: Speaker };
+type Line = SessionLine;
 type AudioInput = { deviceId: string; label: string };
 /** `replace` updates the current card instead of starting a new one (a question that continued after a pause). */
 type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean; replace?: boolean };
@@ -57,7 +59,11 @@ export default function App() {
   const [speakers, setSpeakers] = useState(true); const [transcriptFilter, setTranscriptFilter] = useState<'all' | Speaker>('all'); const [speakerTick, setSpeakerTick] = useState(0);
   const lineId = useRef(0); const speakerCheck = useRef<AbortController | null>(null); const speakerPauseUntil = useRef(0);
   // Your voice sample from "Learn my voice": a few numbers per stretch of speech, kept in memory for this tab only.
-  const voiceIds = useRef(new Map<string, number>()); // Deepgram numbers voices afresh on every connection; these are unique per page.
+  const voiceIds = useRef(new Map<string, number>()); const nextVoice = useRef(0); // Deepgram numbers voices afresh on every connection; these are unique per session.
+  // The session in view. A saved one saves itself as it changes; any other stays in memory only.
+  const [session, setSession] = useState(() => ({ id: newSessionId(), name: '', createdAt: Date.now(), saved: false }));
+  const [sessionMenu, setSessionMenu] = useState(false); const [savedSessions, setSavedSessions] = useState<SessionSummary[] | null>(null); const [sessionNotice, setSessionNotice] = useState('');
+  const picker = useRef<HTMLDivElement>(null); const sessionNow = useRef(session); const sessionSnapshot = useRef<() => SavedSession>(null!);
   const myVoice = useRef<VoicePrint[]>([]); const [voiceSetup, setVoiceSetup] = useState<{ state: 'idle' | 'recording' | 'done' | 'error'; seconds?: number; message?: string }>({ state: 'idle' });
   const [boostVocabulary, setBoostVocabulary] = useState(false); const [onDevice, setOnDevice] = useState<OnDeviceStatus | 'checking' | 'installing' | null>(null); const [micNotice, setMicNotice] = useState('');
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
@@ -145,7 +151,7 @@ export default function App() {
   const commitSpeech = useCallback((text: string, confidence?: number, deepgramVoice?: number) => {
     const utterance = text.trim(); if (!utterance) return;
     const voiceKey = `${sessionId.current}:${deepgramVoice}`;
-    if (deepgramVoice !== undefined && !voiceIds.current.has(voiceKey)) voiceIds.current.set(voiceKey, voiceIds.current.size);
+    if (deepgramVoice !== undefined && !voiceIds.current.has(voiceKey)) voiceIds.current.set(voiceKey, nextVoice.current++);
     const voice = deepgramVoice === undefined ? undefined : voiceIds.current.get(voiceKey);
     // A Deepgram voice keeps the label it has had. Otherwise compare how the line sounded with each person's voice so far:
     // the words decide unless they say nothing or the voice clearly disagrees, and the background check has the last word.
@@ -177,12 +183,17 @@ export default function App() {
     else if (partialQuestion.current) { partialAnswer.current = false; partialQuestion.current = ''; abortAnswer(); setAnswer(''); setQuestion(''); setLowConfidence(false); setStatus('No question detected'); }
   }, [addLine, generate, abortAnswer, question]);
 
-  const clear = useCallback(() => {
-    abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear();
+  const resetConversation = useCallback(() => {
+    abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear(); nextVoice.current = 0;
     browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
     transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setNewBelow(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading]);
+  // Clearing starts a new session. A saved one keeps what it had: its latest changes are saved first.
+  const clear = useCallback(() => {
+    if (sessionNow.current.saved) void storeSession(sessionSnapshot.current()).catch(() => undefined);
+    resetConversation(); setSession({ id: newSessionId(), name: '', createdAt: Date.now(), saved: false }); setSessionNotice('');
+  }, [resetConversation]);
 
   // Ends the listening session. Words the recognizer has not finalized yet are committed unless `discard` is set.
   const endListening = useCallback((discard: boolean) => {
@@ -348,6 +359,43 @@ export default function App() {
     finally { setMirrorBusy(false); }
   }, []);
   const mirrorHere = useCallback(async () => { setMirrorMessage(''); try { await mirrorConnection.current?.claim(); } catch (reason: any) { setMirrorMessage(reason?.message || 'Could not mirror this tab.'); } }, []);
+  const refreshSessions = useCallback(() => {
+    setSavedSessions(null);
+    listSessions().then(setSavedSessions, () => { setSavedSessions([]); setSessionNotice('This browser would not open its saved sessions.'); });
+  }, []);
+  const saveThisSession = useCallback(async () => {
+    const snapshot = sessionSnapshot.current();
+    try { await storeSession(snapshot); setSession(current => ({ ...current, name: snapshot.name, saved: true })); setSessionNotice('Saved. From now on, changes save automatically.'); refreshSessions(); }
+    catch { setSessionNotice('This browser would not save the session.'); }
+  }, [refreshSessions]);
+  const hasContent = () => { const now = sessionSnapshot.current(); return now.transcript.length > 0 || now.history.length > 0 || !!now.current?.answer.trim(); };
+  const newSession = useCallback(() => {
+    if (!sessionNow.current.saved && hasContent() && !window.confirm('Start a new session? This one is not saved, so its transcript and answers will be cleared.')) return;
+    clear(); setSessionMenu(false);
+  }, [clear]);
+  // Picks a saved session back up: its transcript is the memory later answers use, and new speech adds to it.
+  const restoreSession = useCallback((saved: SavedSession) => {
+    resetConversation();
+    const ids = lastIds(saved); lineId.current = ids.line; entryCounter.current = ids.entry; nextVoice.current = ids.voice + 1; samplePending.current = false;
+    transcriptRef.current = saved.transcript; setTranscript(saved.transcript); setHistory(saved.history); setPinned(saved.pinned);
+    const current = saved.current;
+    setEntryId(current?.id ?? 0); setEntryTime(current?.time ?? ''); setQuestion(current?.question ?? ''); setAnswer(current?.answer ?? ''); setShownMode(current?.mode ?? 'STANDARD'); setAnswerKind(current?.kind ?? 'answer'); setLowConfidence(!!current?.possible);
+    setSession({ id: saved.id, name: saved.name, createdAt: saved.createdAt, saved: true }); setSessionNotice(''); setStatus(`Opened “${saved.name}”`);
+  }, [resetConversation]);
+  const openSession = useCallback(async (id: string) => {
+    if (activeRef.current) return;
+    if (!sessionNow.current.saved && hasContent() && !window.confirm('This session is not saved. Open the other one and clear this one?')) return;
+    if (sessionNow.current.saved) await storeSession(sessionSnapshot.current()).catch(() => undefined);
+    const saved = await loadSession(id).catch(() => null);
+    if (!saved) { setSessionNotice('That session could not be opened.'); refreshSessions(); return; }
+    restoreSession(saved); setSessionMenu(false);
+  }, [restoreSession, refreshSessions]);
+  const deleteSaved = useCallback(async (item: SessionSummary) => {
+    if (!window.confirm(`Delete “${item.name}”? Its transcript and answers cannot be recovered.`)) return;
+    if (item.id === sessionNow.current.id) setSession(current => ({ ...current, saved: false })); // Stays on screen, in memory only.
+    try { await deleteSession(item.id); } catch { setSessionNotice('This browser would not delete the session.'); }
+    refreshSessions();
+  }, [refreshSessions]);
   // Eight seconds of you reading aloud, so lines in your voice are labeled You from the start (the same microphone as listening).
   const teachVoice = useCallback(async () => {
     setVoiceSetup({ state: 'recording' });
@@ -368,6 +416,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return; // 229: key pressed during IME composition.
+      if (sessionMenu) { if (event.key === 'Escape') { event.preventDefault(); setSessionMenu(false); } return; }
       if (panel) { if (event.key === 'Escape') { event.preventDefault(); setPanel(null); } return; }
       const command = event.metaKey || event.ctrlKey; const once = !event.repeat;
       if (command && event.key === 'Enter') { event.preventDefault(); submitManual(); }
@@ -378,7 +427,13 @@ export default function App() {
       else if (event.key === 'Escape' && activeRef.current) stop();
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
-  }, [panel, submitManual, start, stop, shorter, detailed, togglePin]);
+  }, [panel, sessionMenu, submitManual, start, stop, shorter, detailed, togglePin]);
+  useEffect(() => { if (sessionMenu) refreshSessions(); }, [sessionMenu, refreshSessions]);
+  useEffect(() => {
+    if (!sessionMenu) return;
+    const away = (event: MouseEvent) => { if (!picker.current?.contains(event.target as Node)) setSessionMenu(false); };
+    document.addEventListener('mousedown', away); return () => document.removeEventListener('mousedown', away);
+  }, [sessionMenu]);
   useEffect(() => {
     if (!panel) return;
     // Keep keyboard focus and screen readers inside the dialog, then return focus to where it was.
@@ -451,6 +506,21 @@ export default function App() {
   const providerLabel = source === 'claude' ? `${claudeModelLabel(claudeModel)} · your Claude subscription` : source === 'openai' ? `${model.trim() || 'No model set'} · ${(() => { try { return new URL(endpoint).host; } catch { return 'invalid endpoint URL'; } })()}` : 'Offline demo answers';
   // The current card is shown once something is asked (or, before anything is, as the empty placeholder).
   const showCurrent = !!(question || answer || generating || answerError);
+  const sessionPlaceholder = role.trim() || 'Practice session';
+  useLayoutEffect(() => {
+    sessionNow.current = session;
+    sessionSnapshot.current = () => ({ version: 1, id: session.id, name: session.name.trim() || sessionPlaceholder, createdAt: session.createdAt, updatedAt: Date.now(), transcript: transcriptRef.current, history, current: showCurrent ? { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind } : null, pinned });
+  });
+  // A saved session saves itself a moment after it changes (not on every streamed word), and when the page closes.
+  useEffect(() => {
+    if (!session.saved) return;
+    const timer = window.setTimeout(() => { void storeSession(sessionSnapshot.current()).catch(() => setSessionNotice('This browser would not save the latest changes.')); }, 800);
+    return () => window.clearTimeout(timer);
+  }, [session, transcript, history, question, answer, shownMode, answerKind, lowConfidence, pinned, entryId]);
+  useEffect(() => {
+    const flush = () => { if (sessionNow.current.saved) void storeSession(sessionSnapshot.current()).catch(() => undefined); };
+    window.addEventListener('pagehide', flush); return () => window.removeEventListener('pagehide', flush);
+  }, []);
   // Earlier answers for the phone, converted when the list changes rather than on every streamed word.
   const pastForPhone = useMemo(() => history.slice(-11).map(entry => ({ id: entry.id, question: entry.question, tag: entry.tag, possible: entry.possible, kind: entry.kind, mode: entry.mode, time: entry.time, blocks: mirrorBlocks(parseAnswer(entry.answer)) })), [history]);
   // Sends what the phone shows after every render; the connection skips renders that changed nothing it shows.
@@ -478,7 +548,7 @@ export default function App() {
   return <main className="app">
     <aside className="rail" ref={rail}><div className="brand">r<span>.</span></div><div className="rail-sep"/><button className="rail-button selected" title="Session"><Activity/></button><button className="rail-button" onClick={() => setPanel('context')} title="Your context" aria-label="Your context"><BookUser/></button>{mirror && <button className="rail-button" onClick={() => setPanel('phone')} title="Phone mirror" aria-label="Phone mirror"><Smartphone/>{mirror.running && mirror.owner === 'this' && <i className={'rail-badge ' + (mirror.phones ? 'live' : '')}/>}</button>}<button className="rail-button" onClick={() => setPanel('settings')} title="Settings" aria-label="Settings"><Settings2/></button><div className="rail-bottom"><button className="rail-button" title="Help" onClick={() => setPanel('settings')}><HelpCircle/></button><div className="avatar">A</div></div></aside>
     <section className="workspace" ref={workspace}>
-      <header className="topbar"><div><div className="eyebrow">PRACTICE SESSION <span className="dot"/></div><div className="session-title">Interview copilot <ChevronDown size={15}/></div></div><div className="top-actions">{mirror?.running && mirror.owner === 'this' && <button className={'phone-chip ' + (mirror.phones ? 'live' : '')} onClick={() => setPanel('phone')} title="Phone mirror"><Smartphone size={13}/>{mirror.phones ? 'Phone connected' : 'Waiting for phone'}</button>}<div className="privacy"><span className="privacy-dot"/> Memory only · no saved transcript</div><button className="icon-button" onClick={() => setPanel('settings')} aria-label="Settings" title="Settings"><Settings2 size={17}/></button><button className="icon-button" onClick={clear} aria-label="Clear conversation" title="Clear transcript and answers"><Trash2 size={17}/></button></div></header>
+      <header className="topbar"><div><div className="eyebrow">PRACTICE SESSION <span className="dot"/></div><div className="session-picker" ref={picker}><button className="session-title" onClick={() => setSessionMenu(open => !open)} aria-expanded={sessionMenu} aria-haspopup="dialog" title="Save this session, or open a saved one">{session.name.trim() || (session.saved ? sessionPlaceholder : 'Interview copilot')} <ChevronDown size={15}/></button>{sessionMenu && <SessionMenu name={session.name} placeholder={sessionPlaceholder} saved={session.saved} currentId={session.id} listening={active} sessions={savedSessions} notice={sessionNotice} onRename={name => setSession(current => ({ ...current, name }))} onSave={() => void saveThisSession()} onNew={newSession} onOpen={id => void openSession(id)} onDelete={item => void deleteSaved(item)}/>}</div></div><div className="top-actions">{mirror?.running && mirror.owner === 'this' && <button className={'phone-chip ' + (mirror.phones ? 'live' : '')} onClick={() => setPanel('phone')} title="Phone mirror"><Smartphone size={13}/>{mirror.phones ? 'Phone connected' : 'Waiting for phone'}</button>}<div className="privacy"><span className="privacy-dot"/> {session.saved ? 'Saved on this computer' : 'Memory only · no saved transcript'}</div><button className="icon-button" onClick={() => setPanel('settings')} aria-label="Settings" title="Settings"><Settings2 size={17}/></button><button className="icon-button" onClick={clear} aria-label="Clear conversation" title="Clear transcript and answers"><Trash2 size={17}/></button></div></header>
       <div className="content">
         <div className="left-col">
           <div className="section-head"><div><div className="eyebrow">YOUR ROOM AUDIO</div><h2>Live transcript</h2></div><div className={'mic-state ' + (active ? 'on' : '')}><i/>{active ? micReady ? voiceDetected ? 'Voice detected' : 'Listening' : 'Starting…' : 'Mic off'}</div></div>
@@ -505,7 +575,7 @@ export default function App() {
           <div className="answer-status"><Cpu size={13}/>{providerLabel}{profile.used && source !== 'demo' ? ' · using your context' : ''}{memoryLabel}{pinned ? ' · Pinned for this session' : ''}</div>
         </div>
       </div>
-      <footer className="bottom-bar"><div><span className="ready-led"/> {active ? micReady ? 'Listening' : 'Starting microphone…' : 'Session ready'} <span className="divider">/</span> <span className="memory"><span className="privacy-dot"/> Memory only</span></div><div className="shortcuts"><span><kbd>{mod}</kbd> + <kbd>↵</kbd> send question</span><span>{listenKeys.map((key, index) => <Fragment key={key}>{index ? ' + ' : ''}<kbd>{key}</kbd></Fragment>)} listen</span><span><kbd>esc</kbd> stop</span><button onClick={() => setPanel('settings')}>Settings <Settings2 size={13}/></button></div></footer>
+      <footer className="bottom-bar"><div><span className="ready-led"/> {active ? micReady ? 'Listening' : 'Starting microphone…' : 'Session ready'} <span className="divider">/</span> <span className="memory"><span className="privacy-dot"/> {session.saved ? 'Session saved' : 'Memory only'}</span></div><div className="shortcuts"><span><kbd>{mod}</kbd> + <kbd>↵</kbd> send question</span><span>{listenKeys.map((key, index) => <Fragment key={key}>{index ? ' + ' : ''}<kbd>{key}</kbd></Fragment>)} listen</span><span><kbd>esc</kbd> stop</span><button onClick={() => setPanel('settings')}>Settings <Settings2 size={13}/></button></div></footer>
     </section>
     {settings && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><div className="eyebrow">PREFERENCES</div><h2 id="settings-title">Session settings</h2></div><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close settings"><X size={18}/></button></div>
       <div className="settings-section-title">MICROPHONE & TRANSCRIPTION</div><label className="field-label">Speech recognition provider<select value={speechEngine} onChange={event => setSpeechEngine(event.target.value as 'browser' | 'deepgram')}><option value="browser">Browser built-in (easy setup)</option><option value="deepgram">Deepgram streaming (API key)</option></select></label><label className="field-label">Transcription language<select value={language} onChange={event => setLanguage(event.target.value)}><option value="en-US">English (US)</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt-BR">Portuguese (Brazil)</option><option value="ja">Japanese</option><option value="zh-CN">Chinese (Mandarin)</option></select></label><div className="settings-hint">Provider and language changes apply the next time you start listening.</div>
@@ -514,7 +584,7 @@ export default function App() {
       {speechEngine === 'deepgram' && <><label className="field-label">Deepgram API key<input type="password" value={deepgramKey} onChange={event => { setDeepgramKey(event.target.value); setKeyFromEnv(false); setSpeechCheckMessage(''); }} placeholder="Held in memory, or set DEEPGRAM_API_KEY in .env" autoComplete="off" spellCheck={false}/></label>{keyFromEnv && <div className="settings-hint">Loaded from DEEPGRAM_API_KEY in your .env file.</div>}<button className="secondary speech-check" onClick={() => void checkSpeechProvider()} disabled={checkingSpeech || !deepgramKey.trim()}>{checkingSpeech ? 'Checking…' : 'Test transcription connection'}</button>{speechCheckMessage && <div className={'provider-result ' + (speechCheckMessage.startsWith('Connected') ? 'success' : '')}>{speechCheckMessage}</div>}<div className="settings-hint">This check validates the service connection only; it does not start the mic or send audio.</div></>}
       {speechEngine === 'deepgram' && <div className="device-settings"><div className="device-row"><label className="field-label">Input microphone<select value={audioDeviceId} onChange={event => setAudioDeviceId(event.target.value)}><option value="">System default</option>{audioInputs.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label}</option>)}</select></label><button className="secondary" onClick={() => void detectAudioInputs()}>Detect microphones</button></div>{deviceMessage && <div className="settings-hint">{deviceMessage}</div>}<div className="settings-hint">Device selection is available for Deepgram mode. The browser built-in provider uses the system default input.</div></div>}
       {(speechEngine === 'deepgram' || boostVocabulary) && <><label className="field-label">Extra words to recognize<textarea value={extraTerms} onChange={event => setExtraTerms(event.target.value)} placeholder="Company, product, and project names, one per line" rows={2}/></label><div className="settings-hint">Common interview terms such as LeetCode, Two Sum, and Big O are boosted too.</div></>}
-      <div className="settings-note"><div className="privacy-dot"/><div><b>Memory only</b><p>Transcript and answers are not saved by this page and clear when it closes. Microphone access begins only after you press Start. {speechEngine === 'deepgram' ? 'Audio streams to Deepgram for transcription while listening.' : 'Browser speech recognition may process audio through its service provider.'}</p></div></div>
+      <div className="settings-note"><div className="privacy-dot"/><div><b>Memory only unless you save</b><p>Transcript and answers are not saved and clear when the page closes, unless you choose Save this session in the session menu (the title at the top left). Saved sessions stay in this browser on this computer until you delete them. Microphone access begins only after you press Start. {speechEngine === 'deepgram' ? 'Audio streams to Deepgram for transcription while listening.' : 'Browser speech recognition may process audio through its service provider.'}</p></div></div>
       <label className="toggle-row"><span><b>Clear transcript when stopping</b><small>End the session and discard its context on Stop listening</small></span><input type="checkbox" checked={clearOnStop} onChange={event => setClearOnStop(event.target.checked)}/></label>
       <label className="toggle-row"><span><b>Tell speakers apart</b><small>Labels each transcript line Interviewer or You, so answers know who said what. {source === 'demo' ? 'Guesses from the wording only; with Claude or an OpenAI-compatible provider, a quick background check also reads the conversation.' : `A quick background check by ${source === 'claude' ? 'Claude Haiku (a little of your Claude usage)' : 'your answer provider'} fixes wrong guesses.`}{speechEngine === 'deepgram' ? ' Deepgram also separates voices.' : ''} Click a label to correct it.</small></span><input type="checkbox" checked={speakers} onChange={event => setSpeakers(event.target.checked)}/></label>
       {speakers && <div className="voice-row"><span className="settings-hint">{voiceSetup.state === 'recording' ? 'Read this aloud, as you would in the interview: "I am practicing for an interview today. I enjoy building reliable software and explaining how it works."' : voiceSetup.state === 'done' ? `Learned your voice from ${voiceSetup.seconds} s of speech. Lines that sound like you are labeled You right away.` : voiceSetup.state === 'error' ? voiceSetup.message : active ? 'Stop listening to teach Roomside your voice.' : 'Optional: read a sentence aloud for 8 seconds so lines in your voice are labeled You from the start. Only a few numbers about your voice are kept, in this tab.'}</span>{voiceSetup.state === 'done' && <button className="text-button" onClick={() => { myVoice.current = []; setVoiceSetup({ state: 'idle' }); }}>Forget</button>}<button className="secondary" onClick={() => void teachVoice()} disabled={voiceSetup.state === 'recording' || active}>{voiceSetup.state === 'recording' ? 'Listening…' : voiceSetup.state === 'done' ? 'Learn again' : 'Learn my voice'}</button></div>}

@@ -81,7 +81,7 @@ export type AnswerBlock = { type: 'heading' | 'bullet' | 'paragraph' | 'code'; t
 export type InlineSegment = { text: string; bold?: boolean; code?: boolean };
 
 // Section names from the answer prompt; "Situation: …" renders as a labelled line rather than a shouting heading.
-const sectionLabel = /^(situation|task|action|result|direct answer|short answer|key concepts?|key points?|approach|complexity|pseudocode|implementation|edge cases?|examples?|common follow-up|likely follow-up|suggested answer|supporting detail|trade-?offs?|summary)\s*[:：]\s*(.+)$/i;
+const sectionLabel = /^(situation|task|action|result|direct answer|short answer|key concepts?|key points?|approach|complexity|pseudocode|implementation|code|edge cases?|examples?|common follow-up|likely follow-up|suggested answer|supporting detail|trade-?offs?|summary|the problem|my thinking|what i['’]?d use|what i would use)\s*[:：]\s*(.+)$/i;
 const allCapsHeading = /^(?=(?:[^\p{Lu}]*\p{Lu}){2})[\p{Lu}\p{N}\s&/'’()+,·-]{3,48}[:：]?$/u;
 
 /** Splits plain-text (or lightly Markdown-formatted) model output into renderable blocks. */

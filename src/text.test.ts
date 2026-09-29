@@ -83,6 +83,19 @@ describe('question helpers', () => {
 });
 
 describe('parseAnswer', () => {
+  it('labels the sections of a coding walkthrough, whether the text follows the heading or not', () => {
+    expect(parseAnswer("THE PROBLEM: I've got an array and a target.\nMY THINKING: Brute force is O(n²).\nWHAT I'D USE: A hash map.\nPSEUDOCODE:\n1. Loop\nCODE:\n```python\nreturn []\n```\nCOMPLEXITY: O(n) time.")).toEqual([
+      { type: 'label', label: 'THE PROBLEM', text: "I've got an array and a target." },
+      { type: 'label', label: 'MY THINKING', text: 'Brute force is O(n²).' },
+      { type: 'label', label: "WHAT I'D USE", text: 'A hash map.' },
+      { type: 'heading', text: 'PSEUDOCODE' },
+      { type: 'paragraph', text: '1. Loop' },
+      { type: 'heading', text: 'CODE' },
+      { type: 'code', text: 'return []' },
+      { type: 'label', label: 'COMPLEXITY', text: 'O(n) time.' },
+    ]);
+  });
+
   it('reads the demo formats', () => {
     expect(parseAnswer('A process is isolated.\n\nKEY CONCEPTS\n• Processes are isolated\n•No space bullet\n\nSUPPORTING DETAIL\nMore text.')).toEqual([
       { type: 'paragraph', text: 'A process is isolated.' },

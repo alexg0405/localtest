@@ -92,7 +92,7 @@ describe('ClaudeCodeProvider', () => {
     expect(chunks).toEqual(['A hash map ', 'stores pairs.']);
     expect(requests[0].url).toBe('/api/claude-code');
     expect(requests[0].body.model).toBe('claude-sonnet-5');
-    expect(requests[0].body.prompt).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: SHORT, 1-3 sentences\. If the interviewer is only greeting, making small talk, or introducing themselves, the team, or the product, reply with one or two friendly sentences instead\.$/);
+    expect(requests[0].body.prompt).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: SHORT, 1-3 sentences\. For a coding problem: every heading and the full code, .* If the interviewer is only greeting, making small talk, or introducing themselves, the team, or the product, reply with one or two friendly sentences instead\.$/);
   });
 
   it('runs one-off prompts, such as labeling speakers, without taking the process kept waiting for answers', async () => {

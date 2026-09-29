@@ -88,7 +88,7 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
     recognition.continuous = true; recognition.interimResults = true; recognition.lang = this.language;
     // Chrome ends and restarts continuous recognition periodically; report only real state changes.
     const setListening = (listening: boolean) => { if (this.listening !== listening) { this.listening = listening; callbacks.onListening(listening); } };
-    recognition.onstart = () => setListening(true);
+    recognition.onstart = () => { if (this.active) setListening(true); }; // A restart can report in after the session ended.
     recognition.onresult = (event: any) => {
       let interim = '';
       for (let index = event.resultIndex; index < event.results.length; index++) {

@@ -6,7 +6,12 @@ export interface SpeechCallbacks {
   onListening(listening: boolean): void;
   onVoiceActivity(active: boolean): void;
 }
-export interface SpeechToTextProvider { start(callbacks: SpeechCallbacks): Promise<void>; stop(): void }
+export interface SpeechToTextProvider {
+  start(callbacks: SpeechCallbacks): Promise<void>;
+  stop(): void;
+  /** Drops words the recognizer is still holding, so cleared context does not reappear. */
+  reset?(): void;
+}
 
 class MicrophoneInput {
   stream: MediaStream | null = null;
@@ -51,24 +56,39 @@ class MicrophoneInput {
   }
 }
 
+const browserErrors: Record<string, string> = {
+  'not-allowed': 'Microphone permission was denied. Allow microphone access in browser settings, then try again.',
+  'service-not-allowed': 'This browser blocked its speech recognition service. Use Chrome, switch to Deepgram in Settings, or type questions manually.',
+  network: 'Speech recognition lost its network connection. Check your connection and start listening again, or type questions manually.',
+  'audio-capture': 'The microphone could not be captured. Check that it is connected and not in use by another app.',
+  'language-not-supported': 'This browser cannot recognize the selected language. Choose another language or switch to Deepgram in Settings.',
+  aborted: 'Speech recognition keeps being interrupted, probably by another tab or app that is listening. Close it, then start again.',
+};
+
 /** Browser-backed recognition; the browser's speech provider may process audio remotely. */
 export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
   private recognition: any = null;
   private active = false;
+  private listening = false;
+  private resetting = false;
+  private aborts: number[] = [];
   private microphone: MicrophoneInput | null = null;
   private callbacks: SpeechCallbacks | null = null;
   constructor(private language = 'en-US') {}
   async start(callbacks: SpeechCallbacks) {
     const browser = window as any; const SpeechRecognition = browser.SpeechRecognition || browser.webkitSpeechRecognition;
     if (!SpeechRecognition) throw new Error('Live speech recognition is unavailable here. Use Chrome or enter a question manually.');
-    if (this.recognition) return;
-    this.callbacks = callbacks; this.active = true; this.microphone = new MicrophoneInput();
-    try { await this.microphone.start(callbacks.onVoiceActivity); }
-    catch (reason) { this.active = false; this.microphone.stop(callbacks.onVoiceActivity); throw reason; }
-    if (!this.active) { this.microphone.stop(callbacks.onVoiceActivity); return; }
+    if (this.recognition || this.active) return;
+    // stop() may run during the awaits below and clear this.microphone, so keep a local handle.
+    const microphone = new MicrophoneInput(); this.callbacks = callbacks; this.active = true; this.microphone = microphone;
+    try { await microphone.start(callbacks.onVoiceActivity); }
+    catch (reason) { this.active = false; microphone.stop(callbacks.onVoiceActivity); throw reason; }
+    if (!this.active) { microphone.stop(callbacks.onVoiceActivity); return; }
     const recognition = new SpeechRecognition(); this.recognition = recognition;
     recognition.continuous = true; recognition.interimResults = true; recognition.lang = this.language;
-    recognition.onstart = () => callbacks.onListening(true);
+    // Chrome ends and restarts continuous recognition periodically; report only real state changes.
+    const setListening = (listening: boolean) => { if (this.listening !== listening) { this.listening = listening; callbacks.onListening(listening); } };
+    recognition.onstart = () => setListening(true);
     recognition.onresult = (event: any) => {
       let interim = '';
       for (let index = event.resultIndex; index < event.results.length; index++) {
@@ -79,17 +99,29 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
       callbacks.onInterim(interim.trim());
     };
     recognition.onerror = (event: any) => {
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') { this.active = false; this.releaseMicrophone(); callbacks.onListening(false); callbacks.onError('Microphone permission was denied. Allow microphone access in browser settings, then try again.', true); }
-      else if (event.error !== 'no-speech' && event.error !== 'aborted') { this.active = false; this.releaseMicrophone(); callbacks.onListening(false); callbacks.onError(`Speech recognition: ${event.error}. You can still enter a question manually.`); try { recognition.stop(); } catch { /* Already ended. */ } }
+      if (!this.active || event.error === 'no-speech') return;
+      if (event.error === 'aborted') {
+        if (this.resetting) { this.resetting = false; return; } // Our own reset(); onend restarts recognition.
+        // Chrome aborts recognition when another tab or app starts it; stop instead of taking it back forever.
+        const now = Date.now(); this.aborts = [...this.aborts.filter(at => now - at < 10000), now];
+        if (this.aborts.length < 3) return;
+      }
+      this.active = false; this.releaseMicrophone(); try { recognition.stop(); } catch { /* Already ended. */ }
+      callbacks.onError(browserErrors[event.error] || `Speech recognition stopped (${event.error}). You can still enter a question manually.`, event.error === 'not-allowed');
+      // Report the end even if onstart never fired (WebKit can fail before starting).
+      this.listening = false; callbacks.onListening(false);
     };
     recognition.onend = () => {
+      this.resetting = false;
       if (this.active && this.recognition === recognition) { try { recognition.start(); } catch { /* Browser may already be restarting. */ } }
-      else if (this.recognition === recognition) { this.recognition = null; callbacks.onListening(false); }
+      else if (this.recognition === recognition) { this.recognition = null; setListening(false); }
     };
     try { recognition.start(); } catch (reason: any) { this.active = false; this.recognition = null; this.releaseMicrophone(); throw new Error(reason?.message || 'Could not start speech recognition.'); }
   }
   private releaseMicrophone() { this.microphone?.stop(this.callbacks?.onVoiceActivity); this.microphone = null; }
   stop() { this.active = false; try { this.recognition?.stop(); } catch { /* Already stopped. */ } this.releaseMicrophone(); }
+  // abort() discards pending results; onend then restarts recognition because the session is still active.
+  reset() { if (this.active && this.recognition) { this.resetting = true; try { this.recognition.abort(); } catch { this.resetting = false; } } }
 }
 
 /** Deepgram live WebSocket transcription. The API key travels in the WebSocket
@@ -101,13 +133,21 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
   private socket: WebSocket | null = null;
   private callbacks: SpeechCallbacks | null = null;
   private confirmed = '';
+  private discardUntil = 0;
   constructor(private apiKey: string, private language = 'en-US', private deviceId = '') {}
+
+  // The browser rejects keys with spaces or unusual characters as WebSocket subprotocols, and its error message
+  // repeats the key, so never surface that message.
+  private static open(url: string, apiKey: string) {
+    try { return new WebSocket(url, ['token', apiKey.trim()]); }
+    catch { throw new Error('Could not open a Deepgram connection. Check that the API key was pasted without extra characters.'); }
+  }
 
   static async checkConnection(apiKey: string, language = 'en-US') {
     if (!apiKey.trim()) throw new Error('Enter a Deepgram API key first.');
     const lang = language === 'zh-CN' ? 'zh' : language;
     const query = new URLSearchParams({ model: 'nova-2', language: lang });
-    const socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${query}`, ['token', apiKey]);
+    const socket = DeepgramSpeechToTextProvider.open(`wss://api.deepgram.com/v1/listen?${query}`, apiKey);
     await new Promise<void>((resolve, reject) => {
       let opened = false; const timeout = window.setTimeout(() => { socket.close(); reject(new Error('Connection timed out.')); }, 10000);
       socket.onopen = () => { opened = true; window.clearTimeout(timeout); socket.close(1000, 'Connection check complete'); resolve(); };
@@ -126,8 +166,8 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
     const deepgramLanguage = this.language === 'zh-CN' ? 'zh' : this.language;
     const query = new URLSearchParams({ model: 'nova-2', language: deepgramLanguage, interim_results: 'true', smart_format: 'true', punctuate: 'true', endpointing: '300', utterance_end_ms: '1000', vad_events: 'true' });
     const url = `wss://api.deepgram.com/v1/listen?${query.toString()}`;
-    try { this.socket = new WebSocket(url, ['token', this.apiKey]); }
-    catch (reason: any) { this.active = false; this.release(); throw new Error(reason?.message || 'Could not create a transcription connection.'); }
+    try { this.socket = DeepgramSpeechToTextProvider.open(url, this.apiKey); }
+    catch (reason) { this.active = false; this.release(); throw reason; }
     const socket = this.socket;
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => reject(new Error('Transcription provider connection timed out.')), 12000);
@@ -137,7 +177,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
     }).catch(reason => { this.active = false; this.release(); throw reason; });
     if (!this.active || socket.readyState !== WebSocket.OPEN || !this.microphone.stream) { this.release(); return; }
     socket.onmessage = event => this.onMessage(event.data);
-    socket.onclose = event => { if (this.active) { this.active = false; this.release(); callbacks.onListening(false); callbacks.onError(`Deepgram connection closed (${event.code}). Check the API key and try again.`); } };
+    socket.onclose = event => { if (this.active) { this.active = false; this.release(); callbacks.onError(`Deepgram connection closed (${event.code}${event.reason ? `: ${event.reason}` : ''}). Check the API key and network, then try again.`); callbacks.onListening(false); } };
     socket.onerror = () => { if (this.active) callbacks.onError('Deepgram transcription connection reported an error.'); };
     try {
       if (typeof MediaRecorder === 'undefined') throw new Error('This browser cannot stream microphone audio. Try the browser built-in speech provider.');
@@ -151,9 +191,15 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
   private onMessage(data: string) {
     try {
       const message = JSON.parse(data); const text = String(message.channel?.alternatives?.[0]?.transcript || '').trim();
-      if (message.type === 'Results' && text) {
+      if (this.discardUntil && (message.type === 'Results' || message.type === 'UtteranceEnd')) {
+        if (message.from_finalize) { this.discardUntil = 0; return; } // Words spoken before reset().
+        if (Date.now() < this.discardUntil) return;
+        this.discardUntil = 0;
+      }
+      // speech_final can arrive on a result with an empty transcript; it still ends the utterance.
+      if (message.type === 'Results' && (text || message.speech_final)) {
         const alternative = message.channel?.alternatives?.[0];
-        if (message.is_final) this.confirmed = [this.confirmed, text].filter(Boolean).join(' ').trim();
+        if (message.is_final && text) this.confirmed = [this.confirmed, text].filter(Boolean).join(' ').trim();
         if (message.speech_final) {
           if (this.confirmed) this.callbacks?.onFinal({ text: this.confirmed, confidence: Number(alternative?.confidence) || undefined });
           this.confirmed = ''; this.callbacks?.onInterim('');
@@ -169,4 +215,9 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
     this.microphone?.stop(this.callbacks?.onVoiceActivity); this.microphone = null;
   }
   stop() { this.active = false; this.release(); this.callbacks?.onListening(false); }
+  // Deepgram repeats a segment's earlier words in its final result, so flush the segment and drop what comes back.
+  reset() {
+    this.confirmed = '';
+    if (this.active && this.socket?.readyState === WebSocket.OPEN) { this.socket.send(JSON.stringify({ type: 'Finalize' })); this.discardUntil = Date.now() + 1500; }
+  }
 }

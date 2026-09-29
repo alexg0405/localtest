@@ -6,3 +6,4 @@ src-tauri/gen/
 .env.*
 !.env.example
 .DS_Store
+*.tsbuildinfo

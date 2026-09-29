@@ -5,7 +5,7 @@
   "identifier": "app.roomside.interviewcopilot",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -39,7 +39,8 @@
     "shortDescription": "Interview practice copilot",
     "longDescription": "A memory-only interview practice copilot that listens only after you explicitly start a session.",
     "macOS": {
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist"
     }
   }
 }

@@ -31,6 +31,7 @@ Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer). The
 - Clear context removes the transcript and current answer without stopping the microphone.
 - Choose Short, Standard, Detailed, or Bullets for all answers. The quick actions are one-off requests for a shorter, expanded, or likely follow-up answer and keep the selected mode; the response header shows which mode produced the current answer.
 - Pin the current answer to keep a snapshot while exploring other responses (pinning another answer replaces it); Restore brings the pinned answer back.
+- **Recent** lists the last few finished answers that a new question, regeneration, or mode change replaced, so an answer you were reading is never lost; Clear context empties it.
 - Read aloud is available when the microphone is off, so the app does not transcribe its own voice.
 - Add optional résumé/background details in Settings; these are included as context only for the current page session.
 - Use **Test connection** in Settings to check a remote provider before starting. It sends a small test prompt to the configured endpoint.

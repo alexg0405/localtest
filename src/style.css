@@ -10,3 +10,4 @@
 .answer-error{margin-top:8px;padding:8px 10px;border-radius:6px;background:#fbf1ed;color:#995c49;font-size:11px;line-height:1.5}.green-dot.error-dot{background:#c98572}
 button:focus-visible,.settings-modal select:focus-visible{outline:2px solid #77a27c;outline-offset:2px}.settings-modal:focus{outline:none}.manual-input:focus-within{box-shadow:inset 0 2px 0 #b9d0bd}
 .pin:disabled,.icon-button:disabled,.question-actions button:disabled,.response-foot button:disabled,.quick-actions button:disabled{opacity:.45;cursor:default}.quick-actions button:disabled:hover b{color:inherit}
+.answer-tools{display:flex;align-items:center;gap:8px}.recent{background:white;border:1px solid #e6e8e2;border-radius:6px;height:30px;max-width:180px;padding:0 6px;color:#8c9087;font:500 10px system-ui;cursor:pointer}.recent:hover{color:#55725b}

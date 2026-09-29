@@ -8,6 +8,7 @@ type Line = { text: string; time: string; at: number; confidence?: number };
 type AudioInput = { deviceId: string; label: string };
 type AnswerKind = 'answer' | 'followup';
 type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean };
+type Snapshot = { question: string; answer: string; mode: Mode; kind: AnswerKind };
 const modes: Mode[] = ['SHORT', 'STANDARD', 'DETAILED', 'BULLETS'];
 const initialQuestion = 'What is the difference between a process and a thread?';
 const initialAnswer = 'A process is an executing program with its own memory space and resources. Threads are execution paths within a process; they share its memory but each has its own stack and registers.\n\nKEY CONCEPTS\n• Processes are isolated; threads share state\n• Sharing makes thread communication cheaper, but synchronization is needed\n• Switching between processes usually has more overhead\n\nEXAMPLE\nA browser can isolate tabs in processes while using threads for work within a tab.\n\nCOMMON FOLLOW-UP\nWhy are threads generally cheaper to create?';
@@ -28,7 +29,7 @@ export default function App() {
   const [status, setStatus] = useState('Demo answer ready'); const [error, setError] = useState(''); const [answerError, setAnswerError] = useState(''); const [voiceDetected, setVoiceDetected] = useState(false);
   const [generating, setGenerating] = useState(false); const [speaking, setSpeaking] = useState(false); const utterance = useRef<SpeechSynthesisUtterance | null>(null);
   const [providerCheck, setProviderCheck] = useState(''); const [checkingProvider, setCheckingProvider] = useState(false);
-  const [pinned, setPinned] = useState<{ question: string; answer: string; mode: Mode; kind: AnswerKind } | null>(null); const [settings, setSettings] = useState(false);
+  const [pinned, setPinned] = useState<Snapshot | null>(null); const [recent, setRecent] = useState<Snapshot[]>([]); const [settings, setSettings] = useState(false);
   const [remote, setRemote] = useState(false); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
   const [apiKey, setApiKey] = useState(''); const [model, setModel] = useState('gpt-4o-mini');
   const [speechEngine, setSpeechEngine] = useState<'browser' | 'deepgram'>('browser'); const [deepgramKey, setDeepgramKey] = useState(''); const [language, setLanguage] = useState('en-US');
@@ -40,7 +41,9 @@ export default function App() {
   const partialQuestion = useRef('');
   const browserFinal = useRef(''); const browserConfidence = useRef<number | undefined>(undefined); const browserFinalTimer = useRef<number | null>(null); const browserFinalSince = useRef(0);
   const lastQuestion = useRef<{ text: string; at: number } | null>(null);
-  const transcriptBody = useRef<HTMLDivElement>(null); const followTranscript = useRef(true); const manualInput = useRef<HTMLInputElement>(null); const settingsPanel = useRef<HTMLElement>(null);
+  const transcriptBody = useRef<HTMLDivElement>(null); const followTranscript = useRef(true); const manualInput = useRef<HTMLInputElement>(null); const settingsPanel = useRef<HTMLElement>(null); const rail = useRef<HTMLElement>(null); const workspace = useRef<HTMLElement>(null);
+  // The answer on screen as of the last render, so it can be kept in Recent when something replaces it.
+  const display = useRef<Snapshot & { complete: boolean }>({ question: '', answer: '', mode: 'STANDARD', kind: 'answer', complete: false });
   const provider = useCallback((): LLMProvider => remote ? new OpenAICompatibleProvider(endpoint, apiKey, model) : new LocalDemoProvider(), [remote, endpoint, apiKey, model]);
   const detectAudioInputs = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) { setDeviceMessage('This page cannot access microphones. Open Roomside on 127.0.0.1 or localhost in a supported browser.'); return; }
@@ -61,10 +64,16 @@ export default function App() {
   }, [background]);
   const stopReading = useCallback(() => { utterance.current = null; if ('speechSynthesis' in window) window.speechSynthesis.cancel(); setSpeaking(false); }, []);
   const abortAnswer = useCallback(() => { controller.current?.abort(); controller.current = null; setGenerating(false); }, []);
+  // Keeps the finished answer that is about to be replaced (drafts from interim speech are skipped).
+  const rememberShown = useCallback((next?: Snapshot) => {
+    const { complete, ...shown } = display.current;
+    if (!complete || partialAnswer.current || (next && next.question === shown.question && next.answer === shown.answer)) return;
+    setRecent(list => [shown, ...list.filter(item => item.question !== shown.question || item.answer !== shown.answer)].slice(0, 8));
+  }, []);
 
   const generate = useCallback(async (q: string, options: GenerateOptions = {}) => {
     const text = q.trim(); if (!text) return;
-    const selectedMode = options.mode ?? mode; stopReading();
+    const selectedMode = options.mode ?? mode; stopReading(); rememberShown();
     partialAnswer.current = !!options.partial;
     partialQuestion.current = options.partial ? text : '';
     controller.current?.abort(); const current = new AbortController(); controller.current = current;
@@ -77,7 +86,7 @@ export default function App() {
     } catch (reason: any) {
       if (!current.signal.aborted) { partialAnswer.current = false; setStatus('Could not get a response'); setAnswerError(describeProviderError(reason)); }
     } finally { if (controller.current === current) { controller.current = null; setGenerating(false); } }
-  }, [mode, provider, context, stopReading]);
+  }, [mode, provider, context, stopReading, rememberShown]);
 
   const addLine = useCallback((line: Line) => {
     const cutoff = Date.now() - 10 * 60 * 1000;
@@ -107,7 +116,7 @@ export default function App() {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer);
     browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
-    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setLowConfidence(false); setError(''); setStatus('Context cleared');
+    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setRecent([]); setLowConfidence(false); setError(''); setStatus('Context cleared');
   }, [abortAnswer, stopReading]);
 
   // Ends the listening session. Words the recognizer has not finalized yet are committed unless `discard` is set.
@@ -123,7 +132,7 @@ export default function App() {
 
   // Speech callbacks outlive the render that started listening; read the latest mode, provider, and settings through this ref.
   const latest = useRef({ generate, commitSpeech, endListening });
-  useLayoutEffect(() => { latest.current = { generate, commitSpeech, endListening }; });
+  useLayoutEffect(() => { latest.current = { generate, commitSpeech, endListening }; display.current = { question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError }; });
 
   const start = useCallback(() => {
     if (activeRef.current) return;
@@ -178,11 +187,16 @@ export default function App() {
   const currentPinned = !!pinned && pinned.question === question && pinned.answer === answer;
   const canPin = !!answer.trim() && !generating;
   const togglePin = useCallback(() => { if (currentPinned) setPinned(null); else if (canPin) setPinned({ question, answer, mode: shownMode, kind: answerKind }); }, [currentPinned, canPin, question, answer, shownMode, answerKind]);
-  const restorePinned = useCallback(() => {
-    if (!pinned) return;
-    abortAnswer(); stopReading(); partialAnswer.current = false; partialQuestion.current = '';
-    setQuestion(pinned.question); setAnswer(pinned.answer); setShownMode(pinned.mode); setAnswerKind(pinned.kind); setAnswerError(''); setLowConfidence(false); setStatus('Pinned answer restored');
-  }, [pinned, abortAnswer, stopReading]);
+  const showSnapshot = useCallback((item: Snapshot, message: string) => {
+    rememberShown(item); abortAnswer(); stopReading(); partialAnswer.current = false; partialQuestion.current = '';
+    setQuestion(item.question); setAnswer(item.answer); setShownMode(item.mode); setAnswerKind(item.kind); setAnswerError(''); setLowConfidence(false); setStatus(message);
+  }, [rememberShown, abortAnswer, stopReading]);
+  const restorePinned = useCallback(() => { if (pinned) showSnapshot(pinned, 'Pinned answer restored'); }, [pinned, showSnapshot]);
+  const earlier = recent.filter(item => item.question !== question || item.answer !== answer); // Skip what is already on screen.
+  const restoreRecent = useCallback((item: Snapshot | undefined) => {
+    if (!item) return;
+    setRecent(list => list.filter(entry => entry !== item)); showSnapshot(item, 'Earlier answer restored');
+  }, [showSnapshot]);
   const checkProvider = useCallback(async () => {
     if (!remote) { setProviderCheck('The offline demo provider is ready.'); return; }
     if (!endpoint.trim() || !model.trim()) { setProviderCheck('Enter an endpoint and model name first.'); return; }
@@ -224,8 +238,11 @@ export default function App() {
   }, [settings, submitManual, start, stop, shorter, detailed, togglePin]);
   useEffect(() => {
     if (!settings) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    settingsPanel.current?.focus(); return () => opener?.focus();
+    // Keep keyboard focus and screen readers inside the dialog, then return focus to where it was.
+    const background = [rail.current, workspace.current]; const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    for (const element of background) if (element) element.inert = true;
+    settingsPanel.current?.focus();
+    return () => { for (const element of background) if (element) element.inert = false; opener?.focus(); };
   }, [settings]);
   useEffect(() => { const body = transcriptBody.current; if (body && followTranscript.current) body.scrollTop = body.scrollHeight; }, [transcript, interim]);
   useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
@@ -246,8 +263,8 @@ export default function App() {
   };
 
   return <main className="app">
-    <aside className="rail"><div className="brand">r<span>.</span></div><div className="rail-sep"/><button className="rail-button selected" title="Session"><Activity/></button><button className="rail-button" onClick={() => setSettings(true)} title="Settings"><Settings2/></button><div className="rail-bottom"><button className="rail-button" title="Help" onClick={() => setSettings(true)}><HelpCircle/></button><div className="avatar">A</div></div></aside>
-    <section className="workspace">
+    <aside className="rail" ref={rail}><div className="brand">r<span>.</span></div><div className="rail-sep"/><button className="rail-button selected" title="Session"><Activity/></button><button className="rail-button" onClick={() => setSettings(true)} title="Settings"><Settings2/></button><div className="rail-bottom"><button className="rail-button" title="Help" onClick={() => setSettings(true)}><HelpCircle/></button><div className="avatar">A</div></div></aside>
+    <section className="workspace" ref={workspace}>
       <header className="topbar"><div><div className="eyebrow">PRACTICE SESSION <span className="dot"/></div><div className="session-title">Interview copilot <ChevronDown size={15}/></div></div><div className="top-actions"><div className="privacy"><span className="privacy-dot"/> Memory only · no saved transcript</div><button className="icon-button" onClick={() => setSettings(true)} aria-label="Settings" title="Settings"><Settings2 size={17}/></button><button className="icon-button" onClick={clear} aria-label="Clear context" title="Clear transcript and answer"><Trash2 size={17}/></button></div></header>
       <div className="content">
         <div className="left-col">
@@ -260,7 +277,7 @@ export default function App() {
           </div><div className="footnote"><Wifi size={13}/> Local voice activity meter · speech recognition may process audio according to its provider’s settings.</div>
         </div>
         <div className="right-col">
-          <div className="answer-head"><div><div className="eyebrow">AI ASSIST <span className="sparkle"><Sparkles size={12}/></span></div><h2>Suggested response</h2></div><button className={'pin ' + (currentPinned ? 'pinned' : '')} onClick={togglePin} disabled={!currentPinned && !canPin} aria-pressed={currentPinned}><Pin size={15}/>{currentPinned ? 'Pinned' : 'Pin answer'}</button></div>
+          <div className="answer-head"><div><div className="eyebrow">AI ASSIST <span className="sparkle"><Sparkles size={12}/></span></div><h2>Suggested response</h2></div><div className="answer-tools">{earlier.length > 0 && <select className="recent" value="" onChange={event => restoreRecent(earlier[Number(event.target.value)])} aria-label="Show an earlier answer" title="Answers replaced during this session"><option value="" disabled>Recent ({earlier.length})</option>{earlier.map((item, index) => <option key={index} value={index}>{item.question.length > 60 ? `${item.question.slice(0, 60)}…` : item.question} · {item.kind === 'followup' ? 'FOLLOW-UP' : item.mode}</option>)}</select>}<button className={'pin ' + (currentPinned ? 'pinned' : '')} onClick={togglePin} disabled={!currentPinned && !canPin} aria-pressed={currentPinned}><Pin size={15}/>{currentPinned ? 'Pinned' : 'Pin answer'}</button></div></div>
           {pinned && <div className="pinned-answer"><span><Pin size={13}/> PINNED · {pinned.question.length > 70 ? `${pinned.question.slice(0, 70)}…` : pinned.question}</span>{!currentPinned && <button onClick={restorePinned}>Restore</button>}<button className="unpin" onClick={() => setPinned(null)} aria-label="Unpin answer" title="Unpin answer"><X size={13}/></button></div>}
           <div className="mode-row" role="group" aria-label="Answer length">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => chooseMode(item)}>{item}</button>)}</div>
           <div className="question-card"><div className="question-label"><span className="question-mark">?</span>{lowConfidence ? 'POSSIBLE QUESTION' : 'DETECTED QUESTION'}{tag && <span className="tag">{tag}</span>}</div><div className="question-text">{question || 'Waiting for a question…'}</div><div className="question-actions"><button onClick={() => { setDraft(question); manualInput.current?.focus(); }} disabled={!question}><Clipboard size={13}/> Edit question</button><button onClick={regenerate} disabled={!question}><Sparkles size={13}/> Regenerate</button></div></div>

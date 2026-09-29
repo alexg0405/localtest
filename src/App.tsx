@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { Activity, AudioLines, BookUser, ChevronDown, Clipboard, Cpu, FileText, HelpCircle, Mic, MicOff, Pin, Send, Settings2, Sparkles, Square, Upload, Wifi, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
 import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, type LLMProvider, type Mode } from './providers';
-import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, type SpeechToTextProvider } from './speech';
+import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
 import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
 import { acceptedFiles, extractText } from './documents';
 import { keytermsFor } from './vocabulary';
@@ -41,6 +41,7 @@ export default function App() {
   const [checkingSpeech, setCheckingSpeech] = useState(false); const [speechCheckMessage, setSpeechCheckMessage] = useState('');
   const [audioInputs, setAudioInputs] = useState<AudioInput[]>([]); const [audioDeviceId, setAudioDeviceId] = useState(''); const [deviceMessage, setDeviceMessage] = useState('');
   const [clearOnStop, setClearOnStop] = useState(false); const [extraTerms, setExtraTerms] = useState('');
+  const [boostVocabulary, setBoostVocabulary] = useState(false); const [onDevice, setOnDevice] = useState<OnDeviceStatus | 'checking' | 'installing' | null>(null); const [micNotice, setMicNotice] = useState('');
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
   const [role, setRole] = useState(savedContext?.role ?? ''); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
   const [dragging, setDragging] = useState(false); const [preview, setPreview] = useState<string | null>(null); const [contextNotice, setContextNotice] = useState('');
@@ -156,11 +157,11 @@ export default function App() {
 
   const start = useCallback(() => {
     if (activeRef.current) return;
-    setError(''); stopReading();
+    setError(''); setMicNotice(''); stopReading();
     const thisSession = ++sessionId.current; const engine = speechEngine; const lang = language; sessionLanguage.current = lang;
     clearTimer(partialTimer); clearTimer(browserFinalTimer); browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = '';
     partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; setVoiceDetected(false); setMicReady(false); activeRef.current = true; setActive(true);
-    speech.current?.stop(); speech.current = engine === 'deepgram' ? new DeepgramSpeechToTextProvider(deepgramKey, lang, audioDeviceId, keytermsFor(extraTerms)) : new BrowserSpeechToTextProvider(lang);
+    speech.current?.stop(); speech.current = engine === 'deepgram' ? new DeepgramSpeechToTextProvider(deepgramKey, lang, audioDeviceId, keytermsFor(extraTerms)) : new BrowserSpeechToTextProvider(lang, boostVocabulary ? keytermsFor(extraTerms) : []);
     const current = () => sessionId.current === thisSession;
     const showInterim = (text: string) => { interimRef.current = text; setInterim([browserFinal.current, text].filter(Boolean).join(' ')); };
     const commitBrowserFinal = () => { const text = browserFinal.current; const confidence = browserConfidence.current; browserFinal.current = ''; browserConfidence.current = undefined; browserFinalTimer.current = null; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence); };
@@ -193,12 +194,13 @@ export default function App() {
         } else { showInterim(''); latest.current.commitSpeech(result.text, result.confidence); }
       },
       onError: message => { if (current()) setError(message); },
+      onNotice: message => { if (current()) setMicNotice(message); },
     }).catch((reason: any) => {
       if (!current() || !activeRef.current) return;
       activeRef.current = false; setActive(false); setMicReady(false); setVoiceDetected(false);
       setError(reason?.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow access in browser settings, then try again.' : reason?.name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or enter a question manually.' : reason?.message || 'Could not start speech recognition.');
     });
-  }, [speechEngine, deepgramKey, language, audioDeviceId, extraTerms, stopReading, abortAnswer]);
+  }, [speechEngine, deepgramKey, language, audioDeviceId, extraTerms, boostVocabulary, stopReading, abortAnswer]);
 
   const submitManual = useCallback(() => {
     const q = draft.trim(); if (!q) return;
@@ -235,6 +237,7 @@ export default function App() {
       setProviderCheck(check.signal.aborted ? 'Connection failed: no response within 30 seconds.' : `Connection failed: ${describeProviderError(reason)}`);
     } finally { window.clearTimeout(timeout); setCheckingProvider(false); }
   }, [source, endpoint, model, provider]);
+  const downloadOnDevice = useCallback(async () => { setOnDevice('installing'); setOnDevice(await installOnDevice(language) ? 'available' : await onDeviceStatus(language)); }, [language]);
   const checkSpeechProvider = useCallback(async () => {
     setCheckingSpeech(true); setSpeechCheckMessage('Checking Deepgram…');
     try { await DeepgramSpeechToTextProvider.checkConnection(deepgramKey, language); setSpeechCheckMessage('Connected. No microphone audio was sent.'); }
@@ -276,6 +279,13 @@ export default function App() {
     setContextNotice(saveContext({ role, about, files }) ? '' : 'This browser would not save your context, so it stays in memory for this session.');
   }, [keepContext, role, about, files]);
   useEffect(() => { const body = transcriptBody.current; if (body && followTranscript.current) body.scrollTop = body.scrollHeight; }, [transcript, interim]);
+  // Vocabulary boosting needs Chrome's on-device model; show whether it is ready while Settings is open.
+  useEffect(() => {
+    if (panel !== 'settings' || speechEngine !== 'browser' || !boostVocabulary) return;
+    let cancelled = false; setOnDevice('checking');
+    void onDeviceStatus(language).then(status => { if (!cancelled) setOnDevice(status); });
+    return () => { cancelled = true; };
+  }, [panel, speechEngine, boostVocabulary, language]);
   // The sample answer only illustrates the offline demo; with a real provider, start from an empty panel.
   useEffect(() => { if (source !== 'demo' && samplePending.current) { samplePending.current = false; setQuestion(''); setAnswer(''); setStatus('Waiting for a question'); } }, [source]);
   // Answer with the Claude subscription by default when Claude Code is signed in on this computer.
@@ -305,7 +315,7 @@ export default function App() {
         <div className="left-col">
           <div className="section-head"><div><div className="eyebrow">YOUR ROOM AUDIO</div><h2>Live transcript</h2></div><div className={'mic-state ' + (active ? 'on' : '')}><i/>{active ? micReady ? voiceDetected ? 'Voice detected' : 'Listening' : 'Starting…' : 'Mic off'}</div></div>
           <div className="listen-card"><div className="listen-icon"><AudioLines size={22}/></div><div className="listen-copy"><strong>{active ? micReady ? 'Listening to conversation' : 'Starting microphone…' : 'Ready to listen'}</strong><span>{active ? 'This device’s microphone only' : 'Start only when everyone has agreed to the practice session'}</span></div><button onClick={() => active ? stop() : start()} className={'listen-button ' + (active ? 'stop' : '')}><span>{active ? <MicOff size={16}/> : <Mic size={16}/>}</span>{active ? 'Stop listening' : 'Start listening'}</button></div>
-          {error && <div className="error" role="alert">{error}</div>}
+          {error && <div className="error" role="alert">{error}</div>}{micNotice && <div className="mic-notice">{micNotice}</div>}
           <div className="transcript-card"><div className="transcript-toolbar"><span><span className={'tiny-live ' + (active ? 'active' : '')}/> LIVE TRANSCRIPT</span><button onClick={clear} className="text-button"><Trash2 size={13}/> Clear conversation</button></div>
             <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><div className="wave">〰</div><span>Your conversation will appear here.</span><small>Or enter a question below to try it out.</small></div> : <>{transcript.map((line, index) => <div className="transcript-line" key={`${line.at}-${index}`}><time>{line.time}</time><p>{line.text}</p></div>)}{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
             <div className="manual-input"><input ref={manualInput} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submitManual(); } }} placeholder="Type a question manually…" aria-label="Question"/><button onClick={submitManual} disabled={!draft.trim()} title="Send question" aria-label="Send question"><Send size={15}/></button></div>
@@ -325,8 +335,11 @@ export default function App() {
     </section>
     {settings && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><div className="eyebrow">PREFERENCES</div><h2 id="settings-title">Session settings</h2></div><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close settings"><X size={18}/></button></div>
       <div className="settings-section-title">MICROPHONE & TRANSCRIPTION</div><label className="field-label">Speech recognition provider<select value={speechEngine} onChange={event => setSpeechEngine(event.target.value as 'browser' | 'deepgram')}><option value="browser">Browser built-in (easy setup)</option><option value="deepgram">Deepgram streaming (API key)</option></select></label><label className="field-label">Transcription language<select value={language} onChange={event => setLanguage(event.target.value)}><option value="en-US">English (US)</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt-BR">Portuguese (Brazil)</option><option value="ja">Japanese</option><option value="zh-CN">Chinese (Mandarin)</option></select></label><div className="settings-hint">Provider and language changes apply the next time you start listening.</div>
-      {speechEngine === 'deepgram' && <><label className="field-label">Deepgram API key<input type="password" value={deepgramKey} onChange={event => { setDeepgramKey(event.target.value); setSpeechCheckMessage(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><button className="secondary speech-check" onClick={() => void checkSpeechProvider()} disabled={checkingSpeech || !deepgramKey.trim()}>{checkingSpeech ? 'Checking…' : 'Test transcription connection'}</button>{speechCheckMessage && <div className={'provider-result ' + (speechCheckMessage.startsWith('Connected') ? 'success' : '')}>{speechCheckMessage}</div>}<div className="settings-hint">This check validates the service connection only; it does not start the mic or send audio.</div><label className="field-label">Extra words to recognize<textarea value={extraTerms} onChange={event => setExtraTerms(event.target.value)} placeholder="Company, product, and project names, one per line" rows={2}/></label><div className="settings-hint">Deepgram Nova-3 also boosts common interview terms such as LeetCode, Two Sum, and Big O.</div></>}
+      {speechEngine === 'browser' && <><label className="toggle-row vocabulary-toggle"><span><b>Boost interview vocabulary</b><small>Uses Chrome's on-device speech model (Chrome 140 or newer) so terms like LeetCode and Two Sum, plus your extra words, are recognized more reliably. On-device recognition can be less accurate for everyday speech.</small></span><input type="checkbox" checked={boostVocabulary} onChange={event => setBoostVocabulary(event.target.checked)}/></label>
+        {boostVocabulary && <div className="on-device-row"><span className="settings-hint">{onDevice === 'available' ? 'On-device model ready. Boosting applies the next time you start listening.' : onDevice === 'downloadable' ? "Chrome needs to download its on-device speech model once." : onDevice === 'downloading' || onDevice === 'installing' ? 'Downloading the on-device model…' : onDevice === 'unavailable' ? "On-device recognition is not available for this language in this browser. Google Chrome can download it for English (US)." : onDevice === 'unsupported' ? 'This browser cannot boost vocabulary; it needs Chrome 140 or newer.' : "Checking Chrome's on-device model…"}</span>{onDevice === 'downloadable' && <button className="secondary" onClick={() => void downloadOnDevice()}>Download model</button>}</div>}</>}
+      {speechEngine === 'deepgram' && <><label className="field-label">Deepgram API key<input type="password" value={deepgramKey} onChange={event => { setDeepgramKey(event.target.value); setSpeechCheckMessage(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><button className="secondary speech-check" onClick={() => void checkSpeechProvider()} disabled={checkingSpeech || !deepgramKey.trim()}>{checkingSpeech ? 'Checking…' : 'Test transcription connection'}</button>{speechCheckMessage && <div className={'provider-result ' + (speechCheckMessage.startsWith('Connected') ? 'success' : '')}>{speechCheckMessage}</div>}<div className="settings-hint">This check validates the service connection only; it does not start the mic or send audio.</div></>}
       {speechEngine === 'deepgram' && <div className="device-settings"><div className="device-row"><label className="field-label">Input microphone<select value={audioDeviceId} onChange={event => setAudioDeviceId(event.target.value)}><option value="">System default</option>{audioInputs.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label}</option>)}</select></label><button className="secondary" onClick={() => void detectAudioInputs()}>Detect microphones</button></div>{deviceMessage && <div className="settings-hint">{deviceMessage}</div>}<div className="settings-hint">Device selection is available for Deepgram mode. The browser built-in provider uses the system default input.</div></div>}
+      {(speechEngine === 'deepgram' || boostVocabulary) && <><label className="field-label">Extra words to recognize<textarea value={extraTerms} onChange={event => setExtraTerms(event.target.value)} placeholder="Company, product, and project names, one per line" rows={2}/></label><div className="settings-hint">Common interview terms such as LeetCode, Two Sum, and Big O are boosted too.</div></>}
       <div className="settings-note"><div className="privacy-dot"/><div><b>Memory only</b><p>Transcript and answers are not saved by this page and clear when it closes. Microphone access begins only after you press Start. {speechEngine === 'deepgram' ? 'Audio streams to Deepgram for transcription while listening.' : 'Browser speech recognition may process audio through its service provider.'}</p></div></div>
       <label className="toggle-row"><span><b>Clear transcript when stopping</b><small>End the session and discard its context on Stop listening</small></span><input type="checkbox" checked={clearOnStop} onChange={event => setClearOnStop(event.target.checked)}/></label>
       <div className="context-link"><span><b>Your context</b><small>{profile.used ? `${files.filter(file => file.status === 'ready').length} file(s) and notes · ${profile.used.toLocaleString()} characters` : 'Role, notes about you, résumé, and other files'}</small></span><button className="secondary" onClick={() => setPanel('context')}>Edit context</button></div>

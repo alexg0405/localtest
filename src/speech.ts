@@ -5,6 +5,8 @@ export interface SpeechCallbacks {
   onError(message: string, permissionDenied?: boolean): void;
   onListening(listening: boolean): void;
   onVoiceActivity(active: boolean): void;
+  /** Non-fatal information, such as falling back from on-device recognition. */
+  onNotice?(message: string): void;
 }
 export interface SpeechToTextProvider {
   start(callbacks: SpeechCallbacks): Promise<void>;
@@ -65,6 +67,25 @@ const browserErrors: Record<string, string> = {
   aborted: 'Speech recognition keeps being interrupted, probably by another tab or app that is listening. Close it, then start again.',
 };
 
+export type OnDeviceStatus = 'available' | 'downloadable' | 'downloading' | 'unavailable' | 'unsupported';
+const recognitionClass = () => { const browser = window as any; return browser.SpeechRecognition || browser.webkitSpeechRecognition; };
+
+/** Whether Chrome's on-device recognition, which vocabulary boosting needs (Chrome 140+), is ready for a language. */
+export async function onDeviceStatus(language: string): Promise<OnDeviceStatus> {
+  const SpeechRecognition = recognitionClass();
+  if (typeof SpeechRecognition?.available !== 'function' || !('SpeechRecognitionPhrase' in window)) return 'unsupported';
+  try { return await SpeechRecognition.available({ langs: [language], processLocally: true }); } catch { return 'unsupported'; }
+}
+
+/** Downloads Chrome's on-device model for a language. Call it from a click; resolves false if Chrome declines. */
+export async function installOnDevice(language: string) {
+  const SpeechRecognition = recognitionClass();
+  if (typeof SpeechRecognition?.install !== 'function') return false;
+  try { return await SpeechRecognition.install({ langs: [language], processLocally: true }) === true; } catch { return false; }
+}
+
+const phraseBoost = 3; // Range 0-10; stronger boosts start forcing the terms into unrelated speech.
+
 /** Browser-backed recognition; the browser's speech provider may process audio remotely. */
 export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
   private recognition: any = null;
@@ -74,9 +95,10 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
   private interruptions: number[] = [];
   private microphone: MicrophoneInput | null = null;
   private callbacks: SpeechCallbacks | null = null;
-  constructor(private language = 'en-US') {}
+  /** With phrases, recognition runs on-device (when Chrome has the model) so the phrases can be boosted. */
+  constructor(private language = 'en-US', private phrases: string[] = []) {}
   async start(callbacks: SpeechCallbacks) {
-    const browser = window as any; const SpeechRecognition = browser.SpeechRecognition || browser.webkitSpeechRecognition;
+    const SpeechRecognition = recognitionClass();
     if (!SpeechRecognition) throw new Error('Live speech recognition is unavailable here. Use Chrome or enter a question manually.');
     if (this.recognition || this.active) return;
     // stop() may run during the awaits below and clear this.microphone, so keep a local handle.
@@ -84,8 +106,12 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
     try { await microphone.start(callbacks.onVoiceActivity); }
     catch (reason) { this.active = false; microphone.stop(callbacks.onVoiceActivity); throw reason; }
     if (!this.active) { microphone.stop(callbacks.onVoiceActivity); return; }
+    const onDevice = this.phrases.length ? await onDeviceStatus(this.language) : null;
+    if (!this.active) { microphone.stop(callbacks.onVoiceActivity); return; }
+    if (onDevice && onDevice !== 'available') callbacks.onNotice?.(onDevice === 'unsupported' ? 'This browser cannot boost vocabulary (it needs Chrome 140 or newer), so standard recognition is in use.' : onDevice === 'unavailable' ? 'On-device recognition is not available for this language in this browser, so standard recognition is in use.' : onDevice === 'downloading' ? "Chrome is still downloading its on-device speech model; standard recognition is in use until it finishes." : "Download Chrome's on-device speech model in Settings to boost vocabulary; standard recognition is in use for now.");
     const recognition = new SpeechRecognition(); this.recognition = recognition;
     recognition.continuous = true; recognition.interimResults = true; recognition.lang = this.language;
+    if (onDevice === 'available') { recognition.processLocally = true; recognition.phrases = this.phrases.map(phrase => new (window as any).SpeechRecognitionPhrase(phrase, phraseBoost)); }
     // Chrome ends and restarts continuous recognition periodically; report only real state changes.
     const setListening = (listening: boolean) => { if (this.listening !== listening) { this.listening = listening; callbacks.onListening(listening); } };
     recognition.onstart = () => { if (this.active) setListening(true); }; // A restart can report in after the session ended.
@@ -100,6 +126,12 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
     };
     recognition.onerror = (event: any) => {
       if (!this.active || event.error === 'no-speech') return;
+      if (recognition.processLocally && (event.error === 'phrases-not-supported' || event.error === 'language-not-supported')) {
+        // Fall back to standard recognition; onend restarts it without on-device mode.
+        recognition.phrases = []; recognition.processLocally = false;
+        callbacks.onNotice?.("Chrome's on-device recognition could not boost vocabulary here, so standard recognition is in use.");
+        return;
+      }
       if (event.error === 'aborted' || event.error === 'network') {
         if (event.error === 'aborted' && this.resetting) { this.resetting = false; return; } // Our own reset(); onend restarts recognition.
         // Ride out brief network drops and another tab taking the recognizer (onend restarts it),

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, deepgramUrl, type SpeechCallbacks } from './speech';
+import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, deepgramUrl, installOnDevice, onDeviceStatus, type SpeechCallbacks } from './speech';
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 function recordingCallbacks() {
   const events: string[] = [];
   const callbacks: SpeechCallbacks = {
     onFinal: result => events.push(`final:${result.text}`), onInterim: text => events.push(`interim:${text}`), onError: message => events.push(`error:${message}`),
-    onListening: listening => events.push(`listening:${listening}`), onVoiceActivity: () => undefined,
+    onListening: listening => events.push(`listening:${listening}`), onVoiceActivity: () => undefined, onNotice: message => events.push(`notice:${message}`),
   };
   return { events, callbacks };
 }
@@ -104,9 +104,14 @@ describe('DeepgramSpeechToTextProvider', () => {
   });
 });
 
+class FakePhrase { constructor(public phrase: string, public boost: number) {} }
+
 class FakeRecognition {
   static instances: FakeRecognition[] = [];
   static failBeforeStart = '';
+  static available?: (options: unknown) => Promise<string>;
+  static install?: (options: unknown) => Promise<boolean>;
+  processLocally?: boolean; phrases?: FakePhrase[];
   continuous = false; interimResults = false; lang = ''; started = false; calls: string[] = [];
   onstart?: () => void; onend?: () => void; onerror?: (event: { error: string }) => void; onresult?: (event: unknown) => void;
   constructor() { FakeRecognition.instances.push(this); }
@@ -126,14 +131,14 @@ class FakeRecognition {
 describe('BrowserSpeechToTextProvider', () => {
   let getUserMedia: ReturnType<typeof vi.fn>;
   beforeEach(() => {
-    FakeRecognition.instances = []; FakeRecognition.failBeforeStart = '';
+    FakeRecognition.instances = []; FakeRecognition.failBeforeStart = ''; FakeRecognition.available = undefined; FakeRecognition.install = undefined;
     getUserMedia = vi.fn(async () => ({ getTracks: () => [] }));
     vi.stubGlobal('window', { SpeechRecognition: FakeRecognition });
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
   });
   afterEach(() => { vi.unstubAllGlobals(); });
-  async function listen() {
-    const { events, callbacks } = recordingCallbacks(); const provider = new BrowserSpeechToTextProvider('en-US');
+  async function listen(phrases: string[] = []) {
+    const { events, callbacks } = recordingCallbacks(); const provider = new BrowserSpeechToTextProvider('en-US', phrases);
     await provider.start(callbacks); await settle();
     return { events, provider, recognition: FakeRecognition.instances[0] };
   }
@@ -184,6 +189,64 @@ describe('BrowserSpeechToTextProvider', () => {
     recognition.interrupt('audio-capture'); await settle();
     expect(recognition.calls).toEqual(['start', 'stop']);
     expect(events.slice(1)).toEqual(['error:The microphone could not be captured. Check that it is connected and not in use by another app.', 'listening:false']);
+  });
+
+  describe('vocabulary boosting', () => {
+    const withPhrases = () => vi.stubGlobal('window', { SpeechRecognition: FakeRecognition, SpeechRecognitionPhrase: FakePhrase });
+
+    it('runs on-device and boosts the phrases when Chrome has the model', async () => {
+      withPhrases(); const available = vi.fn(async () => 'available'); FakeRecognition.available = available;
+      const { events, recognition } = await listen(['LeetCode', 'Two Sum']);
+      expect(available).toHaveBeenCalledWith({ langs: ['en-US'], processLocally: true });
+      expect(recognition.processLocally).toBe(true);
+      expect(recognition.phrases).toEqual([new FakePhrase('LeetCode', 3), new FakePhrase('Two Sum', 3)]);
+      expect(events).toEqual(['listening:true']);
+    });
+
+    it('uses standard recognition, with a note, until the model is downloaded', async () => {
+      withPhrases(); FakeRecognition.available = async () => 'downloadable';
+      const { events, recognition } = await listen(['LeetCode']);
+      expect(recognition.processLocally).toBeUndefined();
+      expect(events[0]).toMatch(/^notice:Download Chrome's on-device speech model in Settings/);
+    });
+
+    it('explains when the browser cannot boost vocabulary', async () => {
+      FakeRecognition.available = async () => 'available'; // No SpeechRecognitionPhrase: an older browser.
+      const { events, recognition } = await listen(['LeetCode']);
+      expect(recognition.processLocally).toBeUndefined();
+      expect(events[0]).toMatch(/Chrome 140 or newer/);
+    });
+
+    it('falls back to standard recognition if Chrome rejects the phrases', async () => {
+      withPhrases(); FakeRecognition.available = async () => 'available';
+      const { events, recognition } = await listen(['LeetCode']);
+      recognition.interrupt('phrases-not-supported'); await settle();
+      expect(recognition.processLocally).toBe(false);
+      expect(recognition.phrases).toEqual([]);
+      expect(recognition.calls).toEqual(['start', 'start']);
+      expect(events).toEqual(['listening:true', expect.stringMatching(/^notice:.*standard recognition/)]);
+    });
+
+    it('does not touch on-device support when boosting is off', async () => {
+      withPhrases(); const available = vi.fn(async () => 'available'); FakeRecognition.available = available;
+      const { recognition } = await listen();
+      expect(available).not.toHaveBeenCalled();
+      expect(recognition.processLocally).toBeUndefined();
+    });
+
+    it('reports status and downloads through the static API', async () => {
+      expect(await onDeviceStatus('en-US')).toBe('unsupported');
+      withPhrases(); FakeRecognition.available = async () => 'downloadable';
+      expect(await onDeviceStatus('en-US')).toBe('downloadable');
+      FakeRecognition.available = async () => { throw new Error('boom'); };
+      expect(await onDeviceStatus('en-US')).toBe('unsupported');
+      expect(await installOnDevice('en-US')).toBe(false);
+      const install = vi.fn(async () => true); FakeRecognition.install = install;
+      expect(await installOnDevice('en-US')).toBe(true);
+      expect(install).toHaveBeenCalledWith({ langs: ['en-US'], processLocally: true });
+      FakeRecognition.install = async () => { throw new Error('no activation'); };
+      expect(await installOnDevice('en-US')).toBe(false);
+    });
   });
 
   it('creates no recognizer when stopped while waiting for microphone permission', async () => {

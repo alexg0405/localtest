@@ -1,6 +1,6 @@
 // Dev-server bridge that answers through the Claude Code CLI signed in with your Claude subscription, so no API key is
 // needed. Claude Code runs with every tool disabled, in an empty directory, and only for requests from this page.
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
@@ -30,11 +30,57 @@ export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
   return result;
 }
 
-/** One answer: print mode with token streaming, no tools, no MCP servers, nothing saved. The prompt arrives on stdin. */
+// Thinking delayed the first word of a behavioral answer by about 5 seconds, and interview answers do not need it.
+const noThinking = JSON.stringify({ alwaysThinkingEnabled: false });
+
+/**
+ * One answer: print mode with token streaming, no tools, no MCP servers, nothing saved, no thinking, and none of your own
+ * Claude Code setup (CLAUDE.md, hooks, plugins, skills). The prompt arrives on stdin as a stream-json message, so the
+ * process can start before the question does.
+ */
 export const claudeArgs = (model: ClaudeModel, system: string) => [
-  '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model, '--system-prompt', system,
-  '--tools', '', '--strict-mcp-config', '--no-session-persistence', ...(model === 'claude-sonnet-5' ? ['--effort', 'low'] : []),
+  '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model, '--system-prompt', system,
+  '--tools', '', '--strict-mcp-config', '--safe-mode', '--settings', noThinking, '--no-session-persistence', ...(model === 'claude-sonnet-5' ? ['--effort', 'low'] : []),
 ];
+
+/** The prompt as Claude Code's stream-json input: a single user message. */
+export const inputLine = (prompt: string) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } })}\n`;
+
+/** Starts Claude Code for one answer. It boots right away, then waits on stdin for the prompt. */
+export function startClaude(binary: string, model: ClaudeModel, system: string, cwd: string): ChildProcessWithoutNullStreams {
+  const child = spawn(binary, claudeArgs(model, system), { cwd, env: childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+  child.on('error', () => undefined); // streamAnswer reports errors; this keeps a process nobody is using yet from crashing the dev server.
+  child.stdin.on('error', () => undefined);
+  return child;
+}
+
+const running = (child: ChildProcessWithoutNullStreams) => child.pid !== undefined && child.exitCode === null && child.signalCode === null && !child.killed;
+
+/** Keeps one Claude Code process booted and waiting for the next question, so answers skip its startup. */
+export class WarmClaude {
+  private waiting: { key: string; child: ChildProcessWithoutNullStreams; since: number } | null = null; private closed = false;
+  constructor(private cwd: string, private maxIdleMs = 10 * 60_000) {}
+
+  private ready(key: string) { const waiting = this.waiting; return !!waiting && waiting.key === key && running(waiting.child) && Date.now() - waiting.since < this.maxIdleMs; }
+
+  /** Starts a process for the next answer unless a matching one is already waiting. */
+  prepare(binary: string, model: ClaudeModel, system: string) {
+    const key = JSON.stringify([binary, model, system]); if (this.closed || this.ready(key)) return;
+    this.waiting?.child.kill();
+    this.waiting = { key, child: startClaude(binary, model, system, this.cwd), since: Date.now() };
+  }
+
+  /** The waiting process when it was started the same way, otherwise a new one. Either way, the next one starts now. */
+  take(binary: string, model: ClaudeModel, system: string) {
+    const key = JSON.stringify([binary, model, system]);
+    const child = this.ready(key) ? this.waiting!.child : startClaude(binary, model, system, this.cwd);
+    if (this.waiting?.child === child) this.waiting = null;
+    this.prepare(binary, model, system);
+    return child;
+  }
+
+  close() { this.closed = true; this.waiting?.child.kill(); this.waiting = null; }
+}
 
 const friendlyError = (message: string) => /not logged in|\/login/i.test(message) ? 'Claude Code is not signed in to your Claude subscription. Run `claude auth login` once, then try again.' : message;
 
@@ -49,11 +95,11 @@ export function translateLine(line: string, state: { streamed: boolean }): Bridg
   return !state.streamed && typeof message.result === 'string' && message.result ? [{ text: message.result }, { done: true }] : [{ done: true }];
 }
 
-/** Runs one answer, reporting events until Claude Code finishes. Aborting stops the process. */
-export function streamAnswer(options: { binary: string; model: ClaudeModel; system: string; prompt: string; cwd: string; signal?: AbortSignal; timeoutMs?: number; onEvent: (event: BridgeEvent) => void }) {
+/** Sends the prompt to a started Claude Code process and reports events until it finishes. Aborting stops the process. */
+export function streamAnswer(options: { child: ChildProcessWithoutNullStreams; prompt: string; signal?: AbortSignal; timeoutMs?: number; onEvent: (event: BridgeEvent) => void }) {
+  const { child } = options;
   return new Promise<void>(resolve => {
-    if (options.signal?.aborted) { resolve(); return; }
-    const child = spawn(options.binary, claudeArgs(options.model, options.system), { cwd: options.cwd, env: childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+    if (options.signal?.aborted) { child.kill('SIGTERM'); resolve(); return; }
     const state = { streamed: false }; let buffer = ''; let stderr = ''; let finished = false;
     const finish = (event?: BridgeEvent) => {
       if (finished) return; finished = true; clearTimeout(timer); options.signal?.removeEventListener('abort', abort);
@@ -69,7 +115,7 @@ export function streamAnswer(options: { binary: string; model: ClaudeModel; syst
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-2000); });
     child.on('error', error => finish({ error: `Could not start Claude Code: ${error.message}` }));
     child.on('close', code => { if (buffer.trim()) emit(translateLine(buffer, state)); finish(code === 0 ? { done: true } : { error: friendlyError(stderr.trim().split('\n').pop() || `Claude Code stopped unexpectedly (exit code ${code}).`) }); });
-    child.stdin.on('error', () => undefined); child.stdin.end(options.prompt);
+    child.stdin.on('error', () => undefined); child.stdin.end(inputLine(options.prompt)); // Ending stdin makes it exit after this answer.
   });
 }
 
@@ -96,11 +142,17 @@ const readBody = (req: IncomingMessage, limit: number) => new Promise<string>((r
   req.on('end', () => resolve(data)); req.on('error', reject);
 });
 
-async function handle(req: IncomingMessage, res: ServerResponse, cwd: string) {
+async function handle(req: IncomingMessage, res: ServerResponse, cwd: string, claude: WarmClaude) {
   const reply = (status: number, body: object) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
   if (!isLocalRequest(req.headers)) return reply(403, { error: 'Only the Roomside page on this computer can use the Claude Code bridge.' });
   const binary = findClaudeBinary(); const path = (req.url ?? '/').split('?')[0];
   if (req.method === 'GET' && path === '/status') return reply(200, binary ? { available: true, ...(await authStatus(binary, cwd)) } : { available: false, loggedIn: false });
+  // The page asks for a process ahead of the first question, so that answer skips Claude Code's startup too.
+  if (req.method === 'POST' && path === '/warm' && binary && String(req.headers['content-type'] ?? '').startsWith('application/json')) {
+    let body: any; try { body = JSON.parse(await readBody(req, 16_000)); } catch { return reply(400, { error: 'Invalid request.' }); }
+    if (!isClaudeModel(body?.model) || typeof body.system !== 'string' || body.system.length > 8000) return reply(400, { error: 'Invalid request.' });
+    claude.prepare(binary, body.model, body.system); res.writeHead(204); res.end(); return;
+  }
   if (req.method !== 'POST' || path !== '/') return reply(404, { error: 'Not found.' });
   if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return reply(415, { error: 'Send JSON.' });
   if (!binary) return reply(503, { error: 'Claude Code was not found. Install the Claude desktop app or Claude Code, or set CLAUDE_BIN to its path.' });
@@ -109,18 +161,19 @@ async function handle(req: IncomingMessage, res: ServerResponse, cwd: string) {
   if (!isClaudeModel(model) || typeof system !== 'string' || typeof prompt !== 'string' || !prompt.trim() || system.length > 8000 || prompt.length > 40_000) return reply(400, { error: 'Invalid request.' });
   res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' });
   const controller = new AbortController(); res.on('close', () => controller.abort()); // The page moved on to another question.
-  await streamAnswer({ binary, model, system, prompt, cwd, signal: controller.signal, onEvent: event => { if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`); } });
+  await streamAnswer({ child: claude.take(binary, model, system), prompt, signal: controller.signal, onEvent: event => { if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`); } });
   if (!res.writableEnded) res.end();
 }
 
-/** Serves POST /api/claude-code (streams NDJSON answer events) and GET /api/claude-code/status during `npm run dev`. */
+/** Serves POST /api/claude-code (streams NDJSON answer events), POST /api/claude-code/warm, and GET /api/claude-code/status during `npm run dev`. */
 export function claudeCodeBridge(): Plugin {
   return {
     name: 'roomside-claude-code-bridge',
     apply: 'serve',
     configureServer(server) {
       const cwd = join(tmpdir(), 'roomside-claude-code'); mkdirSync(cwd, { recursive: true });
-      server.middlewares.use('/api/claude-code', (req, res) => { handle(req, res, cwd).catch(() => { if (!res.headersSent) { res.statusCode = 500; res.end(); } else res.end(); }); });
+      const claude = new WarmClaude(cwd); server.httpServer?.on('close', () => claude.close());
+      server.middlewares.use('/api/claude-code', (req, res) => { handle(req, res, cwd, claude).catch(() => { if (!res.headersSent) { res.statusCode = 500; res.end(); } else res.end(); }); });
     },
   };
 }

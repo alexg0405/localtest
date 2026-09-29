@@ -5,7 +5,7 @@ import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claude
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
 import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
 import { acceptedFiles, extractText } from './documents';
-import { deepgramKeyFromEnv } from './env';
+import { contextFilesFromEnv, deepgramKeyFromEnv } from './env';
 import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
@@ -68,6 +68,7 @@ export default function App() {
   const [boostVocabulary, setBoostVocabulary] = useState(false); const [onDevice, setOnDevice] = useState<OnDeviceStatus | 'checking' | 'installing' | null>(null); const [micNotice, setMicNotice] = useState('');
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
   const [role, setRole] = useState(savedContext?.role ?? ''); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
+  const [defaultFiles, setDefaultFiles] = useState<string[]>([]); const defaultsRequested = useRef(false);
   const [dragging, setDragging] = useState(false); const [preview, setPreview] = useState<string | null>(null); const [contextNotice, setContextNotice] = useState('');
   const [mirror, setMirror] = useState<MirrorStatus | null>(null); const [mirrorBusy, setMirrorBusy] = useState(false); const [mirrorMessage, setMirrorMessage] = useState(''); const [mirrorLink, setMirrorLink] = useState(0);
   const mirrorConnection = useRef<MirrorConnection | null>(null); const mirrorCommand = useRef<(command: MirrorCommand) => void>(() => undefined);
@@ -495,6 +496,15 @@ export default function App() {
   }, [mirrorRunning]);
   // Answer with the Claude subscription by default when Claude Code is signed in on this computer.
   useEffect(() => { void claudeCodeStatus().then(status => { if (status?.loggedIn && !sourceChosen.current) setSource('claude'); }); }, []);
+  // Your default context files (résumé files in the project folder, or CONTEXT_FILES in .env) are added when Roomside
+  // opens, unless your saved context already has them. The ref keeps React's double-run in development from adding them twice.
+  useEffect(() => {
+    if (defaultsRequested.current) return; defaultsRequested.current = true;
+    void contextFilesFromEnv().then(list => {
+      const have = new Set((savedContext?.files ?? []).map(file => file.name));
+      setDefaultFiles(list.map(file => file.name)); const fresh = list.filter(file => !have.has(file.name)); if (fresh.length) addFiles(fresh);
+    });
+  }, [savedContext, addFiles]);
   // A DEEPGRAM_API_KEY in .env (see .env.example) fills in the key and switches transcription to Deepgram.
   useEffect(() => { void deepgramKeyFromEnv().then(key => { if (!key) return; setDeepgramKey(current => current || key); setKeyFromEnv(true); setSpeechEngine('deepgram'); }); }, []);
   useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
@@ -602,7 +612,7 @@ export default function App() {
         <div className={'drop-zone ' + (dragging ? 'dragging' : '')} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
           <Upload size={16}/><span>Drop your résumé, the job description, or notes here</span><label className="secondary file-picker">Choose files<input type="file" multiple accept={acceptedFiles} onChange={event => { if (event.target.files) addFiles(event.target.files); event.target.value = ''; }}/></label><small>PDF, Word (.docx), text, or Markdown · read on this computer, not uploaded</small>
         </div>
-        {files.length > 0 && <ul className="file-list">{files.map(file => <li key={file.id}><div className="file-row"><FileText size={14}/><span className="file-name" title={file.name}>{file.name}</span><span className={'file-meta ' + (file.status === 'error' ? 'failed' : '')}>{file.status === 'reading' ? 'Reading…' : file.status === 'error' ? file.error : `${file.text.length.toLocaleString()} characters`}</span>{file.status === 'ready' && <button className="text-button" onClick={() => setPreview(current => current === file.id ? null : file.id)}>{preview === file.id ? 'Hide text' : 'View text'}</button>}<button className="text-button" onClick={() => setFiles(list => list.filter(item => item.id !== file.id))} aria-label={`Remove ${file.name}`} title="Remove"><X size={12}/></button></div>{preview === file.id && <pre className="file-preview">{file.text.length > 6000 ? `${file.text.slice(0, 6000)}…` : file.text}</pre>}</li>)}</ul>}
+        {files.length > 0 && <ul className="file-list">{files.map(file => <li key={file.id}><div className="file-row"><FileText size={14}/><span className="file-name" title={file.name}>{file.name}</span><span className={'file-meta ' + (file.status === 'error' ? 'failed' : '')}>{file.status === 'reading' ? 'Reading…' : file.status === 'error' ? file.error : `${file.text.length.toLocaleString()} characters`}</span>{file.status === 'ready' && <button className="text-button" onClick={() => setPreview(current => current === file.id ? null : file.id)}>{preview === file.id ? 'Hide text' : 'View text'}</button>}<button className="text-button" onClick={() => setFiles(list => list.filter(item => item.id !== file.id))} aria-label={`Remove ${file.name}`} title="Remove"><X size={12}/></button></div>{preview === file.id && <pre className="file-preview">{file.text.length > 6000 ? `${file.text.slice(0, 6000)}…` : file.text}</pre>}</li>)}</ul>}{defaultFiles.length > 0 && <div className="settings-hint default-files">Added automatically whenever Roomside opens: {defaultFiles.join(', ')}. They come from the project folder; set CONTEXT_FILES in .env to choose other files.</div>}
       </div>
       <div className="context-meter" aria-hidden="true"><span style={{ width: `${Math.min(100, (profile.used / contextBudget) * 100)}%` }}/></div>
       <div className="settings-hint">{profile.used.toLocaleString()} of {contextBudget.toLocaleString()} characters are sent with each question{profile.truncated.length ? `; shortened to fit: ${profile.truncated.join(', ')}` : ''}.</div>

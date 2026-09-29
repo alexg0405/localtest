@@ -7,3 +7,7 @@ src-tauri/gen/
 !.env.example
 .DS_Store
 *.tsbuildinfo
+# Your résumé and other personal context files in the project folder (see CONTEXT_FILES in .env.example).
+*[Rr][eé]sum[eé]*.pdf
+*[Rr][eé]sum[eé]*.docx
+/context/

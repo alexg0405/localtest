@@ -87,3 +87,4 @@ button:focus-visible,.settings-modal select:focus-visible{outline:2px solid #77a
 .session-list li.current b{color:#477252}
 .session-delete{border:0;background:none;color:#a1a59d;padding:6px;border-radius:5px;cursor:pointer;display:grid;place-items:center}
 .session-delete:hover{background:#fbf1ed;color:#995c49}
+.default-files{margin-top:8px}

@@ -1,3 +1,4 @@
+import type { ClaudeModel } from './claude';
 import { questionKind } from './text';
 
 export type Mode = 'SHORT' | 'STANDARD' | 'DETAILED' | 'BULLETS';
@@ -5,7 +6,9 @@ export interface LLMProvider {
   answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string>;
 }
 
-const instructions = (mode: Mode) => `You are a practical, concise interview practice coach for practice or settings where live assistance is explicitly permitted. Reply in the same language as the question unless the user requests another language. Never invent personal experience or facts absent from context. If a transcript is uncertain, say what you understood and ask for clarification. For behavioral questions return a STAR scaffold with bracketed placeholders and 3-5 prompts for the user's real details. For technical questions organize as DIRECT ANSWER, KEY CONCEPTS, EXAMPLE, COMMON FOLLOW-UP. For coding questions organize as APPROACH, COMPLEXITY, PSEUDOCODE, IMPLEMENTATION, EDGE CASES; flag unclear requirements and ask before assuming them. Mode: ${mode}. SHORT is 1-3 sentences; STANDARD is a natural spoken answer of roughly 30-60 seconds; DETAILED adds supporting explanation; BULLETS contains only talking points. Put the direct answer first. Return plain text with readable line breaks.`;
+const instructions = (mode: Mode) => `You are a practical, concise interview practice coach for practice or settings where live assistance is explicitly permitted. Reply in the same language as the question unless the user requests another language. Never invent personal experience or facts absent from context. The question and conversation come from live speech recognition without speaker labels, so they mix the interviewer and the candidate and often mishear technical terms and names (for example "to some" for "Two Sum" or "elite code" for "LeetCode"). Work out the most likely intended question from context and answer the latest question, using earlier conversation only as context; if it is genuinely ambiguous, state your interpretation in one short line first. For greetings and small talk, reply with one or two natural, friendly sentences the candidate could say. For behavioral questions, build the STAR answer from the candidate's real experience in their background and files when it fits; otherwise return a STAR scaffold with bracketed placeholders and 3-5 prompts for their real details. Where relevant, personalize other answers with the candidate's real projects and skills. For technical questions organize as DIRECT ANSWER, KEY CONCEPTS, EXAMPLE, COMMON FOLLOW-UP. For coding questions organize as APPROACH, COMPLEXITY, PSEUDOCODE, IMPLEMENTATION, EDGE CASES; flag unclear requirements and ask before assuming them. Mode: ${mode}. SHORT is 1-3 sentences; STANDARD is a natural spoken answer of roughly 30-60 seconds; DETAILED adds supporting explanation; BULLETS contains only talking points. Put the direct answer first. Return plain text with readable line breaks.`;
+
+const userMessage = (context: string, question: string) => `${context ? `${context}\n\n` : ''}Question: ${question}`;
 
 const followUpLead = 'Suggest one likely interviewer follow-up to this question:';
 /** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. */
@@ -35,7 +38,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       headers: { 'Content-Type': 'application/json', ...(this.key ? { Authorization: `Bearer ${this.key}` } : {}) },
       body: JSON.stringify({ model: this.model, stream: true, ...(temperature ? { temperature: 0.3 } : {}), messages: [
         { role: 'system', content: instructions(mode) },
-        { role: 'user', content: `${context ? `${context}\n\n` : ''}Question: ${question}` },
+        { role: 'user', content: userMessage(context, question) },
       ] }),
     });
     let response = await request(true);
@@ -77,18 +80,55 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 }
 
+/** Answers with your Claude subscription through the Claude Code bridge that `npm run dev` serves (server/claude-code-bridge.ts). */
+export class ClaudeCodeProvider implements LLMProvider {
+  constructor(private model: ClaudeModel = 'claude-haiku-4-5') {}
+  async answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) {
+    const response = await fetch('/api/claude-code', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: this.model, system: instructions(mode), prompt: userMessage(context, question) }) });
+    if (!response.ok) throw new Error(await bridgeError(response));
+    if (!response.body) throw new Error('The Claude Code bridge returned no answer.');
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let full = '';
+    const consume = (line: string) => {
+      if (!line.trim()) return;
+      const event = JSON.parse(line);
+      if (typeof event.error === 'string') throw new Error(event.error);
+      if (typeof event.text === 'string') { full += event.text; onChunk?.(event.text); }
+    };
+    try {
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() ?? '';
+        for (const line of lines) consume(line);
+      }
+      consume(buffer + decoder.decode());
+    } catch (reason) { void reader.cancel().catch(() => undefined); throw reason; }
+    return full;
+  }
+}
+async function bridgeError(response: Response) {
+  if (response.status === 404) return 'Answers from your Claude subscription need the local dev server. Start Roomside with `npm start`.';
+  try { return (await response.json()).error || `HTTP ${response.status}`; } catch { return `HTTP ${response.status}`; }
+}
+export type ClaudeCodeStatus = { available: boolean; loggedIn: boolean; authMethod?: string };
+/** Whether Claude Code is installed and signed in; this does not use any of your Claude usage. */
+export async function claudeCodeStatus(): Promise<ClaudeCodeStatus | null> {
+  try { const response = await fetch('/api/claude-code/status'); return response.ok ? await response.json() : null; } catch { return null; }
+}
+
 export class LocalDemoProvider implements LLMProvider {
   async answer(question: string, _context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) {
     const followUp = question.startsWith(followUpLead);
     const original = followUp ? question.slice(followUpLead.length).replace(/^\s*"|"\. State the follow-up question first.*$/gs, '') : question;
     const q = original.toLowerCase(); let response: string;
-    const kind = questionKind(original); const behavioral = kind === 'BEHAVIORAL'; const coding = kind === 'CODING';
+    const kind = questionKind(original); const smallTalk = kind === 'SMALL TALK'; const behavioral = kind === 'BEHAVIORAL'; const coding = kind === 'CODING';
     const processThread = /process.*thread|thread.*process/.test(q);
     if (followUp) {
       if (processThread) response = 'QUESTION\nWhy are threads generally cheaper to create than processes?\n\nSUGGESTED ANSWER\nA new thread reuses its process’s address space and open resources, so the OS only sets up a stack and scheduling state. A new process needs its own memory mappings and resource tables.';
       else if (behavioral) response = 'QUESTION\nWhat would you do differently if it happened again?\n\nSUGGESTED ANSWER\n[Name one specific change] · [Why it would help] · [Where you have applied that lesson since]';
       else if (coding) response = 'QUESTION\nCan you improve the time or space complexity?\n\nSUGGESTED ANSWER\nRestate the current complexity, name the bottleneck, and describe the trade-off of a faster approach before changing any code.';
       else response = 'QUESTION\nCan you walk me through a concrete example?\n\nSUGGESTED ANSWER\nPick one real situation, describe it in two or three sentences, and connect it back to your main point.';
+    } else if (smallTalk) {
+      response = "I'm doing well, thanks for asking. I'm excited to be here and looking forward to our conversation. How has your day been so far?";
     } else if (behavioral) {
       if (mode === 'BULLETS') response = `• Situation: Recall a specific moment and its context\n• Task: State what you were responsible for\n• Action: Explain the steps you took and why\n• Result: Share the outcome and what you learned\n• Recall: What was at stake? How did you communicate? What changed?`;
       else response = `Situation: [Recall a specific moment and the context]\nTask: [What were you responsible for?]\nAction: [Describe the steps you took and why]\nResult: [Share the outcome and what you learned]\n\nTo make it specific: What was at stake? How did you communicate? What changed? What would your teammate say?`;
@@ -111,7 +151,7 @@ export class LocalDemoProvider implements LLMProvider {
     } else {
       response = `A strong answer starts with the main idea, then supports it with a concrete example. For “${question}”, define the key terms clearly, explain why the distinction matters, and close with a practical implication.\n\nKEY CONCEPTS\n• Lead with the direct answer\n• Add one specific example\n• Mention a trade-off when relevant\n\nEXAMPLE\nUse a real situation or small example to make the concept concrete.\n\nCOMMON FOLLOW-UP\nCan you walk through a concrete example?`;
     }
-    if (mode === 'DETAILED' && !behavioral && !followUp) response += '\n\nSUPPORTING DETAIL\nAdd the assumptions, trade-offs, and a second example that would help an interviewer follow your reasoning.';
+    if (mode === 'DETAILED' && !behavioral && !followUp && !smallTalk) response += '\n\nSUPPORTING DETAIL\nAdd the assumptions, trade-offs, and a second example that would help an interviewer follow your reasoning.';
     for (let i = 0; i < response.length; i += 16) { if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError'); await new Promise(resolve => setTimeout(resolve, 8)); onChunk?.(response.slice(i, i + 16)); }
     return response;
   }

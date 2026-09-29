@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LocalDemoProvider, OpenAICompatibleProvider, describeProviderError, followUpPrompt } from './providers';
+import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt } from './providers';
 
 const encoder = new TextEncoder();
 const eventStream = (...frames: string[]) => new Response(new ReadableStream({ start(controller) { for (const frame of frames) controller.enqueue(encoder.encode(frame)); controller.close(); } }), { headers: { 'Content-Type': 'text/event-stream' } });
@@ -69,6 +69,41 @@ describe('OpenAICompatibleProvider', () => {
     }), { headers: { 'Content-Type': 'text/event-stream' } }));
     const controller = new AbortController(); setTimeout(() => controller.abort(), 20);
     await expect(ask(controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('ClaudeCodeProvider', () => {
+  const ndjson = (...events: object[]) => eventStream(...events.map(event => `${JSON.stringify(event)}\n`));
+
+  it('streams the answer from the local Claude Code bridge', async () => {
+    const requests: { url: string; body: any }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => { requests.push({ url, body: JSON.parse(String(init.body)) }); return ndjson({ text: 'A hash map ' }, { text: 'stores pairs.' }, { done: true }); }));
+    const chunks: string[] = [];
+    const result = await new ClaudeCodeProvider('claude-sonnet-5').answer('How does a hash map work?', 'Candidate background:\nBackend engineer', 'SHORT', chunk => chunks.push(chunk));
+    expect(result).toBe('A hash map stores pairs.');
+    expect(chunks).toEqual(['A hash map ', 'stores pairs.']);
+    expect(requests[0].url).toBe('/api/claude-code');
+    expect(requests[0].body).toMatchObject({ model: 'claude-sonnet-5', prompt: 'Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work?' });
+    expect(requests[0].body.system).toMatch(/Mode: SHORT/);
+  });
+
+  it('surfaces errors reported by the bridge', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ndjson({ text: 'partial' }, { error: 'Claude Code is not signed in to your Claude subscription.' })));
+    await expect(new ClaudeCodeProvider().answer('q', '', 'STANDARD')).rejects.toThrow(/not signed in/);
+  });
+
+  it('explains that the bridge needs the dev server', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('Not found', { status: 404 })));
+    await expect(new ClaudeCodeProvider().answer('q', '', 'STANDARD')).rejects.toThrow(/npm start/);
+    vi.stubGlobal('fetch', vi.fn(async () => json({ error: 'Claude Code was not found.' }, 503)));
+    await expect(new ClaudeCodeProvider().answer('q', '', 'STANDARD')).rejects.toThrow('Claude Code was not found.');
+  });
+
+  it('reads sign-in status without failing when the bridge is missing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ available: true, loggedIn: true, authMethod: 'claude.ai' })));
+    expect(await claudeCodeStatus()).toEqual({ available: true, loggedIn: true, authMethod: 'claude.ai' });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await claudeCodeStatus()).toBeNull();
   });
 });
 

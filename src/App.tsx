@@ -1,7 +1,11 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Activity, AudioLines, ChevronDown, Clipboard, Cpu, HelpCircle, Mic, MicOff, Pin, Send, Settings2, Sparkles, Square, Wifi, X, Volume2, Trash2 } from 'lucide-react';
-import { LocalDemoProvider, OpenAICompatibleProvider, describeProviderError, followUpPrompt, type LLMProvider, type Mode } from './providers';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Activity, AudioLines, BookUser, ChevronDown, Clipboard, Cpu, FileText, HelpCircle, Mic, MicOff, Pin, Send, Settings2, Sparkles, Square, Upload, Wifi, X, Volume2, Trash2 } from 'lucide-react';
+import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
+import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, type SpeechToTextProvider } from './speech';
+import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
+import { acceptedFiles, extractText } from './documents';
+import { keytermsFor } from './vocabulary';
 import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
 
 type Line = { text: string; time: string; at: number; confidence?: number };
@@ -9,6 +13,7 @@ type AudioInput = { deviceId: string; label: string };
 type AnswerKind = 'answer' | 'followup';
 type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean };
 type Snapshot = { question: string; answer: string; mode: Mode; kind: AnswerKind };
+type AnswerSource = 'claude' | 'openai' | 'demo';
 const modes: Mode[] = ['SHORT', 'STANDARD', 'DETAILED', 'BULLETS'];
 const initialQuestion = 'What is the difference between a process and a thread?';
 const initialAnswer = 'A process is an executing program with its own memory space and resources. Threads are execution paths within a process; they share its memory but each has its own stack and registers.\n\nKEY CONCEPTS\n• Processes are isolated; threads share state\n• Sharing makes thread communication cheaper, but synchronization is needed\n• Switching between processes usually has more overhead\n\nEXAMPLE\nA browser can isolate tabs in processes while using threads for work within a tab.\n\nCOMMON FOLLOW-UP\nWhy are threads generally cheaper to create?';
@@ -29,22 +34,26 @@ export default function App() {
   const [status, setStatus] = useState('Demo answer ready'); const [error, setError] = useState(''); const [answerError, setAnswerError] = useState(''); const [voiceDetected, setVoiceDetected] = useState(false);
   const [generating, setGenerating] = useState(false); const [speaking, setSpeaking] = useState(false); const utterance = useRef<SpeechSynthesisUtterance | null>(null);
   const [providerCheck, setProviderCheck] = useState(''); const [checkingProvider, setCheckingProvider] = useState(false);
-  const [pinned, setPinned] = useState<Snapshot | null>(null); const [recent, setRecent] = useState<Snapshot[]>([]); const [settings, setSettings] = useState(false);
-  const [remote, setRemote] = useState(false); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
+  const [pinned, setPinned] = useState<Snapshot | null>(null); const [recent, setRecent] = useState<Snapshot[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | null>(null); const settings = panel === 'settings';
+  const [source, setSource] = useState<AnswerSource>('demo'); const sourceChosen = useRef(false); const [claudeModel, setClaudeModel] = useState<ClaudeModel>('claude-haiku-4-5'); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
   const [apiKey, setApiKey] = useState(''); const [model, setModel] = useState('gpt-4o-mini');
   const [speechEngine, setSpeechEngine] = useState<'browser' | 'deepgram'>('browser'); const [deepgramKey, setDeepgramKey] = useState(''); const [language, setLanguage] = useState('en-US');
   const [checkingSpeech, setCheckingSpeech] = useState(false); const [speechCheckMessage, setSpeechCheckMessage] = useState('');
   const [audioInputs, setAudioInputs] = useState<AudioInput[]>([]); const [audioDeviceId, setAudioDeviceId] = useState(''); const [deviceMessage, setDeviceMessage] = useState('');
-  const [background, setBackground] = useState(''); const [clearOnStop, setClearOnStop] = useState(false);
+  const [clearOnStop, setClearOnStop] = useState(false); const [extraTerms, setExtraTerms] = useState('');
+  const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
+  const [role, setRole] = useState(savedContext?.role ?? ''); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
+  const [dragging, setDragging] = useState(false); const [preview, setPreview] = useState<string | null>(null); const [contextNotice, setContextNotice] = useState('');
+  const profile = useMemo(() => buildProfile({ role, about, files }), [role, about, files]);
   const speech = useRef<SpeechToTextProvider | null>(null); const controller = useRef<AbortController | null>(null); const partialTimer = useRef<number | null>(null);
-  const partialAnswer = useRef(false);
+  const partialAnswer = useRef(false); const samplePending = useRef(true); // The sample question and answer shown until something is asked.
   const partialQuestion = useRef('');
   const browserFinal = useRef(''); const browserConfidence = useRef<number | undefined>(undefined); const browserFinalTimer = useRef<number | null>(null); const browserFinalSince = useRef(0);
   const lastQuestion = useRef<{ text: string; at: number } | null>(null);
   const transcriptBody = useRef<HTMLDivElement>(null); const followTranscript = useRef(true); const manualInput = useRef<HTMLInputElement>(null); const settingsPanel = useRef<HTMLElement>(null); const rail = useRef<HTMLElement>(null); const workspace = useRef<HTMLElement>(null);
   // The answer on screen as of the last render, so it can be kept in Recent when something replaces it.
   const display = useRef<Snapshot & { complete: boolean }>({ question: '', answer: '', mode: 'STANDARD', kind: 'answer', complete: false });
-  const provider = useCallback((): LLMProvider => remote ? new OpenAICompatibleProvider(endpoint, apiKey, model) : new LocalDemoProvider(), [remote, endpoint, apiKey, model]);
+  const provider = useCallback((): LLMProvider => source === 'claude' ? new ClaudeCodeProvider(claudeModel) : source === 'openai' ? new OpenAICompatibleProvider(endpoint, apiKey, model) : new LocalDemoProvider(), [source, claudeModel, endpoint, apiKey, model]);
   const detectAudioInputs = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) { setDeviceMessage('This page cannot access microphones. Open Roomside on 127.0.0.1 or localhost in a supported browser.'); return; }
     setDeviceMessage('Requesting microphone permission…');
@@ -59,9 +68,19 @@ export default function App() {
     const cutoff = Date.now() - 10 * 60 * 1000;
     const lines = transcriptRef.current.filter(line => line.at > cutoff).slice(-45).map(line => line.text);
     if (lines.length && compactText(lines[lines.length - 1]) === compactText(q)) lines.pop(); // The question itself is sent separately.
-    const recent = lines.join('\n').slice(-7500); const profile = background.trim().slice(0, 2500);
-    return [profile && `Candidate background:\n${profile}`, recent && `Recent conversation transcript (oldest first; speech recognition may contain errors):\n${recent}`].filter(Boolean).join('\n\n');
-  }, [background]);
+    const recent = lines.join('\n').slice(-7500);
+    return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, recent && `Recent conversation transcript (oldest first; speech recognition may contain errors):\n${recent}`].filter(Boolean).join('\n\n');
+  }, [profile]);
+  const addFiles = useCallback((list: FileList | File[]) => {
+    for (const file of Array.from(list)) {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      if (file.size > 15 * 1024 * 1024) { setFiles(current => [...current, { id, name: file.name, size: file.size, text: '', status: 'error', error: 'Too large (over 15 MB).' }]); continue; }
+      setFiles(current => [...current, { id, name: file.name, size: file.size, text: '', status: 'reading' }]);
+      extractText(file).then(
+        text => setFiles(current => current.map(item => item.id === id ? { ...item, text, status: 'ready' } : item)),
+        (reason: any) => setFiles(current => current.map(item => item.id === id ? { ...item, status: 'error', error: reason?.message || 'Could not read this file.' } : item)));
+    }
+  }, []);
   const stopReading = useCallback(() => { utterance.current = null; if ('speechSynthesis' in window) window.speechSynthesis.cancel(); setSpeaking(false); }, []);
   const abortAnswer = useCallback(() => { controller.current?.abort(); controller.current = null; setGenerating(false); }, []);
   // Keeps the finished answer that is about to be replaced (drafts from interim speech are skipped).
@@ -73,6 +92,7 @@ export default function App() {
 
   const generate = useCallback(async (q: string, options: GenerateOptions = {}) => {
     const text = q.trim(); if (!text) return;
+    samplePending.current = false;
     const selectedMode = options.mode ?? mode; stopReading(); rememberShown();
     partialAnswer.current = !!options.partial;
     partialQuestion.current = options.partial ? text : '';
@@ -116,7 +136,7 @@ export default function App() {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer);
     browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
-    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setRecent([]); setLowConfidence(false); setError(''); setStatus('Context cleared');
+    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setRecent([]); setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading]);
 
   // Ends the listening session. Words the recognizer has not finalized yet are committed unless `discard` is set.
@@ -140,7 +160,7 @@ export default function App() {
     const thisSession = ++sessionId.current; const engine = speechEngine; const lang = language; sessionLanguage.current = lang;
     clearTimer(partialTimer); clearTimer(browserFinalTimer); browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = '';
     partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; setVoiceDetected(false); setMicReady(false); activeRef.current = true; setActive(true);
-    speech.current?.stop(); speech.current = engine === 'deepgram' ? new DeepgramSpeechToTextProvider(deepgramKey, lang, audioDeviceId) : new BrowserSpeechToTextProvider(lang);
+    speech.current?.stop(); speech.current = engine === 'deepgram' ? new DeepgramSpeechToTextProvider(deepgramKey, lang, audioDeviceId, keytermsFor(extraTerms)) : new BrowserSpeechToTextProvider(lang);
     const current = () => sessionId.current === thisSession;
     const showInterim = (text: string) => { interimRef.current = text; setInterim([browserFinal.current, text].filter(Boolean).join(' ')); };
     const commitBrowserFinal = () => { const text = browserFinal.current; const confidence = browserConfidence.current; browserFinal.current = ''; browserConfidence.current = undefined; browserFinalTimer.current = null; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence); };
@@ -178,7 +198,7 @@ export default function App() {
       activeRef.current = false; setActive(false); setMicReady(false); setVoiceDetected(false);
       setError(reason?.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow access in browser settings, then try again.' : reason?.name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or enter a question manually.' : reason?.message || 'Could not start speech recognition.');
     });
-  }, [speechEngine, deepgramKey, language, audioDeviceId, stopReading, abortAnswer]);
+  }, [speechEngine, deepgramKey, language, audioDeviceId, extraTerms, stopReading, abortAnswer]);
 
   const submitManual = useCallback(() => {
     const q = draft.trim(); if (!q) return;
@@ -198,7 +218,13 @@ export default function App() {
     setRecent(list => list.filter(entry => entry !== item)); showSnapshot(item, 'Earlier answer restored');
   }, [showSnapshot]);
   const checkProvider = useCallback(async () => {
-    if (!remote) { setProviderCheck('The offline demo provider is ready.'); return; }
+    if (source === 'demo') { setProviderCheck('The offline demo provider is ready.'); return; }
+    if (source === 'claude') {
+      setCheckingProvider(true); setProviderCheck('Checking Claude Code…');
+      const status = await claudeCodeStatus(); setCheckingProvider(false);
+      setProviderCheck(!status ? 'Connection failed: answers from your Claude subscription need the local dev server. Start Roomside with npm start.' : !status.available ? 'Connection failed: Claude Code was not found on this computer.' : status.loggedIn ? 'Connected. Claude Code is signed in, so answers use your Claude subscription.' : 'Connection failed: Claude Code is not signed in yet. Run `claude auth login` in Terminal, then test again.');
+      return;
+    }
     if (!endpoint.trim() || !model.trim()) { setProviderCheck('Enter an endpoint and model name first.'); return; }
     setCheckingProvider(true); setProviderCheck('Checking endpoint…');
     const check = new AbortController(); const timeout = window.setTimeout(() => check.abort(), 30000);
@@ -208,7 +234,7 @@ export default function App() {
     } catch (reason: any) {
       setProviderCheck(check.signal.aborted ? 'Connection failed: no response within 30 seconds.' : `Connection failed: ${describeProviderError(reason)}`);
     } finally { window.clearTimeout(timeout); setCheckingProvider(false); }
-  }, [remote, endpoint, model, provider]);
+  }, [source, endpoint, model, provider]);
   const checkSpeechProvider = useCallback(async () => {
     setCheckingSpeech(true); setSpeechCheckMessage('Checking Deepgram…');
     try { await DeepgramSpeechToTextProvider.checkConnection(deepgramKey, language); setSpeechCheckMessage('Connected. No microphone audio was sent.'); }
@@ -225,7 +251,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return; // 229: key pressed during IME composition.
-      if (settings) { if (event.key === 'Escape') { event.preventDefault(); setSettings(false); } return; }
+      if (panel) { if (event.key === 'Escape') { event.preventDefault(); setPanel(null); } return; }
       const command = event.metaKey || event.ctrlKey; const once = !event.repeat;
       if (command && event.key === 'Enter') { event.preventDefault(); submitManual(); }
       else if (command && event.code === 'Space') { event.preventDefault(); if (once) { if (activeRef.current) stop(); else start(); } }
@@ -235,21 +261,30 @@ export default function App() {
       else if (event.key === 'Escape' && activeRef.current) stop();
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
-  }, [settings, submitManual, start, stop, shorter, detailed, togglePin]);
+  }, [panel, submitManual, start, stop, shorter, detailed, togglePin]);
   useEffect(() => {
-    if (!settings) return;
+    if (!panel) return;
     // Keep keyboard focus and screen readers inside the dialog, then return focus to where it was.
-    const background = [rail.current, workspace.current]; const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    for (const element of background) if (element) element.inert = true;
+    const behind = [rail.current, workspace.current]; const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    for (const element of behind) if (element) element.inert = true;
     settingsPanel.current?.focus();
-    return () => { for (const element of background) if (element) element.inert = false; opener?.focus(); };
-  }, [settings]);
+    return () => { for (const element of behind) if (element) element.inert = false; opener?.focus(); };
+  }, [panel]);
+  // Only kept in this browser when the person opts in; turning it off deletes the saved copy.
+  useEffect(() => {
+    if (!keepContext) { forgetSavedContext(); setContextNotice(''); return; }
+    setContextNotice(saveContext({ role, about, files }) ? '' : 'This browser would not save your context, so it stays in memory for this session.');
+  }, [keepContext, role, about, files]);
   useEffect(() => { const body = transcriptBody.current; if (body && followTranscript.current) body.scrollTop = body.scrollHeight; }, [transcript, interim]);
+  // The sample answer only illustrates the offline demo; with a real provider, start from an empty panel.
+  useEffect(() => { if (source !== 'demo' && samplePending.current) { samplePending.current = false; setQuestion(''); setAnswer(''); setStatus('Waiting for a question'); } }, [source]);
+  // Answer with the Claude subscription by default when Claude Code is signed in on this computer.
+  useEffect(() => { void claudeCodeStatus().then(status => { if (status?.loggedIn && !sourceChosen.current) setSource('claude'); }); }, []);
   useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
 
   const blocks = parseAnswer(answer);
   const tag = isFollowUp(question, transcript.slice(0, -1).map(line => line.text).join(' ')) ? 'FOLLOW-UP' : questionKind(question);
-  const providerLabel = remote ? `${model.trim() || 'No model set'} · ${(() => { try { return new URL(endpoint).host; } catch { return 'invalid endpoint URL'; } })()}` : 'Offline demo answers';
+  const providerLabel = source === 'claude' ? `${claudeModelLabel(claudeModel)} · your Claude subscription` : source === 'openai' ? `${model.trim() || 'No model set'} · ${(() => { try { return new URL(endpoint).host; } catch { return 'invalid endpoint URL'; } })()}` : 'Offline demo answers';
   const copyAnswer = async () => { try { await navigator.clipboard.writeText(answer); setStatus('Answer copied'); } catch { setAnswerError('Clipboard access is blocked. Select and copy the answer instead.'); } };
   const readAloud = () => {
     if (speaking) { stopReading(); return; }
@@ -263,15 +298,15 @@ export default function App() {
   };
 
   return <main className="app">
-    <aside className="rail" ref={rail}><div className="brand">r<span>.</span></div><div className="rail-sep"/><button className="rail-button selected" title="Session"><Activity/></button><button className="rail-button" onClick={() => setSettings(true)} title="Settings"><Settings2/></button><div className="rail-bottom"><button className="rail-button" title="Help" onClick={() => setSettings(true)}><HelpCircle/></button><div className="avatar">A</div></div></aside>
+    <aside className="rail" ref={rail}><div className="brand">r<span>.</span></div><div className="rail-sep"/><button className="rail-button selected" title="Session"><Activity/></button><button className="rail-button" onClick={() => setPanel('context')} title="Your context" aria-label="Your context"><BookUser/></button><button className="rail-button" onClick={() => setPanel('settings')} title="Settings" aria-label="Settings"><Settings2/></button><div className="rail-bottom"><button className="rail-button" title="Help" onClick={() => setPanel('settings')}><HelpCircle/></button><div className="avatar">A</div></div></aside>
     <section className="workspace" ref={workspace}>
-      <header className="topbar"><div><div className="eyebrow">PRACTICE SESSION <span className="dot"/></div><div className="session-title">Interview copilot <ChevronDown size={15}/></div></div><div className="top-actions"><div className="privacy"><span className="privacy-dot"/> Memory only · no saved transcript</div><button className="icon-button" onClick={() => setSettings(true)} aria-label="Settings" title="Settings"><Settings2 size={17}/></button><button className="icon-button" onClick={clear} aria-label="Clear context" title="Clear transcript and answer"><Trash2 size={17}/></button></div></header>
+      <header className="topbar"><div><div className="eyebrow">PRACTICE SESSION <span className="dot"/></div><div className="session-title">Interview copilot <ChevronDown size={15}/></div></div><div className="top-actions"><div className="privacy"><span className="privacy-dot"/> Memory only · no saved transcript</div><button className="icon-button" onClick={() => setPanel('settings')} aria-label="Settings" title="Settings"><Settings2 size={17}/></button><button className="icon-button" onClick={clear} aria-label="Clear conversation" title="Clear transcript and answers"><Trash2 size={17}/></button></div></header>
       <div className="content">
         <div className="left-col">
           <div className="section-head"><div><div className="eyebrow">YOUR ROOM AUDIO</div><h2>Live transcript</h2></div><div className={'mic-state ' + (active ? 'on' : '')}><i/>{active ? micReady ? voiceDetected ? 'Voice detected' : 'Listening' : 'Starting…' : 'Mic off'}</div></div>
           <div className="listen-card"><div className="listen-icon"><AudioLines size={22}/></div><div className="listen-copy"><strong>{active ? micReady ? 'Listening to conversation' : 'Starting microphone…' : 'Ready to listen'}</strong><span>{active ? 'This device’s microphone only' : 'Start only when everyone has agreed to the practice session'}</span></div><button onClick={() => active ? stop() : start()} className={'listen-button ' + (active ? 'stop' : '')}><span>{active ? <MicOff size={16}/> : <Mic size={16}/>}</span>{active ? 'Stop listening' : 'Start listening'}</button></div>
           {error && <div className="error" role="alert">{error}</div>}
-          <div className="transcript-card"><div className="transcript-toolbar"><span><span className={'tiny-live ' + (active ? 'active' : '')}/> LIVE TRANSCRIPT</span><button onClick={clear} className="text-button"><Trash2 size={13}/> Clear context</button></div>
+          <div className="transcript-card"><div className="transcript-toolbar"><span><span className={'tiny-live ' + (active ? 'active' : '')}/> LIVE TRANSCRIPT</span><button onClick={clear} className="text-button"><Trash2 size={13}/> Clear conversation</button></div>
             <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><div className="wave">〰</div><span>Your conversation will appear here.</span><small>Or enter a question below to try it out.</small></div> : <>{transcript.map((line, index) => <div className="transcript-line" key={`${line.at}-${index}`}><time>{line.time}</time><p>{line.text}</p></div>)}{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
             <div className="manual-input"><input ref={manualInput} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submitManual(); } }} placeholder="Type a question manually…" aria-label="Question"/><button onClick={submitManual} disabled={!draft.trim()} title="Send question" aria-label="Send question"><Send size={15}/></button></div>
           </div><div className="footnote"><Wifi size={13}/> Local voice activity meter · speech recognition may process audio according to its provider’s settings.</div>
@@ -283,21 +318,39 @@ export default function App() {
           <div className="question-card"><div className="question-label"><span className="question-mark">?</span>{lowConfidence ? 'POSSIBLE QUESTION' : 'DETECTED QUESTION'}{tag && <span className="tag">{tag}</span>}</div><div className="question-text">{question || 'Waiting for a question…'}</div><div className="question-actions"><button onClick={() => { setDraft(question); manualInput.current?.focus(); }} disabled={!question}><Clipboard size={13}/> Edit question</button><button onClick={regenerate} disabled={!question}><Sparkles size={13}/> Regenerate</button></div></div>
           <div className="response-card"><div className="response-top"><span><Sparkles size={14}/> {answerKind === 'followup' ? 'LIKELY FOLLOW-UP' : 'RESPONSE'} · {shownMode}</span><button className="icon-button small" onClick={copyAnswer} disabled={!answer.trim()} title="Copy answer" aria-label="Copy answer"><Clipboard size={14}/></button></div><div className="response-content" aria-live="polite" aria-busy={generating}>{blocks.map((block, index) => block.type === 'heading' ? <h4 key={index}>{inline(block.text)}</h4> : block.type === 'bullet' ? <div className="bullet" key={index}><i/><span>{inline(block.text)}</span></div> : block.type === 'code' ? <pre key={index}><code>{block.text}</code></pre> : block.type === 'label' ? <p key={index}><b>{block.label}:</b> {inline(block.text)}</p> : <p key={index}>{inline(block.text)}</p>)}{!blocks.length && !answerError && <p className="muted">{generating ? 'Preparing response…' : 'Your answer will appear here.'}</p>}{answerError && <div className="answer-error" role="alert">{answerError}</div>}</div><div className="response-foot"><span><span className={'green-dot ' + (answerError ? 'error-dot' : '')}/>{status}</span><button onClick={readAloud} disabled={!speaking && (!answer.trim() || active)} title={active ? 'Stop listening first so the microphone does not pick up the read-aloud audio' : undefined}>{speaking ? <Square size={12}/> : <Volume2 size={14}/>} {speaking ? 'Stop reading' : 'Read aloud'}</button></div></div>
           <div className="quick-actions"><button onClick={shorter} disabled={!question}><span className="qa-icon">↘</span><span><b>Shorter answer</b><small>Get to the point</small></span><kbd>{mod} 1</kbd></button><button onClick={detailed} disabled={!question}><span className="qa-icon">＋</span><span><b>Explain more</b><small>Add useful detail</small></span><kbd>{mod} 2</kbd></button><button onClick={followUp} disabled={!question}><span className="qa-icon">↗</span><span><b>Generate follow-up</b><small>Prepare for what’s next</small></span></button></div>
-          <div className="answer-status"><Cpu size={13}/>{providerLabel}{pinned ? ' · Pinned for this session' : ''}</div>
+          <div className="answer-status"><Cpu size={13}/>{providerLabel}{profile.used && source !== 'demo' ? ' · using your context' : ''}{pinned ? ' · Pinned for this session' : ''}</div>
         </div>
       </div>
-      <footer className="bottom-bar"><div><span className="ready-led"/> {active ? micReady ? 'Listening' : 'Starting microphone…' : 'Session ready'} <span className="divider">/</span> <span className="memory"><span className="privacy-dot"/> Memory only</span></div><div className="shortcuts"><span><kbd>{mod}</kbd> + <kbd>↵</kbd> send question</span><span>{listenKeys.map((key, index) => <Fragment key={key}>{index ? ' + ' : ''}<kbd>{key}</kbd></Fragment>)} listen</span><span><kbd>esc</kbd> stop</span><button onClick={() => setSettings(true)}>Settings <Settings2 size={13}/></button></div></footer>
+      <footer className="bottom-bar"><div><span className="ready-led"/> {active ? micReady ? 'Listening' : 'Starting microphone…' : 'Session ready'} <span className="divider">/</span> <span className="memory"><span className="privacy-dot"/> Memory only</span></div><div className="shortcuts"><span><kbd>{mod}</kbd> + <kbd>↵</kbd> send question</span><span>{listenKeys.map((key, index) => <Fragment key={key}>{index ? ' + ' : ''}<kbd>{key}</kbd></Fragment>)} listen</span><span><kbd>esc</kbd> stop</span><button onClick={() => setPanel('settings')}>Settings <Settings2 size={13}/></button></div></footer>
     </section>
-    {settings && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSettings(false); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><div className="eyebrow">PREFERENCES</div><h2 id="settings-title">Session settings</h2></div><button className="icon-button" onClick={() => setSettings(false)} aria-label="Close settings"><X size={18}/></button></div>
+    {settings && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><div className="eyebrow">PREFERENCES</div><h2 id="settings-title">Session settings</h2></div><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close settings"><X size={18}/></button></div>
       <div className="settings-section-title">MICROPHONE & TRANSCRIPTION</div><label className="field-label">Speech recognition provider<select value={speechEngine} onChange={event => setSpeechEngine(event.target.value as 'browser' | 'deepgram')}><option value="browser">Browser built-in (easy setup)</option><option value="deepgram">Deepgram streaming (API key)</option></select></label><label className="field-label">Transcription language<select value={language} onChange={event => setLanguage(event.target.value)}><option value="en-US">English (US)</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt-BR">Portuguese (Brazil)</option><option value="ja">Japanese</option><option value="zh-CN">Chinese (Mandarin)</option></select></label><div className="settings-hint">Provider and language changes apply the next time you start listening.</div>
-      {speechEngine === 'deepgram' && <><label className="field-label">Deepgram API key<input type="password" value={deepgramKey} onChange={event => { setDeepgramKey(event.target.value); setSpeechCheckMessage(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><button className="secondary speech-check" onClick={() => void checkSpeechProvider()} disabled={checkingSpeech || !deepgramKey.trim()}>{checkingSpeech ? 'Checking…' : 'Test transcription connection'}</button>{speechCheckMessage && <div className={'provider-result ' + (speechCheckMessage.startsWith('Connected') ? 'success' : '')}>{speechCheckMessage}</div>}<div className="settings-hint">This check validates the service connection only; it does not start the mic or send audio.</div></>}
+      {speechEngine === 'deepgram' && <><label className="field-label">Deepgram API key<input type="password" value={deepgramKey} onChange={event => { setDeepgramKey(event.target.value); setSpeechCheckMessage(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><button className="secondary speech-check" onClick={() => void checkSpeechProvider()} disabled={checkingSpeech || !deepgramKey.trim()}>{checkingSpeech ? 'Checking…' : 'Test transcription connection'}</button>{speechCheckMessage && <div className={'provider-result ' + (speechCheckMessage.startsWith('Connected') ? 'success' : '')}>{speechCheckMessage}</div>}<div className="settings-hint">This check validates the service connection only; it does not start the mic or send audio.</div><label className="field-label">Extra words to recognize<textarea value={extraTerms} onChange={event => setExtraTerms(event.target.value)} placeholder="Company, product, and project names, one per line" rows={2}/></label><div className="settings-hint">Deepgram Nova-3 also boosts common interview terms such as LeetCode, Two Sum, and Big O.</div></>}
       {speechEngine === 'deepgram' && <div className="device-settings"><div className="device-row"><label className="field-label">Input microphone<select value={audioDeviceId} onChange={event => setAudioDeviceId(event.target.value)}><option value="">System default</option>{audioInputs.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label}</option>)}</select></label><button className="secondary" onClick={() => void detectAudioInputs()}>Detect microphones</button></div>{deviceMessage && <div className="settings-hint">{deviceMessage}</div>}<div className="settings-hint">Device selection is available for Deepgram mode. The browser built-in provider uses the system default input.</div></div>}
       <div className="settings-note"><div className="privacy-dot"/><div><b>Memory only</b><p>Transcript and answers are not saved by this page and clear when it closes. Microphone access begins only after you press Start. {speechEngine === 'deepgram' ? 'Audio streams to Deepgram for transcription while listening.' : 'Browser speech recognition may process audio through its service provider.'}</p></div></div>
       <label className="toggle-row"><span><b>Clear transcript when stopping</b><small>End the session and discard its context on Stop listening</small></span><input type="checkbox" checked={clearOnStop} onChange={event => setClearOnStop(event.target.checked)}/></label>
-      <label className="field-label">Your background for answer context<textarea value={background} onChange={event => setBackground(event.target.value)} placeholder="Role, experience, résumé highlights, technologies…" rows={3}/></label>
-      <div className="settings-section-title provider-title">ANSWER PROVIDER</div><label className="toggle-row"><span><b>Use an AI provider</b><small>Stream answers from an OpenAI-compatible endpoint</small></span><input type="checkbox" checked={remote} onChange={event => setRemote(event.target.checked)}/></label>
-      {remote && <div className="fields"><label>Chat completions endpoint<input type="url" value={endpoint} onChange={event => { setEndpoint(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label>Model<input value={model} onChange={event => { setModel(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label>API key<input type="password" value={apiKey} onChange={event => { setApiKey(event.target.value); setProviderCheck(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><small>Sent only to the endpoint above. The browser may block cross-origin requests unless the endpoint allows them.</small><button className="secondary full" onClick={() => void checkProvider()} disabled={checkingProvider}>{checkingProvider ? 'Checking…' : 'Test connection'}</button>{providerCheck && <div className={'provider-result ' + (providerCheck.startsWith('Connected') ? 'success' : '')}>{providerCheck}</div>}</div>}
-      <button className="primary full" onClick={() => setSettings(false)}>Done</button>
+      <div className="context-link"><span><b>Your context</b><small>{profile.used ? `${files.filter(file => file.status === 'ready').length} file(s) and notes · ${profile.used.toLocaleString()} characters` : 'Role, notes about you, résumé, and other files'}</small></span><button className="secondary" onClick={() => setPanel('context')}>Edit context</button></div>
+      <div className="settings-section-title provider-title">ANSWER PROVIDER</div><label className="field-label">Answers from<select value={source} onChange={event => { sourceChosen.current = true; setSource(event.target.value as AnswerSource); setProviderCheck(''); }}><option value="claude">Claude, with your Claude subscription</option><option value="openai">OpenAI-compatible endpoint (API key)</option><option value="demo">Offline demo answers</option></select></label>
+      {source === 'claude' && <div className="fields"><label>Model<select value={claudeModel} onChange={event => { setClaudeModel(event.target.value as ClaudeModel); setProviderCheck(''); }}>{claudeModels.map(item => <option key={item.id} value={item.id}>{item.label} ({item.note})</option>)}</select></label><small>Runs through Claude Code on this computer, signed in with your Claude account: no API key, and usage counts toward your plan. Works while Roomside runs from <code>npm start</code>.</small><button className="secondary full" onClick={() => void checkProvider()} disabled={checkingProvider}>{checkingProvider ? 'Checking…' : 'Test connection'}</button>{providerCheck && <div className={'provider-result ' + (providerCheck.startsWith('Connected') ? 'success' : '')}>{providerCheck}</div>}</div>}
+      {source === 'openai' && <div className="fields"><label>Chat completions endpoint<input type="url" value={endpoint} onChange={event => { setEndpoint(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label>Model<input value={model} onChange={event => { setModel(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label>API key<input type="password" value={apiKey} onChange={event => { setApiKey(event.target.value); setProviderCheck(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><small>Sent only to the endpoint above. The browser may block cross-origin requests unless the endpoint allows them.</small><button className="secondary full" onClick={() => void checkProvider()} disabled={checkingProvider}>{checkingProvider ? 'Checking…' : 'Test connection'}</button>{providerCheck && <div className={'provider-result ' + (providerCheck.startsWith('Connected') ? 'success' : '')}>{providerCheck}</div>}</div>}
+      <button className="primary full" onClick={() => setPanel(null)}>Done</button>
+    </section></div>}
+    {panel === 'context' && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="context-title"><div className="modal-head"><div><div className="eyebrow">ANSWER CONTEXT</div><h2 id="context-title">Your context</h2></div><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close context"><X size={18}/></button></div>
+      <p className="context-intro">Add what your answers should know about you. Claude uses it to personalize answers and STAR stories, and does not invent experience that is not here.</p>
+      <label className="field-label">Interviewing for<input className="text-input" value={role} onChange={event => setRole(event.target.value)} placeholder="e.g. Software Engineer Intern at Stripe"/></label>
+      <label className="field-label">About you<textarea value={about} onChange={event => setAbout(event.target.value)} placeholder="Experience, projects, skills, stories you want to use, things to emphasize…" rows={5}/></label>
+      <div className="field-label">Files
+        <div className={'drop-zone ' + (dragging ? 'dragging' : '')} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
+          <Upload size={16}/><span>Drop your résumé, the job description, or notes here</span><label className="secondary file-picker">Choose files<input type="file" multiple accept={acceptedFiles} onChange={event => { if (event.target.files) addFiles(event.target.files); event.target.value = ''; }}/></label><small>PDF, Word (.docx), text, or Markdown · read on this computer, not uploaded</small>
+        </div>
+        {files.length > 0 && <ul className="file-list">{files.map(file => <li key={file.id}><div className="file-row"><FileText size={14}/><span className="file-name" title={file.name}>{file.name}</span><span className={'file-meta ' + (file.status === 'error' ? 'failed' : '')}>{file.status === 'reading' ? 'Reading…' : file.status === 'error' ? file.error : `${file.text.length.toLocaleString()} characters`}</span>{file.status === 'ready' && <button className="text-button" onClick={() => setPreview(current => current === file.id ? null : file.id)}>{preview === file.id ? 'Hide text' : 'View text'}</button>}<button className="text-button" onClick={() => setFiles(list => list.filter(item => item.id !== file.id))} aria-label={`Remove ${file.name}`} title="Remove"><X size={12}/></button></div>{preview === file.id && <pre className="file-preview">{file.text.length > 6000 ? `${file.text.slice(0, 6000)}…` : file.text}</pre>}</li>)}</ul>}
+      </div>
+      <div className="context-meter" aria-hidden="true"><span style={{ width: `${Math.min(100, (profile.used / contextBudget) * 100)}%` }}/></div>
+      <div className="settings-hint">{profile.used.toLocaleString()} of {contextBudget.toLocaleString()} characters are sent with each question{profile.truncated.length ? `; shortened to fit: ${profile.truncated.join(', ')}` : ''}.</div>
+      <label className="toggle-row"><span><b>Keep on this computer</b><small>Saves this text in this browser only (never transcripts or keys). Turn it off to delete the saved copy.</small></span><input type="checkbox" checked={keepContext} onChange={event => setKeepContext(event.target.checked)}/></label>
+      {contextNotice && <div className="provider-result">{contextNotice}</div>}
+      <div className="settings-note"><div className="privacy-dot"/><div><b>Where it goes</b><p>Files are read in this browser. Their text is sent with each question to your answer provider{source === 'claude' ? ' (Claude, through your subscription)' : ''} and nowhere else.{source === 'demo' ? ' The offline demo answers do not use it.' : ''}</p></div></div>
+      <button className="primary full" onClick={() => setPanel(null)}>Done</button>
     </section></div>}
   </main>;
 }

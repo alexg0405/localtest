@@ -18,9 +18,19 @@ If macOS blocks the microphone, open the site in Chrome and allow microphone acc
 
 Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer); GitHub Actions runs them, plus the production build, on every push and pull request. They cover question detection, answer formatting, the OpenAI-compatible and demo answer providers (with `fetch` mocked), Deepgram message handling, and how browser speech recognition starts, restarts, and fails.
 
+## Answers from your Claude subscription
+
+With `npm start`, Roomside can answer through [Claude Code](https://code.claude.com) signed in with your Claude account, so there is no API key and usage counts toward your plan. Sign Claude Code in once (it opens your browser):
+
+```sh
+claude auth login
+```
+
+If `claude` is not on your PATH, use the copy bundled with the Claude desktop app: `"$HOME/Library/Application Support/Claude/claude-code/<version>/claude.app/Contents/MacOS/claude" auth login`. Roomside then picks **Claude, with your Claude subscription** automatically; choose Claude Haiku 4.5 (fastest) or Claude Sonnet 5 in Settings. The dev server runs Claude Code with every tool disabled, in an empty temporary folder, and only for requests from the Roomside page itself (`server/claude-code-bridge.ts`); the question goes over stdin, not the command line. Set `CLAUDE_BIN` to use a specific Claude Code binary. This bridge exists only in the dev server, not in `npm run build` or the desktop app.
+
 ## Providers
 
-- **Speech recognition:** choose the browser's built-in `SpeechRecognition` / `webkitSpeechRecognition` adapter, or select Deepgram streaming and enter an API key in Settings. Both run through a replaceable `SpeechToTextProvider` interface. The local Web Audio meter detects room voice activity to confirm the mic is picking up sound; it does not record or transmit audio itself. Browser transcription may use its speech service; Deepgram mode streams microphone audio directly to Deepgram. The API key stays in memory and is sent in the WebSocket handshake, not its URL.
+- **Speech recognition:** choose the browser's built-in `SpeechRecognition` / `webkitSpeechRecognition` adapter, or select Deepgram streaming and enter an API key in Settings. For technical interviews, Deepgram is the more accurate option: Roomside uses its Nova-3 model with keyterm prompting for common interview terms (LeetCode, Two Sum, Big O, …) plus any **Extra words to recognize** you add. Either way, answers are written to recover misheard technical terms from context. Both run through a replaceable `SpeechToTextProvider` interface. The local Web Audio meter detects room voice activity to confirm the mic is picking up sound; it does not record or transmit audio itself. Browser transcription may use its speech service; Deepgram mode streams microphone audio directly to Deepgram. The API key stays in memory and is sent in the WebSocket handshake, not its URL.
 - Use **Test transcription connection** to verify Deepgram access without turning on the microphone or sending audio.
 - Select a transcription language in Settings (English, Spanish, French, German, Brazilian Portuguese, Japanese, or Mandarin Chinese). Connected AI providers are prompted to answer in the question's language; offline demo responses use English sample content.
 - In Deepgram mode, **Detect microphones** lists inputs after you explicitly grant mic permission; choose the room mic or keep System default. Browser built-in recognition uses the operating system's default microphone and restarts itself after brief network drops.
@@ -30,12 +40,12 @@ Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer); Git
 
 - Start / Stop Listening: start or stop recognition; Escape stops listening (or closes Settings). Words still being recognized when you stop are kept in the transcript.
 - Type a question and press Enter (or `⌘/Ctrl + Enter` from anywhere) to submit it.
-- Clear context removes the transcript and current answer without stopping the microphone.
+- Clear conversation removes the transcript and current answer without stopping the microphone.
 - Choose Short, Standard, Detailed, or Bullets for all answers. The quick actions are one-off requests for a shorter, expanded, or likely follow-up answer and keep the selected mode; the response header shows which mode produced the current answer.
 - Pin the current answer to keep a snapshot while exploring other responses (pinning another answer replaces it); Restore brings the pinned answer back.
-- **Recent** lists the last few finished answers that a new question, regeneration, or mode change replaced, so an answer you were reading is never lost; Clear context empties it.
+- **Recent** lists the last few finished answers that a new question, regeneration, or mode change replaced, so an answer you were reading is never lost; Clear conversation empties it.
 - Read aloud is available when the microphone is off, so the app does not transcribe its own voice.
-- Add optional résumé/background details in Settings; these are included as context only for the current page session.
+- **Your context** (sidebar): add the role you are interviewing for, notes about yourself, and files such as your résumé or the job description (PDF, Word .docx, text, or Markdown). Files are read in the browser and never uploaded as files; their text, up to 40,000 characters, is sent with each question to your answer provider so Claude can personalize answers and STAR stories without inventing experience. It stays in memory unless you turn on **Keep on this computer**, which saves only the extracted text in this browser; turning it off deletes that copy.
 - Use **Test connection** in Settings to check a remote provider before starting. It sends a small test prompt to the configured endpoint.
 - `⌘ + Shift + Space` on macOS (`⌘ + Space` opens Spotlight) or `Ctrl + Space` elsewhere toggles listening, `Escape` stops, `⌘/Ctrl + 1` requests a short answer, `⌘/Ctrl + 2` requests a detailed answer, and `⌘/Ctrl + P` pins/unpins the current answer. Shortcuts are paused while Settings is open.
 - Enable **Clear transcript when stopping** in Settings to discard transcript and answer context when ending microphone listening.

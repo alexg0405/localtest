@@ -1,13 +1,13 @@
 // Pure text heuristics for question detection and answer formatting (no React or browser APIs).
 
-export type QuestionKind = 'BEHAVIORAL' | 'CODING' | 'TECHNICAL' | 'DISCUSSION';
+export type QuestionKind = 'SMALL TALK' | 'BEHAVIORAL' | 'CODING' | 'TECHNICAL' | 'DISCUSSION';
 
 /** Lowercase text without punctuation, used to compare interim and final wording of the same utterance. */
 export const compactText = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
 
 // `\b` is ASCII-only in JavaScript, so accented starters like "qué" need a Unicode-aware word end.
 const startsWith = (words: string) => new RegExp(`^(?:${words})(?![\\p{L}\\p{N}])`, 'iu');
-const fillers = /^(?:(?:so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|oh|um+|uh+|hmm+|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
+const fillers = /^(?:(?:hey|hi|hello|thanks|thank you|so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|oh|um+|uh+|hmm+|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
 const english = [
   startsWith('what|why|when|where|which|who|whom|whose|how|can|could|would|will|should|shall|may|do|does|did|is|are|was|were|have|has'),
   startsWith("tell me|tell us|share an example|share a time|give me an example|give an example|describe|explain|walk me through|walk us through|talk me through|talk us through|i'd like you to|i would like you to|i'd like to hear|i would like to hear|i want you to|i'm curious|i am curious|let's talk about|let's discuss|let me ask|(?:my |the |one |another |a )?(?:next |first |last |final |follow-up |followup )?question"),
@@ -16,6 +16,14 @@ const english = [
 const tasks = startsWith("given|implement|write|find|return|design|calculate|suppose|assume|imagine|compare|define|elaborate|talk about|you are given|you're given|let's say|say you|if you had to|if you were");
 // "What I did was…" and "…, I would use a hash map" are the candidate talking, not a question.
 const statement = /^(?:what|how|why|when|where|which|who)\s+(?:i|we)(?:'m|'ve|'d|'ll|'re)?(?![\p{L}\p{N}])/iu;
+// A question that ends a longer utterance ("not much, how are you doing") unless a statement leads into it ("not sure what is best").
+const trailingQuestion = /(?<![\p{L}\p{N}'])(?:(?:how|what|why|when|where|which|who)(?:'s|'re|\s+(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|about))|(?:are|do|did|can|could|would|will|have|is)\s+(?:you|we|they|it|there))(?:\s+[\p{L}\p{N}'-]+){0,6}\s*$/iu;
+const statementLead = /(?<![\p{L}\p{N}'])(?:that|this|it|there|he|she|they|we|i|you|know|knew|wonder|understand|understood|see|sure|idea|explain|tell|told|ask|asked|remember|decide|decided|learn|learned|show|about|of|on)[\s,]*$/iu;
+const endsWithQuestion = (value: string) => {
+  if (/(?<![\p{L}\p{N}'])(?:and|how about|what about)\s+you\s*$/iu.test(value)) return true;
+  const match = trailingQuestion.exec(value);
+  return !!match && !statementLead.test(value.slice(0, match.index));
+};
 const firstPersonPlan = /(?<![\p{L}\p{N}'])(?:i|we)(?:'d|'ll|'m going to| would| will| am going to| are going to| think| guess)(?![\p{L}\p{N}])(?! like you| love you| want you)/iu;
 // Chrome's recognizer adds no punctuation, so each supported language needs its own question cues.
 const localized: Record<string, RegExp[]> = {
@@ -37,7 +45,7 @@ export function likelyQuestion(text: string, language = 'en-US') {
   const spoken = value.replace(fillers, '');
   if (statement.test(spoken) || firstPersonPlan.test(value)) return false;
   const local = localizedStatements[baseLanguage(language)]?.test(value) ? [] : localized[baseLanguage(language)] ?? [];
-  return tasks.test(value) || [...english, ...local].some(pattern => pattern.test(spoken) || pattern.test(value));
+  return tasks.test(value) || [...english, ...local].some(pattern => pattern.test(spoken) || pattern.test(value)) || endsWithQuestion(spoken);
 }
 
 /** Whether an utterance stops mid-phrase ("Can you walk me through…"), so the next one probably finishes the question. */
@@ -51,6 +59,7 @@ export const draftReady = (text: string, language = 'en-US') => text.trim().leng
 
 export function questionKind(question: string): QuestionKind | '' {
   if (!question.trim()) return '';
+  if (/\b(how are you|how're you|how you doing|how's (it going|your|everything|things|life)|how (was|is) your (day|weekend|morning|week)|how have you been|how are things|what'?s up|nice to meet you|good (morning|afternoon|evening))\b/i.test(question)) return 'SMALL TALK';
   if (/\b(tell (me|us) about|(a )?time (when )?you|disagree[ds]?|challenges?|conflicts?|failures?|leadership|strengths?|weakness(es)?|mistakes?)\b/i.test(question)) return 'BEHAVIORAL';
   if (/\b(code|coding|implement|algorithms?|functions?|arrays?|linked lists?|trees?|sort(ing|ed)?(?! of\b)|reverse|complexity|big o|recursion|write an?|binary search)\b/i.test(question)) return 'CODING';
   if (/\b(what|how|why|when|where|which|explain|describe|difference|compare)\b/i.test(question)) return 'TECHNICAL';
@@ -76,7 +85,8 @@ export function parseAnswer(answer: string): AnswerBlock[] {
     if (code) { code.push(raw.replace(/\s+$/, '')); continue; }
     const line = raw.trim();
     if (!line || /^([-*_])(\s*\1){2,}$/.test(line)) continue;
-    const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/) || line.match(/^\*\*([^*]+)\*\*[:：]?$/);
+    // A bold-only line is a heading when it reads like a title; a bold sentence stays a paragraph.
+    const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/) || line.match(/^\*\*([^*.?!]{1,48}?)[:：]?\*\*[:：]?$/);
     if (heading) { blocks.push({ type: 'heading', text: heading[1].replace(/\*\*/g, '').replace(/[:：]$/, '').trim() }); continue; }
     const bullet = line.match(/^•\s*(.+)$/) || line.match(/^[-*–]\s+(.+)$/);
     if (bullet) { blocks.push({ type: 'bullet', text: bullet[1] }); continue; }

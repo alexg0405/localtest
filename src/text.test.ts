@@ -18,6 +18,11 @@ describe('likelyQuestion', () => {
     expectEach(['Then return the result.', 'Next, find the maximum', 'So what I did was add a cache.', 'Okay, so given the constraints, I would use a hash map.', 'What I did was add a cache', 'How we handled it was with retries', "What I'd do is shard by user"], likelyQuestion, false);
   });
 
+  it('catches greetings and questions at the end of an utterance', () => {
+    expectEach(['hey what\'s up', 'not much how are you doing', "I'm really doing good how are you", 'hi how are you', "thanks for having me how's your day going", "I'm good and you", 'that makes sense can you give an example', 'we covered hash maps what about collisions', 'Thank you, how was your weekend'], likelyQuestion, true);
+    expectEach(['I know how it works', "I'm not sure what is best", 'that is it', 'we used Kafka because it is fast', "I think that's what we did", 'hello', 'not much', "I'm doing good", 'let me explain how it is built'], likelyQuestion, false);
+  });
+
   it('accepts question punctuation in any language', () => {
     expectEach(['这是一个问题？', '¿Puedes explicarlo', 'You used React?"'], likelyQuestion, true);
   });
@@ -51,6 +56,9 @@ describe('question helpers', () => {
     expect(questionKind('What sort of projects have you worked on?')).toBe('TECHNICAL');
     expect(questionKind('What street do you live on?')).toBe('TECHNICAL');
     expect(questionKind('Our team values ownership')).toBe('DISCUSSION');
+    expect(questionKind('not much how are you doing')).toBe('SMALL TALK');
+    expect(questionKind("hey what's up")).toBe('SMALL TALK');
+    expect(questionKind("How's your day going?")).toBe('SMALL TALK');
   });
 
   it('isFollowUp needs earlier conversation', () => {
@@ -101,6 +109,8 @@ describe('parseAnswer', () => {
       { type: 'paragraph', text: 'O(1)' },
     ]);
     expect(parseAnswer('**Note** this matters')).toEqual([{ type: 'paragraph', text: '**Note** this matters' }]);
+    expect(parseAnswer('**Interpreting this as: "How do I solve Two Sum?"**')).toEqual([{ type: 'paragraph', text: '**Interpreting this as: "How do I solve Two Sum?"**' }]);
+    expect(parseAnswer('**Key concepts:**')).toEqual([{ type: 'heading', text: 'Key concepts' }]);
     expect(parseAnswer('- KEY POINT')).toEqual([{ type: 'bullet', text: 'KEY POINT' }]);
   });
 

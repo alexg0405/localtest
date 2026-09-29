@@ -125,6 +125,14 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
   reset() { if (this.active && this.recognition) { this.resetting = true; try { this.recognition.abort(); } catch { this.resetting = false; } } }
 }
 
+/** Deepgram Nova-3 URL; keyterms boost words that general models mishear (up to 100 terms). */
+export function deepgramUrl(language: string, keyterms: string[] = [], live = true) {
+  const query = new URLSearchParams({ model: 'nova-3', language: language === 'zh-CN' ? 'zh' : language });
+  if (live) for (const [key, value] of Object.entries({ interim_results: 'true', smart_format: 'true', punctuate: 'true', endpointing: '300', utterance_end_ms: '1000', vad_events: 'true' })) query.set(key, value);
+  for (const term of keyterms) query.append('keyterm', term);
+  return `wss://api.deepgram.com/v1/listen?${query}`;
+}
+
 /** Deepgram live WebSocket transcription. The API key travels in the WebSocket
  * subprotocol (not the URL); audio is streamed directly from the mic to Deepgram. */
 export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
@@ -135,7 +143,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
   private callbacks: SpeechCallbacks | null = null;
   private confirmed = '';
   private discardUntil = 0;
-  constructor(private apiKey: string, private language = 'en-US', private deviceId = '') {}
+  constructor(private apiKey: string, private language = 'en-US', private deviceId = '', private keyterms: string[] = []) {}
 
   // The browser rejects keys with spaces or unusual characters as WebSocket subprotocols, and its error message
   // repeats the key, so never surface that message.
@@ -146,9 +154,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
 
   static async checkConnection(apiKey: string, language = 'en-US') {
     if (!apiKey.trim()) throw new Error('Enter a Deepgram API key first.');
-    const lang = language === 'zh-CN' ? 'zh' : language;
-    const query = new URLSearchParams({ model: 'nova-2', language: lang });
-    const socket = DeepgramSpeechToTextProvider.open(`wss://api.deepgram.com/v1/listen?${query}`, apiKey);
+    const socket = DeepgramSpeechToTextProvider.open(deepgramUrl(language, [], false), apiKey);
     await new Promise<void>((resolve, reject) => {
       let opened = false; const timeout = window.setTimeout(() => { socket.close(); reject(new Error('Connection timed out.')); }, 10000);
       socket.onopen = () => { opened = true; window.clearTimeout(timeout); socket.close(1000, 'Connection check complete'); resolve(); };
@@ -164,10 +170,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
     try { await this.microphone.start(callbacks.onVoiceActivity); }
     catch (reason) { this.active = false; this.release(); throw reason; }
     if (!this.active || !this.microphone.stream) { this.release(); return; }
-    const deepgramLanguage = this.language === 'zh-CN' ? 'zh' : this.language;
-    const query = new URLSearchParams({ model: 'nova-2', language: deepgramLanguage, interim_results: 'true', smart_format: 'true', punctuate: 'true', endpointing: '300', utterance_end_ms: '1000', vad_events: 'true' });
-    const url = `wss://api.deepgram.com/v1/listen?${query.toString()}`;
-    try { this.socket = DeepgramSpeechToTextProvider.open(url, this.apiKey); }
+    try { this.socket = DeepgramSpeechToTextProvider.open(deepgramUrl(this.language, this.keyterms), this.apiKey); }
     catch (reason) { this.active = false; this.release(); throw reason; }
     const socket = this.socket;
     await new Promise<void>((resolve, reject) => {

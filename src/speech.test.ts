@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, type SpeechCallbacks } from './speech';
+import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, deepgramUrl, type SpeechCallbacks } from './speech';
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 function recordingCallbacks() {
@@ -21,6 +21,24 @@ class FakeWebSocket {
   }
   close() { /* Nothing to close. */ }
 }
+
+describe('deepgramUrl', () => {
+  it('streams with Nova-3 and boosts each key term', () => {
+    const url = new URL(deepgramUrl('en-US', ['LeetCode', 'Two Sum']));
+    expect(url.origin + url.pathname).toBe('wss://api.deepgram.com/v1/listen');
+    expect(url.searchParams.get('model')).toBe('nova-3');
+    expect(url.searchParams.getAll('keyterm')).toEqual(['LeetCode', 'Two Sum']);
+    expect(url.search).toContain('keyterm=Two+Sum');
+    expect(url.searchParams.get('interim_results')).toBe('true');
+  });
+
+  it('maps Mandarin and leaves streaming options out of the connection check', () => {
+    const url = new URL(deepgramUrl('zh-CN', [], false));
+    expect(url.searchParams.get('language')).toBe('zh');
+    expect(url.searchParams.has('interim_results')).toBe(false);
+    expect(url.searchParams.has('keyterm')).toBe(false);
+  });
+});
 
 describe('DeepgramSpeechToTextProvider', () => {
   beforeEach(() => { vi.stubGlobal('WebSocket', FakeWebSocket); });

@@ -12,6 +12,10 @@ The Tauri 2 shell is scaffolded as an installable desktop app, including a Rooms
 
 If macOS blocks the microphone, open the site in Chrome and allow microphone access for `127.0.0.1` in the address bar/site settings. If speech recognition is unavailable or network speech processing is disabled, type the question in the manual field. For model errors, confirm the endpoint and model name, then verify that the endpoint accepts browser CORS requests.
 
+## Tests
+
+Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer). They cover question detection, answer formatting, the OpenAI-compatible and demo answer providers (with `fetch` mocked), Deepgram message handling, and how browser speech recognition starts, restarts, and fails.
+
 ## Providers
 
 - **Speech recognition:** choose the browser's built-in `SpeechRecognition` / `webkitSpeechRecognition` adapter, or select Deepgram streaming and enter an API key in Settings. Both run through a replaceable `SpeechToTextProvider` interface. The local Web Audio meter detects room voice activity to confirm the mic is picking up sound; it does not record or transmit audio itself. Browser transcription may use its speech service; Deepgram mode streams microphone audio directly to Deepgram. The API key stays in memory and is sent in the WebSocket handshake, not its URL.

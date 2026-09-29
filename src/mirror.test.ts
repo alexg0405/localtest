@@ -72,6 +72,17 @@ describe('MirrorConnection', () => {
     expect(requests).toHaveLength(1);
   });
 
+  it('sends its state again after taking the mirror back, even with a send queued when it lost it', async () => {
+    const { connection, source } = connect();
+    source.emit('hello', { connection: 'c1', status: status('this') });
+    connection.publish(state('A')); connection.publish(state('B')); // B waits behind A.
+    source.emit('status', status('other')); requests[0].reply(204); await settle();
+    expect(requests).toHaveLength(1); // Not sent while another tab is mirrored.
+    source.emit('status', status('this'));
+    connection.publish(state('B'));
+    expect(requests.map(request => request.body.state.entries[0].question)).toEqual(['A', 'B']);
+  });
+
   it('reports when mirroring stops or the server refuses the stream', () => {
     const first = connect();
     first.source.emit('stopped', {});

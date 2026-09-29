@@ -50,9 +50,16 @@ export function likelyQuestion(text: string, language = 'en-US') {
 
 /** Whether an utterance stops mid-phrase ("Can you walk me through…"), so the next one probably finishes the question. */
 export function endsMidPhrase(text: string) {
+  const asked = /[?？]["'”)\]]*\s*$/u.test(text);
   const value = text.trim().replace(/[?？.,!…:;"'”)\]]+$/u, '');
-  return value.split(/\s+/).length >= 3 && /(?<![\p{L}\p{N}'])(through|about|of|for|with|to|from|between|the|a|an|your|my|our|their|and|or|but|how|what|why|when|which|that|if|in|on|at|by|like|is|are|was|were)$/iu.test(value);
+  if (value.split(/\s+/).length < 3) return false;
+  // With a question mark, only words that cannot end a finished question count ("what are you proud of?" is finished).
+  // Without one, also verbs that need an object in interview questions ("how would you design…").
+  return (asked ? /(?<![\p{L}\p{N}'])(through|between|the|a|an|your|my|our|their|and|or|but)$/iu : /(?<![\p{L}\p{N}'])(through|about|of|for|with|to|from|between|the|a|an|your|my|our|their|and|or|but|how|what|why|when|which|that|if|in|on|at|by|like|is|are|was|were|design|implement|explain|describe|compare|define|optimize|approach|handle|tell|walk|give|share|show|name)$/iu).test(value);
 }
+
+/** Whether an utterance opens like a reply ("sure…", "yeah…", "I think…") rather than finishing someone else's sentence. */
+export const startsLikeReply = (text: string) => /^(?:sure|yes|yeah|yep|yup|no|nope|nah|okay|ok|right|well|um+|uh+|hmm+|great|thanks|thank you|absolutely|definitely|of course|good question|that's|it's|i|i'm|i've|i'd|i'll|my|we)(?![\p{L}\p{N}'])/iu.test(text.trim().replace(/[‘’]/g, "'"));
 
 /** Whether an interim transcript is long enough to start a draft answer (CJK packs more meaning per character). */
 export const draftReady = (text: string, language = 'en-US') => text.trim().length >= (/^(ja|zh)$/.test(baseLanguage(language)) ? 8 : 24);

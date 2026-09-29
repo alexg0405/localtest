@@ -130,13 +130,14 @@ ui.ask.addEventListener('submit', async event => {
 
 // EventSource reconnects on its own after brief drops, but gives up after a refused request or when a locked phone suspends
 // it, so reconnect by hand and check first whether the link still exists.
-let source: EventSource | null = null; let retryTimer = 0; let attempts = 0;
+let source: EventSource | null = null; let retryTimer = 0; let attempts = 0; let lastHeard = Date.now();
 function connect() {
-  window.clearTimeout(retryTimer); source?.close();
+  window.clearTimeout(retryTimer); source?.close(); lastHeard = Date.now();
   const current = new EventSource('events'); source = current;
-  current.addEventListener('open', () => { attempts = 0; connected = true; render(); });
+  current.addEventListener('open', () => { attempts = 0; connected = true; lastHeard = Date.now(); render(); });
+  current.addEventListener('ping', () => { lastHeard = Date.now(); });
   current.addEventListener('state', event => {
-    const data = JSON.parse((event as MessageEvent).data);
+    const data = JSON.parse((event as MessageEvent).data); lastHeard = Date.now();
     const listening = state?.listening; laptop = data.laptop; if (data.state) state = data.state;
     if (state?.listening !== listening) pending = false;
     render();
@@ -151,5 +152,8 @@ function connect() {
     }, Math.min(8000, 1000 * 2 ** attempts++));
   });
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !ended && !connected) connect(); });
+// The laptop pings every 20 s. Silence for 45 s means the connection died without an error (a locked screen, a Wi-Fi change).
+const stale = () => Date.now() - lastHeard > 45_000;
+window.setInterval(() => { if (!ended && connected && stale()) { connected = false; render(); connect(); } }, 10_000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !ended && (!connected || stale())) connect(); });
 connect(); render();

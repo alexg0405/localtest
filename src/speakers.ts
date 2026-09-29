@@ -13,7 +13,7 @@ export type SpokenLine = { id: number; text: string; speaker?: Speaker; by?: Spe
 const leadIn = String.raw`^(?:(?:so|okay|ok|um+|uh+|and|yeah|yes|sure|well|right|actually|basically|alright|all right)[\s,.]+)*`;
 const wordEnd = String.raw`(?![\p{L}\p{N}'])`;
 // The candidate checking something with the interviewer ("can I assume…", "do you want me to…"), but not "can I ask you…".
-const clarifying = String.raw`(?:(?:can|could|may) i(?! ask)|should i|shall i|do i need to|is it (?:ok|okay|fine) if i|would it be (?:ok|okay|fine) if i|do you want me to|would you like me to)`;
+const clarifying = String.raw`(?:(?:can|could|may) i(?! ask| get you| have you)|should i|shall i|do i need to|is it (?:ok|okay|fine) if i|would it be (?:ok|okay|fine) if i|do you want me to|would you like me to)`;
 const clarifyingQuestion = new RegExp(`${leadIn}${clarifying}${wordEnd}`, 'iu');
 const candidateQuestion = new RegExp(`${leadIn}(?:${clarifying}|do i|am i|does that make sense|is that (?:right|correct|ok|okay))${wordEnd}`, 'iu');
 // The interviewer steering the conversation.

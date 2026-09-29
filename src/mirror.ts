@@ -60,7 +60,7 @@ export class MirrorConnection {
     this.source.onerror = () => { if (this.source.readyState === EventSource.CLOSED) { this.owner = false; handlers.stopped(); } };
   }
   private update(status: MirrorStatus) {
-    const owner = status.owner === 'this'; if (owner && !this.owner) this.sent = ''; // Send everything again to a new owner.
+    const owner = status.owner === 'this'; if (owner !== this.owner) { this.sent = ''; this.pending = null; } // Send everything again after a change of owner.
     this.owner = owner; this.handlers.status(status);
   }
   /** Mirrors this tab instead of the one currently mirrored. */

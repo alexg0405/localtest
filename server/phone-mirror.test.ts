@@ -134,6 +134,14 @@ describe('PhoneMirror', () => {
     phone.close(); after.close();
   });
 
+  it('pings phones with an event they can see, so they notice a dead connection', async () => {
+    await mirror.stop(); mirror = new PhoneMirror({ root: process.cwd(), port: 0, addresses: () => ['127.0.0.1'], heartbeatMs: 50 });
+    const url = await start();
+    const phone = await stream(`${url}events`); await phone.next();
+    expect(await phone.until(item => item.event === 'ping')).toEqual({ event: 'ping', data: {} });
+    phone.close();
+  });
+
   it('ends phone streams when stopped, and uses a new secret link next time', async () => {
     const url = await start();
     const laptop = await stream(`${api}/events?tab=tab-a`); await laptop.next();

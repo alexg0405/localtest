@@ -60,6 +60,7 @@ const running = (child: ChildProcessWithoutNullStreams) => child.pid !== undefin
 /** Keeps one Claude Code process booted and waiting for the next question, so answers skip its startup. */
 export class WarmClaude {
   private waiting: { key: string; child: ChildProcessWithoutNullStreams; since: number } | null = null; private closed = false;
+  private refresh: NodeJS.Timeout | null = null;
   constructor(private cwd: string, private maxIdleMs = 10 * 60_000) {}
 
   private ready(key: string) { const waiting = this.waiting; return !!waiting && waiting.key === key && running(waiting.child) && Date.now() - waiting.since < this.maxIdleMs; }
@@ -69,6 +70,11 @@ export class WarmClaude {
     const key = JSON.stringify([binary, model, system]); if (this.closed || this.ready(key)) return;
     this.waiting?.child.kill();
     this.waiting = { key, child: startClaude(binary, model, system, this.cwd), since: Date.now() };
+    // Swap in a fresh process shortly before this one counts as stale, so a quiet stretch of the interview (a long coding
+    // question, or opening Roomside early) does not leave the next answer waiting for Claude Code to start.
+    if (this.refresh) clearTimeout(this.refresh);
+    this.refresh = setTimeout(() => { if (this.waiting?.key !== key) return; this.waiting.child.kill(); this.waiting = null; this.prepare(binary, model, system); }, Math.max(50, this.maxIdleMs - Math.min(30_000, this.maxIdleMs / 10)));
+    this.refresh.unref();
   }
 
   /** The waiting process when it was started the same way, otherwise a new one. Either way, the next one starts now. */
@@ -80,7 +86,7 @@ export class WarmClaude {
     return child;
   }
 
-  close() { this.closed = true; this.waiting?.child.kill(); this.waiting = null; }
+  close() { this.closed = true; if (this.refresh) clearTimeout(this.refresh); this.waiting?.child.kill(); this.waiting = null; }
 }
 
 const friendlyError = (message: string) => /not logged in|\/login/i.test(message) ? 'Claude Code is not signed in to your Claude subscription. Run `claude auth login` once, then try again.' : message;

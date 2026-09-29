@@ -55,7 +55,7 @@ function listen(server: Server, port: number) {
 const phoneHeaders = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' };
 const pageSecurity = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-export type MirrorOptions = { root: string; port?: number; addresses?: () => string[] };
+export type MirrorOptions = { root: string; port?: number; addresses?: () => string[]; heartbeatMs?: number };
 
 export class PhoneMirror {
   private server: Server | null = null;
@@ -91,8 +91,12 @@ export class PhoneMirror {
     const port = await listen(server, this.options.port ?? 5174);
     this.server = server; this.token = randomBytes(18).toString('base64url');
     this.links = addresses.map(address => { const url = `http://${address}:${port}/${this.token}/`; return { url, qr: renderSVG(url, { ecc: 'M', border: 2 }).replace('<svg ', '<svg shape-rendering="crispEdges" ') }; });
-    // Comments keep idle streams open through routers and let closed ones be noticed.
-    this.heartbeat = setInterval(() => { for (const res of [...this.phones, ...[...this.laptops].map(laptop => laptop.res)]) write(res, ': ping\n\n'); }, 20_000); this.heartbeat.unref();
+    // Keeps idle streams open through routers. Phones get an event they can see, so a silently dead connection (after the
+    // screen locks or Wi-Fi changes) shows up as missing pings and they reconnect.
+    this.heartbeat = setInterval(() => {
+      for (const res of this.phones) write(res, event('ping', {}));
+      for (const { res } of this.laptops) write(res, ': ping\n\n');
+    }, this.options.heartbeatMs ?? 20_000); this.heartbeat.unref();
   }
 
   async stop() {

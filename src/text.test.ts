@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
+import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
 
 const expectEach = (values: string[], check: (value: string) => boolean, expected: boolean) => { for (const value of values) expect(check(value), value).toBe(expected); };
 
@@ -72,8 +72,13 @@ describe('question helpers', () => {
   });
 
   it('endsMidPhrase spots questions cut off by a pause', () => {
-    expectEach(['Can you walk me through', 'Tell me about your', "What's the difference between", 'Can you walk me through?'], endsMidPhrase, true);
-    expectEach(['What is a hash map', 'Why?', 'What is', 'Can you walk me through your latest project?'], endsMidPhrase, false);
+    expectEach(['Can you walk me through', 'Tell me about your', "What's the difference between", 'Can you walk me through?', 'How would you design', 'Can you explain'], endsMidPhrase, true);
+    expectEach(['What is a hash map', 'Why?', 'What is', 'Can you walk me through your latest project?', 'Why is that?', 'What are you most proud of?', 'Where are you from?', 'How would you design?', 'What did you build'], endsMidPhrase, false);
+  });
+
+  it('startsLikeReply spots answers that should not be merged into the question before them', () => {
+    expectEach(['Sure.', 'yeah so basically', "I'd start with a hash map", 'good question'], startsLikeReply, true);
+    expectEach(['your latest project', 'a URL shortener', 'the difference between them', 'surely not'], startsLikeReply, false);
   });
 });
 

@@ -22,6 +22,7 @@ describe('guessSpeaker', () => {
     expect(isClarifyingQuestion('so should I start with the brute force approach')).toBe(true);
     expect(isClarifyingQuestion('do you want me to code it up')).toBe(true);
     expect(isClarifyingQuestion('can I ask you about your last project')).toBe(false);
+    expect(isClarifyingQuestion('could I get you to walk me through it')).toBe(false);
     expect(isClarifyingQuestion('does that make sense')).toBe(false); // Interviewers say it too.
     expect(guessSpeaker('can I ask you about your last project')).toBe('interviewer');
   });

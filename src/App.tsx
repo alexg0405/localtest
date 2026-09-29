@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Activity, AudioLines, BookUser, ChevronDown, Clipboard, Cpu, FileText, HelpCircle, Mic, MicOff, Pin, Send, Settings2, Smartphone, Sparkles, Square, Upload, Wifi, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
 import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, type LLMProvider, type Mode } from './providers';
@@ -11,7 +11,7 @@ import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
 import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, speakerInstructions, speakerPrompt, voiceGuess, voiceRoles, voiceSamples, type Speaker, type SpeakerSource } from './speakers';
 import type { VoicePrint } from './voice';
-import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
+import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
 import { PastAnswer, answerContent, questionLabel, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
 
 type Line = { id: number; text: string; time: string; at: number; confidence?: number; speaker?: Speaker; by?: SpeakerSource; voice?: number; print?: VoicePrint; heard?: Speaker };
@@ -29,6 +29,13 @@ const mod = isMac ? '⌘' : 'Ctrl';
 const listenKeys = isMac ? ['⌘', '⇧', 'space'] : ['Ctrl', 'space'];
 const clearTimer = (timer: { current: number | null }) => { if (timer.current) window.clearTimeout(timer.current); timer.current = null; };
 
+
+type TranscriptLinesProps = { lines: Line[]; speakers: boolean; filter: 'all' | Speaker; onFlip(id: number): void };
+/** The heard lines; memoized, so a streaming answer or live interim words do not re-render every line. */
+const TranscriptLines = memo(function TranscriptLines({ lines, speakers, filter, onFlip }: TranscriptLinesProps) {
+  return <>{lines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (filter === 'all' && index && lines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => onFlip(line.id)} title="Wrong person? Click to switch">{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p></div>)}
+    {speakers && filter !== 'all' && !lines.length && <div className="filter-empty">No lines from {filter === 'interviewer' ? 'the interviewer' : 'you'} yet.</div>}</>;
+});
 
 export default function App() {
   const [active, setActive] = useState(false); const activeRef = useRef(false); const [micReady, setMicReady] = useState(false);
@@ -50,6 +57,7 @@ export default function App() {
   const [speakers, setSpeakers] = useState(true); const [transcriptFilter, setTranscriptFilter] = useState<'all' | Speaker>('all'); const [speakerTick, setSpeakerTick] = useState(0);
   const lineId = useRef(0); const speakerCheck = useRef<AbortController | null>(null); const speakerPauseUntil = useRef(0);
   // Your voice sample from "Learn my voice": a few numbers per stretch of speech, kept in memory for this tab only.
+  const voiceIds = useRef(new Map<string, number>()); // Deepgram numbers voices afresh on every connection; these are unique per page.
   const myVoice = useRef<VoicePrint[]>([]); const [voiceSetup, setVoiceSetup] = useState<{ state: 'idle' | 'recording' | 'done' | 'error'; seconds?: number; message?: string }>({ state: 'idle' });
   const [boostVocabulary, setBoostVocabulary] = useState(false); const [onDevice, setOnDevice] = useState<OnDeviceStatus | 'checking' | 'installing' | null>(null); const [micNotice, setMicNotice] = useState('');
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
@@ -134,8 +142,11 @@ export default function App() {
     transcriptRef.current = next; setTranscript(next);
   }, []);
 
-  const commitSpeech = useCallback((text: string, confidence?: number, voice?: number) => {
+  const commitSpeech = useCallback((text: string, confidence?: number, deepgramVoice?: number) => {
     const utterance = text.trim(); if (!utterance) return;
+    const voiceKey = `${sessionId.current}:${deepgramVoice}`;
+    if (deepgramVoice !== undefined && !voiceIds.current.has(voiceKey)) voiceIds.current.set(voiceKey, voiceIds.current.size);
+    const voice = deepgramVoice === undefined ? undefined : voiceIds.current.get(voiceKey);
     // A Deepgram voice keeps the label it has had. Otherwise compare how the line sounded with each person's voice so far:
     // the words decide unless they say nothing or the voice clearly disagrees, and the background check has the last word.
     const known = voice === undefined ? undefined : voiceRoles(transcriptRef.current).get(voice);
@@ -145,23 +156,29 @@ export default function App() {
     const speaker = known ?? (sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded);
     addLine({ text: utterance, time: stamp(), at: Date.now(), confidence, voice, print, heard: sounds?.speaker, speaker, by: known || (sounds && speaker === sounds.speaker && speaker !== worded) ? 'voice' : 'guess' });
     const uncertain = !!confidence && confidence < 0.45; const previous = lastQuestion.current;
-    // Your own clarifying questions ("can I assume…") need no suggested answer.
-    if (likelyQuestion(utterance, sessionLanguage.current) && !isClarifyingQuestion(utterance)) {
+    // Your own questions need no suggested answer: clarifying ones ("can I assume…"), and anything from a Deepgram voice known to be yours.
+    const own = isClarifyingQuestion(utterance) || known === 'candidate';
+    if (likelyQuestion(utterance, sessionLanguage.current) && !own) {
       lastQuestion.current = { text: utterance, at: Date.now() };
       // The draft answer started from interim words already matches the final wording, so keep it.
       if (partialAnswer.current && compactText(utterance) === compactText(partialQuestion.current)) { partialAnswer.current = false; partialQuestion.current = ''; setQuestion(utterance); setLowConfidence(uncertain); }
       else { void generate(utterance, { uncertain }); setStatus('Question detected'); }
     }
-    else if (previous && question === previous.text && Date.now() - previous.at < 5000 && endsMidPhrase(previous.text)) {
+    // Not when the next words are a reply ("Sure…") or come from your voice.
+    else if (!own && speaker !== 'candidate' && !startsLikeReply(utterance) && previous && question === previous.text && Date.now() - previous.at < 5000 && endsMidPhrase(previous.text)) {
       // A pause split the question ("Can you walk me through" … "your latest project"); answer the whole thing.
       const merged = `${previous.text} ${utterance}`; lastQuestion.current = { text: merged, at: Date.now() };
       void generate(merged, { uncertain, replace: true }); setStatus('Question continued · updating…');
+    }
+    // The end of a question whose draft already includes it ("…a URL shortener" after "How would you design"): keep that answer.
+    else if (!own && partialQuestion.current && compactText(partialQuestion.current).endsWith(compactText(utterance))) {
+      lastQuestion.current = { text: partialQuestion.current, at: Date.now() }; partialAnswer.current = false; partialQuestion.current = ''; setLowConfidence(uncertain);
     }
     else if (partialQuestion.current) { partialAnswer.current = false; partialQuestion.current = ''; abortAnswer(); setAnswer(''); setQuestion(''); setLowConfidence(false); setStatus('No question detected'); }
   }, [addLine, generate, abortAnswer, question]);
 
   const clear = useCallback(() => {
-    abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); speakerCheck.current?.abort(); speakerCheck.current = null;
+    abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear();
     browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
     transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setNewBelow(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
@@ -192,14 +209,29 @@ export default function App() {
     speech.current?.stop(); speech.current = engine === 'deepgram' ? new DeepgramSpeechToTextProvider(deepgramKey, lang, audioDeviceId, keytermsFor(extraTerms)) : new BrowserSpeechToTextProvider(lang, boostVocabulary ? keytermsFor(extraTerms) : []);
     const current = () => sessionId.current === thisSession;
     const showInterim = (text: string) => { interimRef.current = text; setInterim([browserFinal.current, text].filter(Boolean).join(' ')); };
-    const commitBrowserFinal = () => { const text = browserFinal.current; const confidence = browserConfidence.current; browserFinal.current = ''; browserConfidence.current = undefined; browserFinalTimer.current = null; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence); };
-    const scheduleBrowserCommit = () => { clearTimer(browserFinalTimer); browserFinalTimer.current = window.setTimeout(commitBrowserFinal, 450); };
     let draftText = ''; // The question-like words a draft answer is waiting to start from.
+    let lastFinalAt = 0; let silent = false; // Whether the voice detector hears silence now.
+    // Waits while words are still being recognized (for up to 4 s), or briefly after an unfinished-sounding final ("How would
+    // you design…", up to 1.5 s), so a question split by a pause is committed whole. The commit answers it, so a draft still
+    // waiting for the same words is dropped.
+    const commitBrowserFinal = () => {
+      clearTimer(browserFinalTimer); if (!browserFinal.current) return; // Silence and the timer can both call this.
+      const continuing = interimRef.current.trim() && Date.now() - browserFinalSince.current < 4000;
+      if (continuing || (endsMidPhrase(browserFinal.current) && Date.now() - lastFinalAt < 1500)) { scheduleBrowserCommit(); return; }
+      const text = browserFinal.current; const confidence = browserConfidence.current; browserFinal.current = ''; browserConfidence.current = undefined;
+      clearTimer(partialTimer); draftText = ''; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence);
+    };
+    const scheduleBrowserCommit = () => { clearTimer(browserFinalTimer); browserFinalTimer.current = window.setTimeout(commitBrowserFinal, 450); };
     const startDraft = () => { clearTimer(partialTimer); const text = draftText; draftText = ''; if (text && current() && activeRef.current) void latest.current.generate(text, { partial: true }); };
+    if (source === 'claude') ClaudeCodeProvider.warm(claudeModel); // Ready before the first question, however long the page has been open.
     void speech.current.start({
       onListening: listening => { if (!current()) return; if (listening) setMicReady(true); else if (activeRef.current) latest.current.endListening(false); },
-      // When the voice stops after a complete-sounding question, start the draft now rather than waiting out the timer.
-      onVoiceActivity: detected => { if (!current()) return; setVoiceDetected(detected); if (!detected && draftText && !endsMidPhrase(draftText)) startDraft(); },
+      // When the voice stops, commit a finished-sounding final now, or start the draft for a complete-sounding question, rather
+      // than waiting out timers (which Chrome slows to once a second while the tab is in the background).
+      onVoiceActivity: detected => {
+        if (!current()) return; setVoiceDetected(detected); silent = !detected; if (detected) return;
+        if (browserFinal.current) commitBrowserFinal(); else if (draftText && !endsMidPhrase(draftText)) startDraft();
+      },
       onInterim: text => {
         if (!current()) return;
         showInterim(text);
@@ -220,8 +252,9 @@ export default function App() {
         if (engine === 'browser') {
           // Chrome can split one question into several final segments; merge segments that arrive close together.
           if (!browserFinal.current) browserFinalSince.current = Date.now();
+          lastFinalAt = Date.now();
           browserFinal.current = [browserFinal.current, result.text].filter(Boolean).join(' ').trim(); browserConfidence.current = result.confidence ?? browserConfidence.current; showInterim('');
-          scheduleBrowserCommit();
+          if (silent) { clearTimer(browserFinalTimer); commitBrowserFinal(); } else scheduleBrowserCommit(); // Already quiet: no need to wait.
         } else { showInterim(''); latest.current.commitSpeech(result.text, result.confidence, result.speaker); }
       },
       onError: message => { if (current()) setError(message); },
@@ -231,7 +264,7 @@ export default function App() {
       activeRef.current = false; setActive(false); setMicReady(false); setVoiceDetected(false);
       setError(reason?.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow access in browser settings, then try again.' : reason?.name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or enter a question manually.' : reason?.message || 'Could not start speech recognition.');
     });
-  }, [speechEngine, deepgramKey, language, audioDeviceId, extraTerms, boostVocabulary, stopReading, abortAnswer]);
+  }, [speechEngine, deepgramKey, language, audioDeviceId, extraTerms, boostVocabulary, source, claudeModel, stopReading, abortAnswer]);
 
   // A typed question joins the transcript like a spoken one, so later answers remember it.
   const ask = useCallback((text: string) => {
@@ -357,7 +390,8 @@ export default function App() {
   // Only kept in this browser when the person opts in; turning it off deletes the saved copy.
   useEffect(() => {
     if (!keepContext) { forgetSavedContext(); setContextNotice(''); return; }
-    setContextNotice(saveContext({ role, about, files }) ? '' : 'This browser would not save your context, so it stays in memory for this session.');
+    const timer = window.setTimeout(() => setContextNotice(saveContext({ role, about, files }) ? '' : 'This browser would not save your context, so it stays in memory for this session.'), 400);
+    return () => window.clearTimeout(timer);
   }, [keepContext, role, about, files]);
   useEffect(() => { const body = transcriptBody.current; if (body && followTranscript.current) body.scrollTop = body.scrollHeight; }, [transcript, interim, transcriptFilter]);
   // Vocabulary boosting needs Chrome's on-device model; show whether it is ready while Settings is open.
@@ -379,20 +413,20 @@ export default function App() {
     const wait = Math.max(speakerPauseUntil.current - Date.now(), Math.min(1200, waiting[0].at + 4000 - Date.now()), 0);
     const timer = window.setTimeout(() => {
       const lines = transcriptRef.current; const pending = awaitingCheck(lines).slice(0, 12); if (!pending.length) return;
-      const first = lines.indexOf(pending[0]); const check = new AbortController(); speakerCheck.current = check;
+      const first = lines.indexOf(pending[0]); const check = new AbortController(); speakerCheck.current = check; const limit = window.setTimeout(() => check.abort(), 20_000);
       void complete(speakerInstructions, speakerPrompt(lines.slice(Math.max(0, first - 12), first), pending, role), check.signal).then(output => {
         if (check.signal.aborted) return;
         const labels = new Map(parseSpeakerLabels(output, pending.length).map((speaker, index) => [pending[index].id, speaker]));
         const next = transcriptRef.current.map(line => labels.has(line.id) && (line.by === 'guess' || line.by === 'voice') ? { ...line, speaker: labels.get(line.id) ?? line.speaker, by: 'ai' as const } : line);
         transcriptRef.current = next; setTranscript(next);
-      }, () => { speakerPauseUntil.current = Date.now() + 20_000; }) // Keep the guesses and try again a little later.
-        .finally(() => { if (speakerCheck.current === check) { speakerCheck.current = null; setSpeakerTick(tick => tick + 1); } });
+      }, () => { if (speakerCheck.current === check) speakerPauseUntil.current = Date.now() + 20_000; }) // Failed or took over 20 s: keep the guesses and try again a little later (Clear conversation is not a failure).
+        .finally(() => { window.clearTimeout(limit); if (speakerCheck.current === check) { speakerCheck.current = null; setSpeakerTick(tick => tick + 1); } });
     }, wait);
     return () => window.clearTimeout(timer);
   }, [transcript, speakers, speakerModel, role, speakerTick]);
   // Phone mirroring needs the dev server, so its button appears only when the server answers.
   useEffect(() => { void mirrorStatus().then(setMirror); }, []);
-  useEffect(() => { if (panel === 'phone') void mirrorStatus().then(status => { if (status) setMirror(status); }); }, [panel]);
+  useEffect(() => { if (panel === 'phone' && !mirrorConnection.current) void mirrorStatus().then(status => { if (status) setMirror(status); }); }, [panel]);
   const mirrorRunning = !!mirror?.running;
   useEffect(() => {
     if (!mirrorRunning) return;
@@ -412,7 +446,8 @@ export default function App() {
 
   const blocks = parseAnswer(answer);
   const heardMinutes = transcript.length ? Math.max(1, Math.round((transcript[transcript.length - 1].at - transcript[0].at) / 60_000)) : 0;
-  const memoryLabel = !transcript.length || source === 'demo' ? '' : heardCharacters(transcript) > memoryBudget ? ` · remembers the opening and latest part of the conversation (${heardMinutes} min)` : ` · remembers the conversation (${heardMinutes} min)`;
+  const overBudget = useMemo(() => heardCharacters(transcript) > memoryBudget, [transcript]);
+  const memoryLabel = !transcript.length || source === 'demo' ? '' : overBudget ? ` · remembers the opening and latest part of the conversation (${heardMinutes} min)` : ` · remembers the conversation (${heardMinutes} min)`;
   const providerLabel = source === 'claude' ? `${claudeModelLabel(claudeModel)} · your Claude subscription` : source === 'openai' ? `${model.trim() || 'No model set'} · ${(() => { try { return new URL(endpoint).host; } catch { return 'invalid endpoint URL'; } })()}` : 'Offline demo answers';
   // The current card is shown once something is asked (or, before anything is, as the empty placeholder).
   const showCurrent = !!(question || answer || generating || answerError);
@@ -428,7 +463,7 @@ export default function App() {
     });
   });
   const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];
-  const shownLines = speakers && transcriptFilter !== 'all' ? transcript.filter(line => line.speaker === transcriptFilter) : transcript;
+  const shownLines = useMemo(() => speakers && transcriptFilter !== 'all' ? transcript.filter(line => line.speaker === transcriptFilter) : transcript, [speakers, transcriptFilter, transcript]);
   const readAloud = () => {
     if (speaking) { stopReading(); return; }
     if (!('speechSynthesis' in window)) { setAnswerError('Read aloud is not supported in this browser.'); return; }
@@ -450,7 +485,7 @@ export default function App() {
           <div className="listen-card"><div className="listen-icon"><AudioLines size={22}/></div><div className="listen-copy"><strong>{active ? micReady ? 'Listening to conversation' : 'Starting microphone…' : 'Ready to listen'}</strong><span>{active ? 'This device’s microphone only' : 'Start only when everyone has agreed to the practice session'}</span></div><button onClick={() => active ? stop() : start()} className={'listen-button ' + (active ? 'stop' : '')}><span>{active ? <MicOff size={16}/> : <Mic size={16}/>}</span>{active ? 'Stop listening' : 'Start listening'}</button></div>
           {error && <div className="error" role="alert">{error}</div>}{micNotice && <div className="mic-notice">{micNotice}</div>}
           <div className="transcript-card"><div className="transcript-toolbar"><span><span className={'tiny-live ' + (active ? 'active' : '')}/> LIVE TRANSCRIPT</span>{speakers && <div className="speaker-filter" role="group" aria-label="Show lines from">{(['all', 'interviewer', 'candidate'] as const).map(value => <button key={value} className={transcriptFilter === value ? 'active' : ''} aria-pressed={transcriptFilter === value} onClick={() => setTranscriptFilter(value)}>{value === 'all' ? 'All' : value === 'interviewer' ? 'Interviewer' : 'You'}</button>)}</div>}<button onClick={clear} className="text-button" title="Clear conversation"><Trash2 size={13}/> Clear</button></div>
-            <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><div className="wave">〰</div><span>Your conversation will appear here.</span><small>Or enter a question below to try it out.</small></div> : <>{shownLines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (transcriptFilter === 'all' && index && shownLines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => flipSpeaker(line.id)} title="Wrong person? Click to switch">{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p></div>)}{!shownLines.length && <div className="filter-empty">No lines from {transcriptFilter === 'interviewer' ? 'the interviewer' : 'you'} yet.</div>}{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
+            <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><div className="wave">〰</div><span>Your conversation will appear here.</span><small>Or enter a question below to try it out.</small></div> : <><TranscriptLines lines={shownLines} speakers={speakers} filter={transcriptFilter} onFlip={flipSpeaker}/>{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
             <div className="manual-input"><input ref={manualInput} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submitManual(); } }} placeholder="Type a question manually…" aria-label="Question"/><button onClick={submitManual} disabled={!draft.trim()} title="Send question" aria-label="Send question"><Send size={15}/></button></div>
           </div><div className="footnote"><Wifi size={13}/> Local voice activity meter · speech recognition may process audio according to its provider’s settings.</div>
         </div>

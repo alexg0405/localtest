@@ -127,6 +127,18 @@ describe('WarmClaude', () => {
     } finally { claude.close(); }
   });
 
+  it('replaces the waiting process before it goes stale, so a quiet stretch does not cost a cold start', async () => {
+    const cwd = workDir('warm-refresh'); const binary = fakeClaude('claude-warm-refresh', [success], { sleep: 5 }); const claude = new WarmClaude(cwd, 400);
+    try {
+      claude.prepare(binary, 'claude-haiku-4-5', 'Be brief.');
+      await vi.waitFor(() => expect(startedPids(cwd)).toHaveLength(1), soon);
+      const [first] = startedPids(cwd);
+      await vi.waitFor(() => expect(startedPids(cwd)).toHaveLength(2), soon); // Swapped before the 400 ms limit.
+      await vi.waitFor(() => expect(stopped(first)).toBe(true), soon);
+      expect(claude.take(binary, 'claude-haiku-4-5', 'Be brief.').pid).toBe(startedPids(cwd)[1]);
+    } finally { claude.close(); }
+  });
+
   it('starts a new process when the model or system prompt changed, and stops the one that was waiting', async () => {
     const cwd = workDir('warm-changed'); const binary = fakeClaude('claude-warm-changed', [success]); const claude = new WarmClaude(cwd);
     try {

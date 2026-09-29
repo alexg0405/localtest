@@ -143,11 +143,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, cwd: string, cl
   if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return reply(415, { error: 'Send JSON.' });
   if (!binary) return reply(503, { error: 'Claude Code was not found. Install the Claude desktop app or Claude Code, or set CLAUDE_BIN to its path.' });
   let body: any; try { body = JSON.parse(await readBody(req, 1_000_000)); } catch { return reply(400, { error: 'Invalid request.' }); }
-  const { model, system, prompt } = body ?? {};
-  if (!isClaudeModel(model) || typeof system !== 'string' || typeof prompt !== 'string' || !prompt.trim() || system.length > 8000 || prompt.length > 120_000) return reply(400, { error: 'Invalid request.' });
+  const { model, system, prompt, warm } = body ?? {};
+  if (!isClaudeModel(model) || typeof system !== 'string' || typeof prompt !== 'string' || !prompt.trim() || system.length > 8000 || prompt.length > 120_000 || (warm !== undefined && typeof warm !== 'boolean')) return reply(400, { error: 'Invalid request.' });
   res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' });
   const controller = new AbortController(); res.on('close', () => controller.abort()); // The page moved on to another question.
-  await streamAnswer({ child: claude.take(binary, model, system), prompt, signal: controller.signal, onEvent: event => { if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`); } });
+  // One-off requests (warm: false, such as labeling speakers) get their own process and leave the waiting one for the next answer.
+  const child = warm === false ? startClaude(binary, model, system, cwd) : claude.take(binary, model, system);
+  await streamAnswer({ child, prompt, signal: controller.signal, onEvent: event => { if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`); } });
   if (!res.writableEnded) res.end();
 }
 

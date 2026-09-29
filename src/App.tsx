@@ -8,9 +8,10 @@ import { acceptedFiles, extractText } from './documents';
 import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
+import { awaitingCheck, guessSpeaker, parseSpeakerLabels, speakerInstructions, speakerPrompt, voiceRoles, type Speaker, type SpeakerSource } from './speakers';
 import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
 
-type Line = { text: string; time: string; at: number; confidence?: number };
+type Line = { id: number; text: string; time: string; at: number; confidence?: number; speaker?: Speaker; by?: SpeakerSource; voice?: number };
 type AudioInput = { deviceId: string; label: string };
 type AnswerKind = 'answer' | 'followup';
 type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean };
@@ -43,6 +44,8 @@ export default function App() {
   const [checkingSpeech, setCheckingSpeech] = useState(false); const [speechCheckMessage, setSpeechCheckMessage] = useState('');
   const [audioInputs, setAudioInputs] = useState<AudioInput[]>([]); const [audioDeviceId, setAudioDeviceId] = useState(''); const [deviceMessage, setDeviceMessage] = useState('');
   const [clearOnStop, setClearOnStop] = useState(false); const [extraTerms, setExtraTerms] = useState('');
+  const [speakers, setSpeakers] = useState(true); const [transcriptFilter, setTranscriptFilter] = useState<'all' | Speaker>('all'); const [speakerTick, setSpeakerTick] = useState(0);
+  const lineId = useRef(0); const speakerCheck = useRef<AbortController | null>(null); const speakerPauseUntil = useRef(0);
   const [boostVocabulary, setBoostVocabulary] = useState(false); const [onDevice, setOnDevice] = useState<OnDeviceStatus | 'checking' | 'installing' | null>(null); const [micNotice, setMicNotice] = useState('');
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
   const [role, setRole] = useState(savedContext?.role ?? ''); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
@@ -75,9 +78,10 @@ export default function App() {
   const context = useCallback((q: string) => {
     const lines = transcriptRef.current.slice();
     if (lines.length && compactText(lines[lines.length - 1].text) === compactText(q)) lines.pop(); // The question itself is sent separately.
-    const memory = conversationMemory(lines).text;
-    return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, memory && `Conversation so far (oldest first; live speech recognition without speaker labels, so it may contain errors):\n${memory}`].filter(Boolean).join('\n\n');
-  }, [profile]);
+    const named = (line: Line) => speakers && line.speaker ? `${line.speaker === 'interviewer' ? 'Interviewer' : 'Candidate'}: ${line.text}` : line.text;
+    const memory = conversationMemory(lines.map(line => ({ at: line.at, text: named(line) }))).text;
+    return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, memory && `Conversation so far (oldest first; from live speech recognition, so words may be misheard${speakers ? ', and the Interviewer and Candidate labels are automatic guesses' : ''}):\n${memory}`].filter(Boolean).join('\n\n');
+  }, [profile, speakers]);
   const addFiles = useCallback((list: FileList | File[]) => {
     for (const file of Array.from(list)) {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -115,14 +119,16 @@ export default function App() {
     } finally { if (controller.current === current) { controller.current = null; setGenerating(false); } }
   }, [mode, provider, context, stopReading, rememberShown]);
 
-  const addLine = useCallback((line: Line) => {
-    const next = [...transcriptRef.current, line].slice(-3000); // Hours of conversation; Clear conversation empties it.
+  const addLine = useCallback((line: Omit<Line, 'id'>) => {
+    const next = [...transcriptRef.current, { ...line, id: ++lineId.current }].slice(-3000); // Hours of conversation; Clear conversation empties it.
     transcriptRef.current = next; setTranscript(next);
   }, []);
 
-  const commitSpeech = useCallback((text: string, confidence?: number) => {
+  const commitSpeech = useCallback((text: string, confidence?: number, voice?: number) => {
     const utterance = text.trim(); if (!utterance) return;
-    addLine({ text: utterance, time: stamp(), at: Date.now(), confidence });
+    // A Deepgram voice keeps the label it has had; otherwise guess from the words until the background check runs.
+    const known = voice === undefined ? undefined : voiceRoles(transcriptRef.current).get(voice);
+    addLine({ text: utterance, time: stamp(), at: Date.now(), confidence, voice, speaker: known ?? guessSpeaker(utterance, sessionLanguage.current), by: known ? 'voice' : 'guess' });
     const uncertain = !!confidence && confidence < 0.45; const previous = lastQuestion.current;
     if (likelyQuestion(utterance, sessionLanguage.current)) {
       lastQuestion.current = { text: utterance, at: Date.now() };
@@ -139,7 +145,7 @@ export default function App() {
   }, [addLine, generate, abortAnswer, question]);
 
   const clear = useCallback(() => {
-    abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer);
+    abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); speakerCheck.current?.abort(); speakerCheck.current = null;
     browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
     transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setRecent([]); setLowConfidence(false); setError(''); setStatus('Conversation cleared');
@@ -196,7 +202,7 @@ export default function App() {
           if (!browserFinal.current) browserFinalSince.current = Date.now();
           browserFinal.current = [browserFinal.current, result.text].filter(Boolean).join(' ').trim(); browserConfidence.current = result.confidence ?? browserConfidence.current; showInterim('');
           scheduleBrowserCommit();
-        } else { showInterim(''); latest.current.commitSpeech(result.text, result.confidence); }
+        } else { showInterim(''); latest.current.commitSpeech(result.text, result.confidence, result.speaker); }
       },
       onError: message => { if (current()) setError(message); },
       onNotice: message => { if (current()) setMicNotice(message); },
@@ -210,7 +216,7 @@ export default function App() {
   // A typed question joins the transcript like a spoken one, so later answers remember it.
   const ask = useCallback((text: string) => {
     const q = text.trim(); if (!q) return;
-    addLine({ text: q, time: stamp(), at: Date.now() }); void generate(q);
+    addLine({ text: q, time: stamp(), at: Date.now(), speaker: 'interviewer', by: 'typed' }); void generate(q);
   }, [addLine, generate]);
   const submitManual = useCallback(() => { const q = draft.trim(); if (!q) return; setDraft(''); ask(q); }, [draft, ask]);
   const currentPinned = !!pinned && pinned.question === question && pinned.answer === answer;
@@ -274,6 +280,11 @@ export default function App() {
     finally { setMirrorBusy(false); }
   }, []);
   const mirrorHere = useCallback(async () => { setMirrorMessage(''); try { await mirrorConnection.current?.claim(); } catch (reason: any) { setMirrorMessage(reason?.message || 'Could not mirror this tab.'); } }, []);
+  // Your correction wins over guesses and checks, and later lines from the same Deepgram voice follow it.
+  const flipSpeaker = useCallback((id: number) => {
+    const next = transcriptRef.current.map(line => line.id === id ? { ...line, speaker: line.speaker === 'interviewer' ? 'candidate' as const : 'interviewer' as const, by: 'you' as const } : line);
+    transcriptRef.current = next; setTranscript(next);
+  }, []);
   const copyMirrorLink = useCallback(async (url: string) => { try { await navigator.clipboard.writeText(url); setMirrorMessage('Link copied.'); } catch { setMirrorMessage('Clipboard access is blocked. Select the link and copy it instead.'); } }, []);
 
   useEffect(() => {
@@ -303,7 +314,7 @@ export default function App() {
     if (!keepContext) { forgetSavedContext(); setContextNotice(''); return; }
     setContextNotice(saveContext({ role, about, files }) ? '' : 'This browser would not save your context, so it stays in memory for this session.');
   }, [keepContext, role, about, files]);
-  useEffect(() => { const body = transcriptBody.current; if (body && followTranscript.current) body.scrollTop = body.scrollHeight; }, [transcript, interim]);
+  useEffect(() => { const body = transcriptBody.current; if (body && followTranscript.current) body.scrollTop = body.scrollHeight; }, [transcript, interim, transcriptFilter]);
   // Vocabulary boosting needs Chrome's on-device model; show whether it is ready while Settings is open.
   useEffect(() => {
     if (panel !== 'settings' || speechEngine !== 'browser' || !boostVocabulary) return;
@@ -313,6 +324,27 @@ export default function App() {
   }, [panel, speechEngine, boostVocabulary, language]);
   // The sample answer only illustrates the offline demo; with a real provider, start from an empty panel.
   useEffect(() => { if (source !== 'demo' && samplePending.current) { samplePending.current = false; setQuestion(''); setAnswer(''); setStatus('Waiting for a question'); } }, [source]);
+  // With Claude or an OpenAI-compatible provider, a fast background check corrects the first guesses a few lines at a time.
+  const speakerModel = useMemo((): LLMProvider | null => source === 'claude' ? new ClaudeCodeProvider('claude-haiku-4-5') : source === 'openai' ? new OpenAICompatibleProvider(endpoint, apiKey, model) : null, [source, endpoint, apiKey, model]);
+  useEffect(() => {
+    const complete = speakerModel?.complete?.bind(speakerModel);
+    if (!speakers || !complete || speakerCheck.current) return;
+    const waiting = awaitingCheck(transcript); if (!waiting.length) return;
+    // After a pause in the conversation, or about 4 s after the oldest unchecked line if people keep talking.
+    const wait = Math.max(speakerPauseUntil.current - Date.now(), Math.min(1200, waiting[0].at + 4000 - Date.now()), 0);
+    const timer = window.setTimeout(() => {
+      const lines = transcriptRef.current; const pending = awaitingCheck(lines).slice(0, 12); if (!pending.length) return;
+      const first = lines.indexOf(pending[0]); const check = new AbortController(); speakerCheck.current = check;
+      void complete(speakerInstructions, speakerPrompt(lines.slice(Math.max(0, first - 12), first), pending, role), check.signal).then(output => {
+        if (check.signal.aborted) return;
+        const labels = new Map(parseSpeakerLabels(output, pending.length).map((speaker, index) => [pending[index].id, speaker]));
+        const next = transcriptRef.current.map(line => labels.has(line.id) && (line.by === 'guess' || line.by === 'voice') ? { ...line, speaker: labels.get(line.id) ?? line.speaker, by: 'ai' as const } : line);
+        transcriptRef.current = next; setTranscript(next);
+      }, () => { speakerPauseUntil.current = Date.now() + 20_000; }) // Keep the guesses and try again a little later.
+        .finally(() => { if (speakerCheck.current === check) { speakerCheck.current = null; setSpeakerTick(tick => tick + 1); } });
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [transcript, speakers, speakerModel, role, speakerTick]);
   // Phone mirroring needs the dev server, so its button appears only when the server answers.
   useEffect(() => { void mirrorStatus().then(setMirror); }, []);
   useEffect(() => { if (panel === 'phone') void mirrorStatus().then(status => { if (status) setMirror(status); }); }, [panel]);
@@ -341,10 +373,11 @@ export default function App() {
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
       question, tag, possible: lowConfidence, kind: answerKind, answerMode: shownMode, mode, blocks: mirrorBlocks(blocks), generating, status, answerError,
-      heard: transcript.slice(-8).map(({ time, text }) => ({ time, text })), interim, provider: providerLabel,
+      heard: transcript.slice(-8).map(({ time, text, speaker }) => ({ time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
     });
   });
   const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];
+  const shownLines = speakers && transcriptFilter !== 'all' ? transcript.filter(line => line.speaker === transcriptFilter) : transcript;
   const copyAnswer = async () => { try { await navigator.clipboard.writeText(answer); setStatus('Answer copied'); } catch { setAnswerError('Clipboard access is blocked. Select and copy the answer instead.'); } };
   const readAloud = () => {
     if (speaking) { stopReading(); return; }
@@ -366,8 +399,8 @@ export default function App() {
           <div className="section-head"><div><div className="eyebrow">YOUR ROOM AUDIO</div><h2>Live transcript</h2></div><div className={'mic-state ' + (active ? 'on' : '')}><i/>{active ? micReady ? voiceDetected ? 'Voice detected' : 'Listening' : 'Starting…' : 'Mic off'}</div></div>
           <div className="listen-card"><div className="listen-icon"><AudioLines size={22}/></div><div className="listen-copy"><strong>{active ? micReady ? 'Listening to conversation' : 'Starting microphone…' : 'Ready to listen'}</strong><span>{active ? 'This device’s microphone only' : 'Start only when everyone has agreed to the practice session'}</span></div><button onClick={() => active ? stop() : start()} className={'listen-button ' + (active ? 'stop' : '')}><span>{active ? <MicOff size={16}/> : <Mic size={16}/>}</span>{active ? 'Stop listening' : 'Start listening'}</button></div>
           {error && <div className="error" role="alert">{error}</div>}{micNotice && <div className="mic-notice">{micNotice}</div>}
-          <div className="transcript-card"><div className="transcript-toolbar"><span><span className={'tiny-live ' + (active ? 'active' : '')}/> LIVE TRANSCRIPT</span><button onClick={clear} className="text-button"><Trash2 size={13}/> Clear conversation</button></div>
-            <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><div className="wave">〰</div><span>Your conversation will appear here.</span><small>Or enter a question below to try it out.</small></div> : <>{transcript.map((line, index) => <div className="transcript-line" key={`${line.at}-${index}`}><time>{line.time}</time><p>{line.text}</p></div>)}{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
+          <div className="transcript-card"><div className="transcript-toolbar"><span><span className={'tiny-live ' + (active ? 'active' : '')}/> LIVE TRANSCRIPT</span>{speakers && <div className="speaker-filter" role="group" aria-label="Show lines from">{(['all', 'interviewer', 'candidate'] as const).map(value => <button key={value} className={transcriptFilter === value ? 'active' : ''} aria-pressed={transcriptFilter === value} onClick={() => setTranscriptFilter(value)}>{value === 'all' ? 'All' : value === 'interviewer' ? 'Interviewer' : 'You'}</button>)}</div>}<button onClick={clear} className="text-button" title="Clear conversation"><Trash2 size={13}/> Clear</button></div>
+            <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><div className="wave">〰</div><span>Your conversation will appear here.</span><small>Or enter a question below to try it out.</small></div> : <>{shownLines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (transcriptFilter === 'all' && index && shownLines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => flipSpeaker(line.id)} title="Wrong person? Click to switch">{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p></div>)}{!shownLines.length && <div className="filter-empty">No lines from {transcriptFilter === 'interviewer' ? 'the interviewer' : 'you'} yet.</div>}{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
             <div className="manual-input"><input ref={manualInput} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submitManual(); } }} placeholder="Type a question manually…" aria-label="Question"/><button onClick={submitManual} disabled={!draft.trim()} title="Send question" aria-label="Send question"><Send size={15}/></button></div>
           </div><div className="footnote"><Wifi size={13}/> Local voice activity meter · speech recognition may process audio according to its provider’s settings.</div>
         </div>
@@ -392,6 +425,7 @@ export default function App() {
       {(speechEngine === 'deepgram' || boostVocabulary) && <><label className="field-label">Extra words to recognize<textarea value={extraTerms} onChange={event => setExtraTerms(event.target.value)} placeholder="Company, product, and project names, one per line" rows={2}/></label><div className="settings-hint">Common interview terms such as LeetCode, Two Sum, and Big O are boosted too.</div></>}
       <div className="settings-note"><div className="privacy-dot"/><div><b>Memory only</b><p>Transcript and answers are not saved by this page and clear when it closes. Microphone access begins only after you press Start. {speechEngine === 'deepgram' ? 'Audio streams to Deepgram for transcription while listening.' : 'Browser speech recognition may process audio through its service provider.'}</p></div></div>
       <label className="toggle-row"><span><b>Clear transcript when stopping</b><small>End the session and discard its context on Stop listening</small></span><input type="checkbox" checked={clearOnStop} onChange={event => setClearOnStop(event.target.checked)}/></label>
+      <label className="toggle-row"><span><b>Tell speakers apart</b><small>Labels each transcript line Interviewer or You, so answers know who said what. {source === 'demo' ? 'Guesses from the wording only; with Claude or an OpenAI-compatible provider, a quick background check also reads the conversation.' : `A quick background check by ${source === 'claude' ? 'Claude Haiku (a little of your Claude usage)' : 'your answer provider'} fixes wrong guesses.`}{speechEngine === 'deepgram' ? ' Deepgram also separates voices.' : ''} Click a label to correct it.</small></span><input type="checkbox" checked={speakers} onChange={event => setSpeakers(event.target.checked)}/></label>
       <div className="context-link"><span><b>Your context</b><small>{profile.used ? `${files.filter(file => file.status === 'ready').length} file(s) and notes · ${profile.used.toLocaleString()} characters` : 'Role, notes about you, résumé, and other files'}</small></span><button className="secondary" onClick={() => setPanel('context')}>Edit context</button></div>
       <div className="settings-section-title provider-title">ANSWER PROVIDER</div><label className="field-label">Answers from<select value={source} onChange={event => { sourceChosen.current = true; setSource(event.target.value as AnswerSource); setProviderCheck(''); }}><option value="claude">Claude, with your Claude subscription</option><option value="openai">OpenAI-compatible endpoint (API key)</option><option value="demo">Offline demo answers</option></select></label>
       {source === 'claude' && <div className="fields"><label>Model<select value={claudeModel} onChange={event => { setClaudeModel(event.target.value as ClaudeModel); setProviderCheck(''); }}>{claudeModels.map(item => <option key={item.id} value={item.id}>{item.label} ({item.note})</option>)}</select></label><small>Runs through Claude Code on this computer, signed in with your Claude account: no API key, and usage counts toward your plan. Works while Roomside runs from <code>npm start</code>.</small><button className="secondary full" onClick={() => void checkProvider()} disabled={checkingProvider}>{checkingProvider ? 'Checking…' : 'Test connection'}</button>{providerCheck && <div className={'provider-result ' + (providerCheck.startsWith('Connected') ? 'success' : '')}>{providerCheck}</div>}</div>}

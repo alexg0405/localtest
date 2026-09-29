@@ -4,6 +4,8 @@ import { questionKind } from './text';
 export type Mode = 'SHORT' | 'STANDARD' | 'DETAILED' | 'BULLETS';
 export interface LLMProvider {
   answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string>;
+  /** One reply to a one-off prompt, such as labeling who said each line. */
+  complete?(system: string, prompt: string, signal?: AbortSignal): Promise<string>;
 }
 
 // The same for every question and mode, so the Claude Code bridge can start its process with it before the question arrives.
@@ -11,7 +13,7 @@ const instructions = `You write the candidate's side of a job interview, for pra
 
 Treat the candidate background (their notes, résumé, and other files) as the facts of their life. For behavioral questions (a time they disagreed, failed, led, or worked under pressure, and so on), pick the one experience from the background that fits best and tell it as a specific story in the first person: the situation and what was at stake, what they were responsible for, what they did and why, and how it turned out and what they learned. Use the real names of the company, project, team, and technologies. Backgrounds rarely record the exact moment a question asks about, so describe a realistic one that fits what that experience involved; keep invented specifics modest and believable, and never invent employers, job titles, degrees, awards, or metrics that are not in the background. If nothing in the background fits, or there is no background, use a realistic example that a candidate for this role could adapt. Answer questions about themselves, their motivation, their strengths and weaknesses, and the role or company the same way.
 
-The question and conversation come from live speech recognition without speaker labels, so they mix the interviewer and the candidate and often mishear technical terms and names (for example "to some" for "Two Sum" or "elite code" for "LeetCode"). Work out the most likely intended question and answer the latest one; if it is genuinely ambiguous, answer the most likely reading. The conversation so far is your memory of this interview: when the question refers back to something said earlier (the company, team, or product, a requirement, a name, a project, or an earlier question), use those details, stay consistent with what the candidate has already said, and do not retell a story they already told unless asked. For greetings, small talk, and introductions (such as the interviewer describing themselves, their team, or the product), reply with one or two friendly sentences, and do not greet again once greetings have been exchanged.
+The question and conversation come from live speech recognition, so they often mishear technical terms and names (for example "to some" for "Two Sum" or "elite code" for "LeetCode"). Conversation lines may start with "Interviewer:" or "Candidate:"; those labels are automatic guesses that can be wrong, and unlabeled lines could be either person. Work out the most likely intended question and answer the latest one; if it is genuinely ambiguous, answer the most likely reading. The conversation so far is your memory of this interview: when the question refers back to something said earlier (the company, team, or product, a requirement, a name, a project, or an earlier question), use those details, stay consistent with what the candidate has already said, and do not retell a story they already told unless asked. For greetings, small talk, and introductions (such as the interviewer describing themselves, their team, or the product), reply with one or two friendly sentences, and do not greet again once greetings have been exchanged.
 
 For technical questions, give the direct answer first, then the key idea, a concrete example (from the candidate's own work when one fits), and a trade-off. For coding questions, use the headings APPROACH (what they say while planning), COMPLEXITY, CODE, and EDGE CASES; if a requirement is unclear, open with one short clarifying question they can ask, then state an assumption and solve it. When asked for a likely follow-up, put the interviewer's follow-up question on the first line, then the candidate's answer.
 
@@ -52,13 +54,15 @@ function messageText(data: any) {
 
 export class OpenAICompatibleProvider implements LLMProvider {
   constructor(private endpoint: string, private key: string, private model = 'gpt-4o-mini') {}
-  async answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) {
+  answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) { return this.chat(instructions, userMessage(context, question, mode), onChunk, signal); }
+  complete(system: string, prompt: string, signal?: AbortSignal) { return this.chat(system, prompt, undefined, signal); }
+  private async chat(system: string, user: string, onChunk?: (text: string) => void, signal?: AbortSignal) {
     const request = (temperature: boolean) => fetch(this.endpoint, {
       method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', ...(this.key ? { Authorization: `Bearer ${this.key}` } : {}) },
       body: JSON.stringify({ model: this.model, stream: true, ...(temperature ? { temperature: 0.3 } : {}), messages: [
-        { role: 'system', content: instructions },
-        { role: 'user', content: userMessage(context, question, mode) },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ] }),
     });
     let response = await request(true);
@@ -103,8 +107,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
 /** Answers with your Claude subscription through the Claude Code bridge that `npm run dev` serves (server/claude-code-bridge.ts). */
 export class ClaudeCodeProvider implements LLMProvider {
   constructor(private model: ClaudeModel = 'claude-haiku-4-5') {}
-  async answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) {
-    const response = await fetch('/api/claude-code', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: this.model, system: instructions, prompt: userMessage(context, question, mode) }) });
+  answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) { return this.stream({ model: this.model, system: instructions, prompt: userMessage(context, question, mode) }, onChunk, signal); }
+  /** Skips the Claude Code process kept waiting for answers (warm: false), so the next answer still starts right away. */
+  complete(system: string, prompt: string, signal?: AbortSignal) { return this.stream({ model: this.model, system, prompt, warm: false }, undefined, signal); }
+  private async stream(body: { model: ClaudeModel; system: string; prompt: string; warm?: boolean }, onChunk?: (text: string) => void, signal?: AbortSignal) {
+    const response = await fetch('/api/claude-code', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error(await bridgeError(response));
     if (!response.body) throw new Error('The Claude Code bridge returned no answer.');
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let full = '';

@@ -30,6 +30,7 @@ describe('deepgramUrl', () => {
     expect(url.searchParams.getAll('keyterm')).toEqual(['LeetCode', 'Two Sum']);
     expect(url.search).toContain('keyterm=Two+Sum');
     expect(url.searchParams.get('interim_results')).toBe('true');
+    expect(url.searchParams.get('diarize')).toBe('true');
   });
 
   it('maps Mandarin and leaves streaming options out of the connection check', () => {
@@ -55,6 +56,15 @@ describe('DeepgramSpeechToTextProvider', () => {
     const { events, results } = setup();
     results('what is', false); results('what is', true); results('a hash', false); results('a hash map', true, true);
     expect(events).toEqual(['interim:what is', 'interim:what is', 'interim:what is a hash', 'final:what is a hash map', 'interim:']);
+  });
+
+  it('splits an utterance into turns by voice when Deepgram tells voices apart', () => {
+    const { provider, send } = setup();
+    const finals: { text: string; speaker?: number }[] = []; provider.callbacks.onFinal = (result: { text: string; speaker?: number }) => finals.push(result);
+    const word = (text: string, speaker: number) => ({ word: text.toLowerCase().replace(/[^a-z]/g, ''), punctuated_word: text, speaker });
+    send({ type: 'Results', is_final: true, channel: { alternatives: [{ transcript: 'Why Kafka? Mostly for ordering.', confidence: 0.9, words: [word('Why', 0), word('Kafka?', 0), word('Mostly', 1), word('for', 1), word('ordering.', 1)] }] } });
+    send({ type: 'Results', is_final: true, speech_final: true, channel: { alternatives: [{ transcript: 'Got it.', confidence: 0.8, words: [word('Got', 0), word('it.', 0)] }] } });
+    expect(finals).toEqual([{ text: 'Why Kafka?', confidence: 0.8, speaker: 0 }, { text: 'Mostly for ordering.', confidence: 0.8, speaker: 1 }, { text: 'Got it.', confidence: 0.8, speaker: 0 }]);
   });
 
   it('ends the utterance on a speech_final result with an empty transcript', () => {

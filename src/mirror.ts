@@ -9,7 +9,7 @@ export type MirrorState = {
   listening: 'off' | 'starting' | 'on' | 'voice'; micError: string; notice: string;
   question: string; tag: string; possible: boolean; kind: 'answer' | 'followup'; answerMode: Mode; mode: Mode;
   blocks: MirrorBlock[]; generating: boolean; status: string; answerError: string;
-  heard: { time: string; text: string }[]; interim: string; provider: string;
+  heard: { time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; interim: string; provider: string;
 };
 export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' } | { type: 'ask'; text: string } | { type: 'mode'; mode: Mode };
 export type MirrorLink = { url: string; qr: string };

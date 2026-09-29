@@ -38,3 +38,14 @@ button:focus-visible,.settings-modal select:focus-visible{outline:2px solid #77a
 .phone-other{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;line-height:1.5;color:#5d625a;background:#f5f8f4;border:1px solid #e8eee5;border-radius:7px;padding:10px 12px}
 .phone-message{margin-top:10px}
 .phone-stop{margin-bottom:8px}
+.speaker-filter{display:flex;gap:2px;background:#f3f4f0;border-radius:6px;padding:2px}
+.speaker-filter button{border:0;background:none;border-radius:4px;padding:3px 7px;font:500 9px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.5px;color:#8c9087;cursor:pointer}
+.speaker-filter button.active{background:#fff;color:#3d4a3f;box-shadow:0 1px 2px #20261f14}
+.speaker-tag{display:inline-block;border:0;border-radius:4px;background:#f1f2ee;color:#80857c;font:600 8.5px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.6px;text-transform:uppercase;padding:2px 5px;margin-right:7px;vertical-align:1px;cursor:pointer}
+.speaker-tag:hover{filter:brightness(.95)}
+.speaker-tag.same{opacity:.45}
+.transcript-line.interviewer .speaker-tag{background:#edf0f4;color:#58657a}
+.transcript-line.candidate .speaker-tag{background:#e3efe4;color:#477252}
+.transcript-line.candidate p{color:#35523d}
+.filter-empty{font-size:11px;color:#a1a59d;padding:16px 2px}
+.toggle-row+.toggle-row{border-top:0}

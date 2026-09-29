@@ -72,7 +72,11 @@ function render() {
   const transcript = JSON.stringify([state.heard, state.interim]);
   if (transcript !== shownTranscript) {
     shownTranscript = transcript;
-    const lines = state.heard.map(line => { const row = make('div', 'line'); row.append(make('time', '', line.time), make('span', '', line.text)); return row; });
+    const lines = state.heard.map(line => {
+      const row = make('div', `line ${line.speaker ?? ''}`); const words = make('span');
+      if (line.speaker) words.append(make('b', 'who', line.speaker === 'interviewer' ? 'Interviewer' : 'You'));
+      words.append(line.text); row.append(make('time', '', line.time), words); return row;
+    });
     if (state.interim) { const row = make('div', 'line interim'); row.append(make('time', '', 'live'), make('span', '', state.interim)); lines.push(row); }
     ui.transcript.replaceChildren(...(lines.length ? lines : [make('p', 'empty', 'Nothing heard yet.')]));
   }

@@ -55,3 +55,5 @@ button:disabled{opacity:.45;cursor:default}
 .ask{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line)}
 .ask input{flex:1;min-width:0;font:16px system-ui,sans-serif;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--card);color:var(--ink);outline-color:var(--live)}
 .ask button{flex:0 0 50px;border:0;border-radius:14px;background:var(--green);color:#fff;display:grid;place-items:center}
+.transcript .who{display:inline-block;font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.6px;text-transform:uppercase;border-radius:4px;padding:2px 5px;margin-right:7px;vertical-align:1px;background:var(--code);color:var(--muted)}
+.transcript .candidate .who{background:var(--mint);color:var(--mint-ink)}

@@ -1,4 +1,5 @@
-export type SpeechResult = { text: string; confidence?: number };
+/** `speaker` numbers the voice that said it, when the provider tells voices apart (Deepgram does). */
+export type SpeechResult = { text: string; confidence?: number; speaker?: number };
 export interface SpeechCallbacks {
   onFinal(result: SpeechResult): void;
   onInterim(text: string): void;
@@ -166,7 +167,7 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
 /** Deepgram Nova-3 URL; keyterms boost words that general models mishear (up to 100 terms). */
 export function deepgramUrl(language: string, keyterms: string[] = [], live = true) {
   const query = new URLSearchParams({ model: 'nova-3', language: language === 'zh-CN' ? 'zh' : language });
-  if (live) for (const [key, value] of Object.entries({ interim_results: 'true', smart_format: 'true', punctuate: 'true', endpointing: '300', utterance_end_ms: '1000', vad_events: 'true' })) query.set(key, value);
+  if (live) for (const [key, value] of Object.entries({ interim_results: 'true', smart_format: 'true', punctuate: 'true', diarize: 'true', endpointing: '300', utterance_end_ms: '1000', vad_events: 'true' })) query.set(key, value);
   for (const term of keyterms) query.append('keyterm', term);
   return `wss://api.deepgram.com/v1/listen?${query}`;
 }
@@ -180,6 +181,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
   private socket: WebSocket | null = null;
   private callbacks: SpeechCallbacks | null = null;
   private confirmed = '';
+  private spoken: { text: string; speaker?: number }[] = []; // The confirmed words, with the voice that said each one.
   private discardUntil = 0;
   constructor(private apiKey: string, private language = 'en-US', private deviceId = '', private keyterms: string[] = []) {}
 
@@ -204,7 +206,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
   async start(callbacks: SpeechCallbacks) {
     if (!this.apiKey.trim()) throw new Error('Add a Deepgram API key in Settings first.');
     if (this.active) return;
-    this.callbacks = callbacks; this.active = true; this.confirmed = ''; this.microphone = new MicrophoneInput(this.deviceId);
+    this.callbacks = callbacks; this.active = true; this.confirmed = ''; this.spoken = []; this.microphone = new MicrophoneInput(this.deviceId);
     try { await this.microphone.start(callbacks.onVoiceActivity); }
     catch (reason) { this.active = false; this.release(); throw reason; }
     if (!this.active || !this.microphone.stream) { this.release(); return; }
@@ -230,6 +232,14 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
       this.recorder.start(150); callbacks.onListening(true);
     } catch (reason: any) { this.active = false; this.release(); throw new Error(reason?.message || 'This browser cannot stream microphone audio in a supported format.'); }
   }
+  /** Ends the utterance with one final result per turn, in the order people spoke. */
+  private finishUtterance(confidence?: number) {
+    const turns: { text: string; speaker?: number }[] = [];
+    for (const word of this.spoken) { const last = turns[turns.length - 1]; if (last && last.speaker === word.speaker) last.text += ` ${word.text}`; else turns.push({ ...word }); }
+    this.confirmed = ''; this.spoken = [];
+    for (const turn of turns) this.callbacks?.onFinal({ text: turn.text, confidence, ...(turn.speaker === undefined ? {} : { speaker: turn.speaker }) });
+    this.callbacks?.onInterim('');
+  }
   private onMessage(data: string) {
     try {
       const message = JSON.parse(data); const text = String(message.channel?.alternatives?.[0]?.transcript || '').trim();
@@ -241,13 +251,16 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
       // speech_final can arrive on a result with an empty transcript; it still ends the utterance.
       if (message.type === 'Results' && (text || message.speech_final)) {
         const alternative = message.channel?.alternatives?.[0];
-        if (message.is_final && text) this.confirmed = [this.confirmed, text].filter(Boolean).join(' ').trim();
-        if (message.speech_final) {
-          if (this.confirmed) this.callbacks?.onFinal({ text: this.confirmed, confidence: Number(alternative?.confidence) || undefined });
-          this.confirmed = ''; this.callbacks?.onInterim('');
-        } else this.callbacks?.onInterim([this.confirmed, message.is_final ? '' : text].filter(Boolean).join(' ').trim());
+        if (message.is_final && text) {
+          this.confirmed = [this.confirmed, text].filter(Boolean).join(' ').trim();
+          // Diarization gives every word a speaker number; without it, the segment stays whole.
+          const words: any[] = Array.isArray(alternative?.words) ? alternative.words : [];
+          if (words.length && words.every(word => typeof word?.speaker === 'number')) this.spoken.push(...words.map(word => ({ text: String(word.punctuated_word || word.word || '').trim(), speaker: word.speaker as number })).filter(word => word.text));
+          else this.spoken.push({ text });
+        }
+        if (message.speech_final) this.finishUtterance(Number(alternative?.confidence) || undefined); else this.callbacks?.onInterim([this.confirmed, message.is_final ? '' : text].filter(Boolean).join(' ').trim());
       } else if (message.type === 'UtteranceEnd' && this.confirmed) {
-        this.callbacks?.onFinal({ text: this.confirmed }); this.confirmed = ''; this.callbacks?.onInterim('');
+        this.finishUtterance();
       } else if (message.type === 'Error') this.callbacks?.onError(message.description || 'Deepgram returned a transcription error.');
     } catch { /* Ignore non-JSON control frames. */ }
   }
@@ -259,7 +272,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
   stop() { this.active = false; this.release(); this.callbacks?.onListening(false); }
   // Deepgram repeats a segment's earlier words in its final result, so flush the segment and drop what comes back.
   reset() {
-    this.confirmed = '';
+    this.confirmed = ''; this.spoken = [];
     if (this.active && this.socket?.readyState === WebSocket.OPEN) { this.socket.send(JSON.stringify({ type: 'Finalize' })); this.discardUntil = Date.now() + 1500; }
   }
 }

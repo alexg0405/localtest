@@ -72,6 +72,14 @@ describe('OpenAICompatibleProvider', () => {
   });
 });
 
+describe('OpenAICompatibleProvider.complete', () => {
+  it('sends the given system prompt instead of the answer instructions', async () => {
+    const requests = mockFetch(() => eventStream(delta('{"1":"C"}'), 'data: [DONE]\n\n'));
+    expect(await new OpenAICompatibleProvider('https://llm.test/v1/chat/completions', '', 'test-model').complete('Label speakers.', 'Lines to label:\n1. I built it in Go')).toBe('{"1":"C"}');
+    expect(requests[0].body.messages).toEqual([{ role: 'system', content: 'Label speakers.' }, { role: 'user', content: 'Lines to label:\n1. I built it in Go' }]);
+  });
+});
+
 describe('ClaudeCodeProvider', () => {
   const ndjson = (...events: object[]) => eventStream(...events.map(event => `${JSON.stringify(event)}\n`));
 
@@ -85,6 +93,13 @@ describe('ClaudeCodeProvider', () => {
     expect(requests[0].url).toBe('/api/claude-code');
     expect(requests[0].body.model).toBe('claude-sonnet-5');
     expect(requests[0].body.prompt).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: SHORT, 1-3 sentences\. If the interviewer is only greeting, making small talk, or introducing themselves, the team, or the product, reply with one or two friendly sentences instead\.$/);
+  });
+
+  it('runs one-off prompts, such as labeling speakers, without taking the process kept waiting for answers', async () => {
+    const requests: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => { requests.push(JSON.parse(String(init.body))); return ndjson({ text: '{"1":"I"}' }, { done: true }); }));
+    expect(await new ClaudeCodeProvider('claude-haiku-4-5').complete('Label speakers.', 'Lines to label:\n1. why Kafka')).toBe('{"1":"I"}');
+    expect(requests[0]).toEqual({ model: 'claude-haiku-4-5', system: 'Label speakers.', prompt: 'Lines to label:\n1. why Kafka', warm: false });
   });
 
   it('warms up with the system prompt that every answer uses, whatever the mode', async () => {

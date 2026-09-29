@@ -10,13 +10,13 @@ import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
 import { awaitingCheck, guessSpeaker, parseSpeakerLabels, speakerInstructions, speakerPrompt, voiceRoles, type Speaker, type SpeakerSource } from './speakers';
-import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
+import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
+import { PastAnswer, answerContent, questionLabel, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
 
 type Line = { id: number; text: string; time: string; at: number; confidence?: number; speaker?: Speaker; by?: SpeakerSource; voice?: number };
 type AudioInput = { deviceId: string; label: string };
-type AnswerKind = 'answer' | 'followup';
-type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean };
-type Snapshot = { question: string; answer: string; mode: Mode; kind: AnswerKind };
+/** `replace` updates the current card instead of starting a new one (a question that continued after a pause). */
+type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean; replace?: boolean };
 type AnswerSource = 'claude' | 'openai' | 'demo';
 const modes: Mode[] = ['SHORT', 'STANDARD', 'DETAILED', 'BULLETS'];
 const initialQuestion = 'What is the difference between a process and a thread?';
@@ -27,7 +27,7 @@ const mod = isMac ? '⌘' : 'Ctrl';
 // ⌘ + Space opens Spotlight on macOS, so advertise ⌘ + Shift + Space there (both combinations work).
 const listenKeys = isMac ? ['⌘', '⇧', 'space'] : ['Ctrl', 'space'];
 const clearTimer = (timer: { current: number | null }) => { if (timer.current) window.clearTimeout(timer.current); timer.current = null; };
-const inline = (text: string) => inlineSegments(text).map((segment, index) => segment.bold ? <b key={index}>{segment.text}</b> : segment.code ? <code key={index}>{segment.text}</code> : segment.text);
+
 
 export default function App() {
   const [active, setActive] = useState(false); const activeRef = useRef(false); const [micReady, setMicReady] = useState(false);
@@ -38,7 +38,7 @@ export default function App() {
   const [status, setStatus] = useState('Demo answer ready'); const [error, setError] = useState(''); const [answerError, setAnswerError] = useState(''); const [voiceDetected, setVoiceDetected] = useState(false);
   const [generating, setGenerating] = useState(false); const [speaking, setSpeaking] = useState(false); const utterance = useRef<SpeechSynthesisUtterance | null>(null);
   const [providerCheck, setProviderCheck] = useState(''); const [checkingProvider, setCheckingProvider] = useState(false);
-  const [pinned, setPinned] = useState<Snapshot | null>(null); const [recent, setRecent] = useState<Snapshot[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | 'phone' | null>(null); const settings = panel === 'settings';
+  const [pinned, setPinned] = useState<Entry | null>(null); const [history, setHistory] = useState<Entry[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | 'phone' | null>(null); const settings = panel === 'settings';
   const [source, setSource] = useState<AnswerSource>('demo'); const sourceChosen = useRef(false); const [claudeModel, setClaudeModel] = useState<ClaudeModel>('claude-haiku-4-5'); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
   const [apiKey, setApiKey] = useState(''); const [model, setModel] = useState('gpt-4o-mini');
   const [keyFromEnv, setKeyFromEnv] = useState(false);
@@ -62,7 +62,10 @@ export default function App() {
   const lastQuestion = useRef<{ text: string; at: number } | null>(null);
   const transcriptBody = useRef<HTMLDivElement>(null); const followTranscript = useRef(true); const manualInput = useRef<HTMLInputElement>(null); const settingsPanel = useRef<HTMLElement>(null); const rail = useRef<HTMLElement>(null); const workspace = useRef<HTMLElement>(null);
   // The answer on screen as of the last render, so it can be kept in Recent when something replaces it.
-  const display = useRef<Snapshot & { complete: boolean }>({ question: '', answer: '', mode: 'STANDARD', kind: 'answer', complete: false });
+  const display = useRef<Entry & { complete: boolean }>({ id: 0, time: '', tag: '', possible: false, question: '', answer: '', mode: 'STANDARD', kind: 'answer', complete: false });
+  // The card at the bottom of the running list (0 while the sample answer is shown), and whether you are reading it.
+  const [entryId, setEntryId] = useState(0); const [entryTime, setEntryTime] = useState(''); const entryCounter = useRef(0);
+  const feed = useRef<HTMLDivElement>(null); const followFeed = useRef(true); const [newBelow, setNewBelow] = useState(false);
   const provider = useCallback((): LLMProvider => source === 'claude' ? new ClaudeCodeProvider(claudeModel) : source === 'openai' ? new OpenAICompatibleProvider(endpoint, apiKey, model) : new LocalDemoProvider(), [source, claudeModel, endpoint, apiKey, model]);
   // Start Claude Code now so the first answer skips its startup (the bridge then keeps one ready after every answer).
   useEffect(() => { if (source === 'claude') ClaudeCodeProvider.warm(claudeModel); }, [source, claudeModel]);
@@ -96,17 +99,19 @@ export default function App() {
   }, []);
   const stopReading = useCallback(() => { utterance.current = null; if ('speechSynthesis' in window) window.speechSynthesis.cancel(); setSpeaking(false); }, []);
   const abortAnswer = useCallback(() => { controller.current?.abort(); controller.current = null; setGenerating(false); }, []);
-  // Keeps the finished answer that is about to be replaced (drafts from interim speech are skipped).
-  const rememberShown = useCallback((next?: Snapshot) => {
+  // A finished answer stays in the running list when the next one starts; drafts and unfinished answers are replaced in place.
+  const archiveCurrent = useCallback(() => {
     const { complete, ...shown } = display.current;
-    if (!complete || partialAnswer.current || (next && next.question === shown.question && next.answer === shown.answer)) return;
-    setRecent(list => [shown, ...list.filter(item => item.question !== shown.question || item.answer !== shown.answer)].slice(0, 8));
+    if (!complete || partialAnswer.current || !shown.id) return false;
+    setHistory(list => [...list.filter(entry => entry.id !== shown.id), shown].slice(-60));
+    return true;
   }, []);
 
   const generate = useCallback(async (q: string, options: GenerateOptions = {}) => {
     const text = q.trim(); if (!text) return;
     samplePending.current = false;
-    const selectedMode = options.mode ?? mode; stopReading(); rememberShown();
+    const selectedMode = options.mode ?? mode; stopReading();
+    if ((!options.replace && archiveCurrent()) || !display.current.id) { setEntryId(++entryCounter.current); setEntryTime(stamp()); }
     partialAnswer.current = !!options.partial;
     partialQuestion.current = options.partial ? text : '';
     controller.current?.abort(); const current = new AbortController(); controller.current = current;
@@ -119,7 +124,7 @@ export default function App() {
     } catch (reason: any) {
       if (!current.signal.aborted) { partialAnswer.current = false; setStatus('Could not get a response'); setAnswerError(describeProviderError(reason)); }
     } finally { if (controller.current === current) { controller.current = null; setGenerating(false); } }
-  }, [mode, provider, context, stopReading, rememberShown]);
+  }, [mode, provider, context, stopReading, archiveCurrent]);
 
   const addLine = useCallback((line: Omit<Line, 'id'>) => {
     const next = [...transcriptRef.current, { ...line, id: ++lineId.current }].slice(-3000); // Hours of conversation; Clear conversation empties it.
@@ -141,7 +146,7 @@ export default function App() {
     else if (previous && question === previous.text && Date.now() - previous.at < 5000 && endsMidPhrase(previous.text)) {
       // A pause split the question ("Can you walk me through" … "your latest project"); answer the whole thing.
       const merged = `${previous.text} ${utterance}`; lastQuestion.current = { text: merged, at: Date.now() };
-      void generate(merged, { uncertain }); setStatus('Question continued · updating…');
+      void generate(merged, { uncertain, replace: true }); setStatus('Question continued · updating…');
     }
     else if (partialQuestion.current) { partialAnswer.current = false; partialQuestion.current = ''; abortAnswer(); setAnswer(''); setQuestion(''); setLowConfidence(false); setStatus('No question detected'); }
   }, [addLine, generate, abortAnswer, question]);
@@ -150,7 +155,7 @@ export default function App() {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); speakerCheck.current?.abort(); speakerCheck.current = null;
     browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
-    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setRecent([]); setLowConfidence(false); setError(''); setStatus('Conversation cleared');
+    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setNewBelow(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading]);
 
   // Ends the listening session. Words the recognizer has not finalized yet are committed unless `discard` is set.
@@ -166,7 +171,8 @@ export default function App() {
 
   // Speech callbacks outlive the render that started listening; read the latest mode, provider, and settings through this ref.
   const latest = useRef({ generate, commitSpeech, endListening });
-  useLayoutEffect(() => { latest.current = { generate, commitSpeech, endListening }; display.current = { question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError }; });
+  const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
+  useLayoutEffect(() => { latest.current = { generate, commitSpeech, endListening }; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError }; });
 
   const start = useCallback(() => {
     if (activeRef.current) return;
@@ -221,19 +227,34 @@ export default function App() {
     addLine({ text: q, time: stamp(), at: Date.now(), speaker: 'interviewer', by: 'typed' }); void generate(q);
   }, [addLine, generate]);
   const submitManual = useCallback(() => { const q = draft.trim(); if (!q) return; setDraft(''); ask(q); }, [draft, ask]);
-  const currentPinned = !!pinned && pinned.question === question && pinned.answer === answer;
+  const currentPinned = !!pinned && pinned.id === entryId && pinned.answer === answer;
   const canPin = !!answer.trim() && !generating;
-  const togglePin = useCallback(() => { if (currentPinned) setPinned(null); else if (canPin) setPinned({ question, answer, mode: shownMode, kind: answerKind }); }, [currentPinned, canPin, question, answer, shownMode, answerKind]);
+  const togglePin = useCallback(() => { if (currentPinned) setPinned(null); else if (canPin) setPinned({ id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind }); }, [currentPinned, canPin, entryId, entryTime, tag, lowConfidence, question, answer, shownMode, answerKind]);
+  const pinEntry = useCallback((entry: Entry) => setPinned(current => current?.id === entry.id ? null : entry), []);
   const showSnapshot = useCallback((item: Snapshot, message: string) => {
-    rememberShown(item); abortAnswer(); stopReading(); partialAnswer.current = false; partialQuestion.current = '';
+    archiveCurrent(); abortAnswer(); stopReading(); partialAnswer.current = false; partialQuestion.current = ''; setEntryId(++entryCounter.current); setEntryTime(stamp());
     setQuestion(item.question); setAnswer(item.answer); setShownMode(item.mode); setAnswerKind(item.kind); setAnswerError(''); setLowConfidence(false); setStatus(message);
-  }, [rememberShown, abortAnswer, stopReading]);
-  const restorePinned = useCallback(() => { if (pinned) showSnapshot(pinned, 'Pinned answer restored'); }, [pinned, showSnapshot]);
-  const earlier = recent.filter(item => item.question !== question || item.answer !== answer); // Skip what is already on screen.
-  const restoreRecent = useCallback((item: Snapshot | undefined) => {
-    if (!item) return;
-    setRecent(list => list.filter(entry => entry !== item)); showSnapshot(item, 'Earlier answer restored');
-  }, [showSnapshot]);
+  }, [archiveCurrent, abortAnswer, stopReading]);
+  // The pinned answer is usually still in the running list, so this scrolls to it; one that is not comes back at the end.
+  const showPinned = useCallback(() => {
+    if (!pinned) return;
+    const card = feed.current?.querySelector<HTMLElement>(`[data-entry="${pinned.id}"]`);
+    if (card) feed.current!.scrollTo({ top: card.offsetTop - 6, behavior: 'smooth' }); else showSnapshot(pinned, 'Pinned answer restored');
+  }, [pinned, showSnapshot]);
+  const copyText = useCallback(async (text: string) => { try { await navigator.clipboard.writeText(text); setStatus('Answer copied'); } catch { setStatus('Clipboard access is blocked. Select and copy the answer instead.'); } }, []);
+  // Follow the newest card while you are reading it; if you scrolled up to an earlier answer, offer a jump instead.
+  const latestInView = () => {
+    const body = feed.current; if (!body) return true;
+    const card = body.querySelector<HTMLElement>('[data-current]'); if (!card) return body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    return card.offsetTop + card.offsetHeight > body.scrollTop + 8 && card.offsetTop < body.scrollTop + body.clientHeight - 8;
+  };
+  // Following scrolls instantly: a background tab may not run the smooth animation.
+  const jumpToLatest = useCallback((smooth = true) => {
+    const body = feed.current; const card = body?.querySelector<HTMLElement>('[data-current]');
+    if (body && card) body.scrollTo({ top: card.offsetTop - 6, behavior: smooth ? 'smooth' : 'auto' });
+    followFeed.current = true; setNewBelow(false);
+  }, []);
+  useLayoutEffect(() => { if (!entryId) return; if (followFeed.current) jumpToLatest(false); else setNewBelow(true); }, [entryId, jumpToLatest]);
   const checkProvider = useCallback(async () => {
     if (source === 'demo') { setProviderCheck('The offline demo provider is ready.'); return; }
     if (source === 'claude') {
@@ -368,21 +389,24 @@ export default function App() {
   useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
 
   const blocks = parseAnswer(answer);
-  const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
   const heardMinutes = transcript.length ? Math.max(1, Math.round((transcript[transcript.length - 1].at - transcript[0].at) / 60_000)) : 0;
   const memoryLabel = !transcript.length || source === 'demo' ? '' : heardCharacters(transcript) > memoryBudget ? ` · remembers the opening and latest part of the conversation (${heardMinutes} min)` : ` · remembers the conversation (${heardMinutes} min)`;
   const providerLabel = source === 'claude' ? `${claudeModelLabel(claudeModel)} · your Claude subscription` : source === 'openai' ? `${model.trim() || 'No model set'} · ${(() => { try { return new URL(endpoint).host; } catch { return 'invalid endpoint URL'; } })()}` : 'Offline demo answers';
+  // The current card is shown once something is asked (or, before anything is, as the empty placeholder).
+  const showCurrent = !!(question || answer || generating || answerError);
+  // Earlier answers for the phone, converted when the list changes rather than on every streamed word.
+  const pastForPhone = useMemo(() => history.slice(-11).map(entry => ({ id: entry.id, question: entry.question, tag: entry.tag, possible: entry.possible, kind: entry.kind, mode: entry.mode, time: entry.time, blocks: mirrorBlocks(parseAnswer(entry.answer)) })), [history]);
   // Sends what the phone shows after every render; the connection skips renders that changed nothing it shows.
   useEffect(() => {
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
-      question, tag, possible: lowConfidence, kind: answerKind, answerMode: shownMode, mode, blocks: mirrorBlocks(blocks), generating, status, answerError,
+      entries: showCurrent ? [...pastForPhone, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks) }] : pastForPhone,
+      live: showCurrent, generating, status, answerError, mode,
       heard: transcript.slice(-8).map(({ time, text, speaker }) => ({ time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
     });
   });
   const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];
   const shownLines = speakers && transcriptFilter !== 'all' ? transcript.filter(line => line.speaker === transcriptFilter) : transcript;
-  const copyAnswer = async () => { try { await navigator.clipboard.writeText(answer); setStatus('Answer copied'); } catch { setAnswerError('Clipboard access is blocked. Select and copy the answer instead.'); } };
   const readAloud = () => {
     if (speaking) { stopReading(); return; }
     if (!('speechSynthesis' in window)) { setAnswerError('Read aloud is not supported in this browser.'); return; }
@@ -409,11 +433,17 @@ export default function App() {
           </div><div className="footnote"><Wifi size={13}/> Local voice activity meter · speech recognition may process audio according to its provider’s settings.</div>
         </div>
         <div className="right-col">
-          <div className="answer-head"><div><div className="eyebrow">AI ASSIST <span className="sparkle"><Sparkles size={12}/></span></div><h2>Suggested response</h2></div><div className="answer-tools">{earlier.length > 0 && <select className="recent" value="" onChange={event => restoreRecent(earlier[Number(event.target.value)])} aria-label="Show an earlier answer" title="Answers replaced during this session"><option value="" disabled>Recent ({earlier.length})</option>{earlier.map((item, index) => <option key={index} value={index}>{item.question.length > 60 ? `${item.question.slice(0, 60)}…` : item.question} · {item.kind === 'followup' ? 'FOLLOW-UP' : item.mode}</option>)}</select>}<button className={'pin ' + (currentPinned ? 'pinned' : '')} onClick={togglePin} disabled={!currentPinned && !canPin} aria-pressed={currentPinned}><Pin size={15}/>{currentPinned ? 'Pinned' : 'Pin answer'}</button></div></div>
-          {pinned && <div className="pinned-answer"><span><Pin size={13}/> PINNED · {pinned.question.length > 70 ? `${pinned.question.slice(0, 70)}…` : pinned.question}</span>{!currentPinned && <button onClick={restorePinned}>Restore</button>}<button className="unpin" onClick={() => setPinned(null)} aria-label="Unpin answer" title="Unpin answer"><X size={13}/></button></div>}
+          <div className="answer-head"><div><div className="eyebrow">AI ASSIST <span className="sparkle"><Sparkles size={12}/></span></div><h2>Suggested responses</h2></div>{history.length > 0 && <span className="answer-count">{history.length} earlier {history.length === 1 ? 'answer' : 'answers'} above</span>}</div>
+          {pinned && <div className="pinned-answer"><span><Pin size={13}/> PINNED · {pinned.question.length > 70 ? `${pinned.question.slice(0, 70)}…` : pinned.question}</span><button onClick={showPinned}>Show</button><button className="unpin" onClick={() => setPinned(null)} aria-label="Unpin answer" title="Unpin answer"><X size={13}/></button></div>}
           <div className="mode-row" role="group" aria-label="Answer length">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => chooseMode(item)}>{item}</button>)}</div>
-          <div className="question-card"><div className="question-label"><span className="question-mark">?</span>{lowConfidence ? 'POSSIBLE QUESTION' : 'DETECTED QUESTION'}{tag && <span className="tag">{tag}</span>}</div><div className="question-text">{question || 'Waiting for a question…'}</div><div className="question-actions"><button onClick={() => { setDraft(question); manualInput.current?.focus(); }} disabled={!question}><Clipboard size={13}/> Edit question</button><button onClick={regenerate} disabled={!question}><Sparkles size={13}/> Regenerate</button></div></div>
-          <div className="response-card"><div className="response-top"><span><Sparkles size={14}/> {answerKind === 'followup' ? 'LIKELY FOLLOW-UP' : 'RESPONSE'} · {shownMode}</span><button className="icon-button small" onClick={copyAnswer} disabled={!answer.trim()} title="Copy answer" aria-label="Copy answer"><Clipboard size={14}/></button></div><div className="response-content" aria-live="polite" aria-busy={generating}>{blocks.map((block, index) => block.type === 'heading' ? <h4 key={index}>{inline(block.text)}</h4> : block.type === 'bullet' ? <div className="bullet" key={index}><i/><span>{inline(block.text)}</span></div> : block.type === 'code' ? <pre key={index}><code>{block.text}</code></pre> : block.type === 'label' ? <p key={index}><b>{block.label}:</b> {inline(block.text)}</p> : <p key={index}>{inline(block.text)}</p>)}{!blocks.length && !answerError && <p className="muted">{generating ? 'Preparing response…' : 'Your answer will appear here.'}</p>}{answerError && <div className="answer-error" role="alert">{answerError}</div>}</div><div className="response-foot"><span><span className={'green-dot ' + (answerError ? 'error-dot' : '')}/>{status}</span><button onClick={readAloud} disabled={!speaking && (!answer.trim() || active)} title={active ? 'Stop listening first so the microphone does not pick up the read-aloud audio' : undefined}>{speaking ? <Square size={12}/> : <Volume2 size={14}/>} {speaking ? 'Stop reading' : 'Read aloud'}</button></div></div>
+          <div className="answer-feed" ref={feed} onScroll={() => { followFeed.current = latestInView(); if (followFeed.current) setNewBelow(false); }}>
+            {history.map(entry => <PastAnswer key={entry.id} entry={entry} pinned={pinned?.id === entry.id} onPin={pinEntry} onCopy={copyText}/>)}
+            {(showCurrent || !history.length) && <article className="qa-entry current" data-entry={entryId} data-current="">
+              <div className="question-card">{questionLabel({ possible: lowConfidence, time: entryTime, tag })}<div className="question-text">{question || 'Waiting for a question…'}</div><div className="question-actions"><button onClick={() => { setDraft(question); manualInput.current?.focus(); }} disabled={!question}><Clipboard size={13}/> Edit question</button><button onClick={regenerate} disabled={!question}><Sparkles size={13}/> Regenerate</button></div></div>
+              <div className="response-card"><div className="response-top"><span><Sparkles size={14}/> {answerKind === 'followup' ? 'LIKELY FOLLOW-UP' : 'RESPONSE'} · {shownMode}</span><span className="entry-tools"><button className={'icon-button small' + (currentPinned ? ' pinned' : '')} onClick={togglePin} disabled={!currentPinned && !canPin} title={currentPinned ? 'Unpin answer' : `Pin answer (${mod} P)`} aria-label={currentPinned ? 'Unpin answer' : 'Pin answer'} aria-pressed={currentPinned}><Pin size={14}/></button><button className="icon-button small" onClick={() => void copyText(answer)} disabled={!answer.trim()} title="Copy answer" aria-label="Copy answer"><Clipboard size={14}/></button></span></div><div className="response-content" aria-live="polite" aria-busy={generating}>{answerContent(blocks)}{!blocks.length && !answerError && <p className="muted">{generating ? 'Preparing response…' : 'Your answer will appear here.'}</p>}{answerError && <div className="answer-error" role="alert">{answerError}</div>}</div><div className="response-foot"><span><span className={'green-dot ' + (answerError ? 'error-dot' : '')}/>{status}</span><button onClick={readAloud} disabled={!speaking && (!answer.trim() || active)} title={active ? 'Stop listening first so the microphone does not pick up the read-aloud audio' : undefined}>{speaking ? <Square size={12}/> : <Volume2 size={14}/>} {speaking ? 'Stop reading' : 'Read aloud'}</button></div></div>
+            </article>}
+            {newBelow && <button className="jump-latest" onClick={() => jumpToLatest()}>New answer ↓</button>}
+          </div>
           <div className="quick-actions"><button onClick={shorter} disabled={!question}><span className="qa-icon">↘</span><span><b>Shorter answer</b><small>Get to the point</small></span><kbd>{mod} 1</kbd></button><button onClick={detailed} disabled={!question}><span className="qa-icon">＋</span><span><b>Explain more</b><small>Add useful detail</small></span><kbd>{mod} 2</kbd></button><button onClick={followUp} disabled={!question}><span className="qa-icon">↗</span><span><b>Generate follow-up</b><small>Prepare for what’s next</small></span></button></div>
           <div className="answer-status"><Cpu size={13}/>{providerLabel}{profile.used && source !== 'demo' ? ' · using your context' : ''}{memoryLabel}{pinned ? ' · Pinned for this session' : ''}</div>
         </div>

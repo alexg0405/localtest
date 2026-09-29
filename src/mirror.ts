@@ -4,11 +4,12 @@ import type { Mode } from './providers';
 import { inlineSegments, type AnswerBlock, type InlineSegment } from './text';
 
 export type MirrorBlock = { type: 'heading' | 'bullet' | 'paragraph'; segments: InlineSegment[] } | { type: 'label'; label: string; segments: InlineSegment[] } | { type: 'code'; text: string };
+export type MirrorEntry = { id: number; question: string; tag: string; possible: boolean; kind: 'answer' | 'followup'; mode: Mode; time: string; blocks: MirrorBlock[] };
 /** What the phone shows. The laptop sends it whenever it changes. */
 export type MirrorState = {
   listening: 'off' | 'starting' | 'on' | 'voice'; micError: string; notice: string;
-  question: string; tag: string; possible: boolean; kind: 'answer' | 'followup'; answerMode: Mode; mode: Mode;
-  blocks: MirrorBlock[]; generating: boolean; status: string; answerError: string;
+  /** The running list of answers, oldest first. With `live`, the last one is being answered now (see generating, status, answerError). */
+  entries: MirrorEntry[]; live: boolean; generating: boolean; status: string; answerError: string; mode: Mode;
   heard: { time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; interim: string; provider: string;
 };
 export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' } | { type: 'ask'; text: string } | { type: 'mode'; mode: Mode };

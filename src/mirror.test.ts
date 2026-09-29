@@ -14,7 +14,7 @@ class FakeEventSource {
   close() { this.readyState = FakeEventSource.CLOSED; }
 }
 
-const state = (question: string): MirrorState => ({ listening: 'off', micError: '', notice: '', question, tag: '', possible: false, kind: 'answer', answerMode: 'STANDARD', mode: 'STANDARD', blocks: [], generating: false, status: '', answerError: '', heard: [], interim: '', provider: '' });
+const state = (question: string): MirrorState => ({ listening: 'off', micError: '', notice: '', entries: [{ id: 1, question, tag: '', possible: false, kind: 'answer', mode: 'STANDARD', time: '', blocks: [] }], live: true, generating: false, status: '', answerError: '', mode: 'STANDARD', heard: [], interim: '', provider: '' });
 const status = (owner: MirrorStatus['owner']): MirrorStatus => ({ running: true, owner, phones: 1, links: [] });
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -42,17 +42,17 @@ describe('MirrorConnection', () => {
     connection.publish(state('A'));
     connection.publish(state('B'));
     connection.publish(state('C'));
-    expect(requests.map(request => request.body.state.question)).toEqual(['A']);
+    expect(requests.map(request => request.body.state.entries[0].question)).toEqual(['A']);
     expect(requests[0]).toMatchObject({ url: '/api/mirror/state', body: { connection: 'c1' } });
     requests[0].reply(204); await settle();
-    expect(requests.map(request => request.body.state.question)).toEqual(['A', 'C']); // B was already out of date.
+    expect(requests.map(request => request.body.state.entries[0].question)).toEqual(['A', 'C']); // B was already out of date.
     requests[1].reply(204); await settle();
 
     connection.publish(state('C'));
     expect(requests).toHaveLength(2); // Unchanged.
     source.emit('hello', { connection: 'c2', status: status('this') }); // Reconnected, so the server may have lost it.
     connection.publish(state('C'));
-    expect(requests[2].body).toMatchObject({ connection: 'c2', state: { question: 'C' } });
+    expect(requests[2].body).toMatchObject({ connection: 'c2', state: { entries: [{ question: 'C' }] } });
   });
 
   it('carries out commands only while this tab is mirrored', () => {

@@ -24,15 +24,7 @@
   </section>
   <p class="heard-line" id="heard-line" hidden></p>
   <div class="mic-message" id="mic-message" hidden></div>
-  <section class="card" id="question-card">
-    <div class="eyebrow"><span id="question-label">Detected question</span><span class="tag" id="tag" hidden></span></div>
-    <p class="question" id="question">Waiting for a question…</p>
-  </section>
-  <section class="card">
-    <div class="eyebrow" id="answer-label">Response</div>
-    <div class="answer" id="answer" aria-live="polite"></div>
-    <div class="status" id="status"></div>
-  </section>
+  <section class="feed" id="feed" aria-live="polite"></section>
   <div class="modes" id="modes" role="group" aria-label="Answer length"></div>
   <div class="actions" id="actions">
     <button type="button" data-command="shorter">Shorter</button>
@@ -46,6 +38,7 @@
   </details>
   <p class="footnote" id="provider"></p>
 </main>
+<button class="jump" id="jump" type="button" hidden>New answer ↓</button>
 <form class="ask" id="ask" autocomplete="off">
   <input id="ask-input" type="text" placeholder="Type a question…" maxlength="2000" enterkeyhint="send" aria-label="Question">
   <button id="ask-send" type="submit" aria-label="Send question" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>

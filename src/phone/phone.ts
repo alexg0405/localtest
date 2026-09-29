@@ -1,6 +1,6 @@
 // Roomside on your phone, served by server/phone-mirror.ts. The laptop listens and writes the answers; this page shows its
 // session as it changes and sends taps and typed questions back. Only type imports here: the server sends this file as-is.
-import type { MirrorBlock, MirrorCommand, MirrorState } from '../mirror';
+import type { MirrorBlock, MirrorCommand, MirrorEntry, MirrorState } from '../mirror';
 import type { Mode } from '../providers';
 import type { InlineSegment } from '../text';
 
@@ -9,15 +9,16 @@ const listeningLabels = { off: 'Mic off', starting: 'Starting…', on: 'Listenin
 const byId = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const ui = {
   connection: byId('connection'), banner: byId('banner'), mic: byId('mic'), micLabel: byId('mic-label'), listen: byId<HTMLButtonElement>('listen'),
-  heardLine: byId('heard-line'), micMessage: byId('mic-message'), questionCard: byId('question-card'), questionLabel: byId('question-label'), tag: byId('tag'),
-  question: byId('question'), answerLabel: byId('answer-label'), answer: byId('answer'), status: byId('status'), modes: byId('modes'), actions: byId('actions'),
+  heardLine: byId('heard-line'), micMessage: byId('mic-message'), feed: byId('feed'), jump: byId<HTMLButtonElement>('jump'), modes: byId('modes'), actions: byId('actions'),
   transcript: byId('transcript'), provider: byId('provider'), ask: byId<HTMLFormElement>('ask'), askInput: byId<HTMLInputElement>('ask-input'), askSend: byId<HTMLButtonElement>('ask-send'),
 };
 
 let state: MirrorState | null = null;
 let laptop = false; let connected = false; let ended: '' | 'stopped' | 'expired' = '';
 let flash = ''; let flashTimer = 0; let pending = false;
-let shownAnswer = ''; let shownTranscript = ''; let shownQuestion = '';
+let shownTranscript = '';
+// The running list: each card is rebuilt only when its content changes, so reading or selecting an earlier answer is not disturbed.
+const cards = new Map<number, { key: string; card: HTMLElement }>(); let newestId = -1; let following = true;
 
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') => { const node = document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; return node; };
 const show = (node: HTMLElement, text: string) => { node.textContent = text; node.hidden = !text; };
@@ -33,6 +34,23 @@ function block(item: MirrorBlock): HTMLElement {
   return inline(make('p'), item.segments);
 }
 
+function entryCard(entry: MirrorEntry, live: MirrorState | null) {
+  const card = make('article', 'card entry'); card.dataset.entry = String(entry.id);
+  const head = make('div', 'eyebrow'); head.append(make('span', '', entry.possible ? 'Possible question' : 'Question'));
+  if (entry.time) head.append(make('time', '', entry.time));
+  if (entry.tag) head.append(make('span', 'tag', entry.tag));
+  const answer = make('div', 'answer'); answer.append(...entry.blocks.map(block));
+  if (live && !entry.blocks.length && !live.answerError) answer.append(make('p', 'muted', live.generating ? 'Preparing response…' : 'Your answer will appear here.'));
+  if (live?.answerError) answer.append(make('div', 'error', live.answerError));
+  answer.classList.toggle('writing', !!live?.generating && entry.blocks.length > 0);
+  card.append(head, make('p', 'question', entry.question || 'Waiting for a question…'), make('div', 'eyebrow answer-label', `${entry.kind === 'followup' ? 'Likely follow-up' : 'Response'} · ${entry.mode}`), answer);
+  if (live?.status) card.append(make('div', 'status', live.status));
+  return card;
+}
+const newestCard = () => cards.get(newestId)?.card;
+const inView = (card?: HTMLElement) => { if (!card) return true; const box = card.getBoundingClientRect(); return box.bottom > 60 && box.top < window.innerHeight - 80; };
+function jumpToNewest(smooth = true) { newestCard()?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' }); following = true; ui.jump.hidden = true; }
+
 function render() {
   const live = !!state && laptop && connected && !ended;
   ui.connection.textContent = ended === 'expired' ? 'Link expired' : ended ? 'Mirror off' : !connected ? 'Reconnecting…' : laptop ? 'Connected' : 'Laptop closed';
@@ -43,8 +61,9 @@ function render() {
         : !laptop ? 'Roomside is not open on your laptop. This page reconnects when you open it there.' : flash);
   ui.askSend.disabled = !live;
   for (const button of ui.modes.querySelectorAll('button')) { button.disabled = !live; button.classList.toggle('active', button.dataset.mode === state?.mode); button.setAttribute('aria-pressed', String(button.dataset.mode === state?.mode)); }
-  for (const button of ui.actions.querySelectorAll('button')) button.disabled = !live || !state?.question;
-  if (!state) { ui.listen.disabled = true; show(ui.status, ''); return; }
+  const current = state?.live ? state.entries[state.entries.length - 1] : undefined;
+  for (const button of ui.actions.querySelectorAll('button')) button.disabled = !live || !current?.question;
+  if (!state) { ui.listen.disabled = true; return; }
 
   ui.mic.className = `mic ${state.listening}`; ui.micLabel.textContent = listeningLabels[state.listening];
   ui.listen.textContent = state.listening === 'off' ? 'Start listening' : 'Stop listening';
@@ -53,21 +72,18 @@ function render() {
   show(ui.heardLine, state.listening !== 'off' ? heard : '');
   show(ui.micMessage, state.micError || state.notice);
 
-  ui.questionLabel.textContent = state.possible ? 'Possible question' : 'Detected question'; show(ui.tag, state.tag);
-  ui.question.textContent = state.question || 'Waiting for a question…';
-  // A new question moves the answer back into view if you had scrolled down through the last one.
-  if (state.question !== shownQuestion) { shownQuestion = state.question; if (state.question && ui.questionCard.getBoundingClientRect().top < 0) ui.questionCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-
-  ui.answerLabel.textContent = `${state.kind === 'followup' ? 'Likely follow-up' : 'Response'} · ${state.answerMode}`;
-  const answer = JSON.stringify([state.blocks, state.generating, state.answerError]);
-  if (answer !== shownAnswer) { // Rebuilding only on change keeps a text selection alive between updates.
-    shownAnswer = answer;
-    ui.answer.replaceChildren(...state.blocks.map(block));
-    if (!state.blocks.length && !state.answerError) ui.answer.append(make('p', 'muted', state.generating ? 'Preparing response…' : 'Your answer will appear here.'));
-    if (state.answerError) ui.answer.append(make('div', 'error', state.answerError));
-    ui.answer.classList.toggle('writing', state.generating && state.blocks.length > 0);
-  }
-  show(ui.status, state.status);
+  const nodes: HTMLElement[] = []; const kept = new Set<number>();
+  state.entries.forEach((entry, index) => {
+    const live = state!.live && index === state!.entries.length - 1 ? state : null;
+    const key = JSON.stringify([entry, live && [live.generating, live.answerError, live.status]]);
+    let item = cards.get(entry.id); if (!item || item.key !== key) { item = { key, card: entryCard(entry, live) }; cards.set(entry.id, item); }
+    kept.add(entry.id); nodes.push(item.card);
+  });
+  for (const id of cards.keys()) if (!kept.has(id)) cards.delete(id);
+  ui.feed.replaceChildren(...(nodes.length ? nodes : [make('p', 'empty-feed', 'Answers will appear here, newest at the bottom, as questions come in.')]));
+  // Follow a new answer if you were reading the newest one; otherwise leave your place and offer a jump.
+  const newest = state.entries[state.entries.length - 1];
+  if (newest && newest.id !== newestId) { newestId = newest.id; if (following) jumpToNewest(false); else ui.jump.hidden = false; } // Snaps: a locked phone may not run the smooth animation.
 
   const transcript = JSON.stringify([state.heard, state.interim]);
   if (transcript !== shownTranscript) {
@@ -103,6 +119,8 @@ for (const mode of modes) {
   const button = make('button', '', mode); button.type = 'button'; button.dataset.mode = mode;
   button.addEventListener('click', () => void send({ type: 'mode', mode })); ui.modes.append(button);
 }
+ui.jump.addEventListener('click', () => jumpToNewest());
+window.addEventListener('scroll', () => { following = inView(newestCard()); if (following) ui.jump.hidden = true; }, { passive: true });
 for (const button of ui.actions.querySelectorAll('button')) button.addEventListener('click', () => void send({ type: button.dataset.command } as MirrorCommand));
 ui.ask.addEventListener('submit', async event => {
   event.preventDefault();

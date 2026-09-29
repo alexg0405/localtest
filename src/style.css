@@ -65,3 +65,4 @@ button:focus-visible,.settings-modal select:focus-visible{outline:2px solid #77a
 .quick-actions button{border-bottom:0;border-right:1px solid #f1f2ef;padding:0 8px;height:42px}
 .quick-actions button:last-child{border-right:0}
 .quick-actions small{display:none}
+.voice-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0 12px;border-bottom:1px solid var(--line)}

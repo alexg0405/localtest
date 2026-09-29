@@ -1,3 +1,5 @@
+import { VoiceAnalyzer, connectVoiceWorklet, type VoicePrint } from './voice';
+
 /** `speaker` numbers the voice that said it, when the provider tells voices apart (Deepgram does). */
 export type SpeechResult = { text: string; confidence?: number; speaker?: number };
 export interface SpeechCallbacks {
@@ -14,11 +16,15 @@ export interface SpeechToTextProvider {
   stop(): void;
   /** Drops words the recognizer is still holding, so cleared context does not reappear. */
   reset?(): void;
+  /** What the speech since the last call sounded like, for telling voices apart (undefined without the voice worklet). */
+  takePrint?(): VoicePrint | undefined;
 }
 
 class MicrophoneInput {
   stream: MediaStream | null = null;
   private context: AudioContext | null = null;
+  private worklet: AudioWorkletNode | null = null;
+  private voice: VoiceAnalyzer | null = null;
   private frame = 0;
   private active = true;
   private voiced = false;
@@ -35,10 +41,19 @@ class MicrophoneInput {
     }
     if (!this.active) return;
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser cannot access a microphone here. Open Roomside on localhost or use Manual Question.');
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(this.deviceId ? { deviceId: { exact: this.deviceId } } : {}) } });
+    // Echo cancellation stays off: Roomside plays nothing while it listens, and Chrome's canceller can remove an interviewer
+    // whose call plays from another tab on this computer.
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true, ...(this.deviceId ? { deviceId: { exact: this.deviceId } } : {}) } });
     if (!this.active) { this.release(); return; }
     if (!this.context) return;
+    const report = (detected: boolean) => { if (detected !== this.voiced) { this.voiced = detected; onVoiceActivity(detected); } };
     const source = this.context.createMediaStreamSource(this.stream);
+    // The voice worklet runs on the audio thread, so detection keeps working while the tab is in the background.
+    const voice = new VoiceAnalyzer(report); this.voice = voice;
+    this.worklet = await connectVoiceWorklet(this.context, source, frame => { if (this.active) voice.push(frame); });
+    if (!this.active) { this.release(); return; }
+    if (this.worklet) return;
+    this.voice = null; // No AudioWorklet: a simple level meter, which pauses in background tabs and cannot tell voices apart.
     const analyser = this.context.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.2; source.connect(analyser);
     const samples = new Float32Array(analyser.fftSize); let previousUpdate = 0;
     const meter = (time: number) => {
@@ -46,16 +61,18 @@ class MicrophoneInput {
       if (time - previousUpdate > 75) {
         previousUpdate = time; analyser.getFloatTimeDomainData(samples);
         let sum = 0; for (const sample of samples) sum += sample * sample;
-        const detected = Math.sqrt(sum / samples.length) > 0.018;
-        if (detected !== this.voiced) { this.voiced = detected; onVoiceActivity(detected); }
+        report(Math.sqrt(sum / samples.length) > 0.018);
       }
       this.frame = requestAnimationFrame(meter);
     };
     this.frame = requestAnimationFrame(meter);
   }
+  get canPrint() { return !!this.voice; }
+  takePrint() { return this.voice?.takePrint(); }
 
   private release() {
     if (this.frame) cancelAnimationFrame(this.frame); this.frame = 0;
+    if (this.worklet) { this.worklet.port.onmessage = null; this.worklet.disconnect(); this.worklet = null; }
     this.stream?.getTracks().forEach(track => track.stop()); this.stream = null;
     if (this.context && this.context.state !== 'closed') void this.context.close(); this.context = null;
   }
@@ -63,6 +80,18 @@ class MicrophoneInput {
     this.active = false; this.release();
     if (this.voiced) onVoiceActivity?.(false); this.voiced = false;
   }
+}
+
+/** Records a few seconds of your voice so lines that sound like you can be labeled You right away: one print per two
+ * seconds of speech. Only those prints are kept, never the audio. */
+export async function learnVoice(seconds = 8, deviceId = '', onVoiceActivity: (active: boolean) => void = () => undefined) {
+  const microphone = new MicrophoneInput(deviceId); const prints: VoicePrint[] = [];
+  try {
+    await microphone.start(onVoiceActivity);
+    if (!microphone.canPrint) throw new Error('This browser cannot analyze voices, so speakers are told apart by their words only.');
+    for (let elapsed = 0; elapsed < seconds; elapsed += 2) { await new Promise(resolve => setTimeout(resolve, 2000)); const print = microphone.takePrint(); if (print) prints.push(print); }
+  } finally { microphone.stop(onVoiceActivity); }
+  return prints;
 }
 
 const browserErrors: Record<string, string> = {
@@ -159,6 +188,7 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
     try { recognition.start(); } catch (reason: any) { this.active = false; this.recognition = null; this.releaseMicrophone(); throw new Error(reason?.message || 'Could not start speech recognition.'); }
   }
   private releaseMicrophone() { this.microphone?.stop(this.callbacks?.onVoiceActivity); this.microphone = null; }
+  takePrint() { return this.microphone?.takePrint(); }
   stop() { this.active = false; try { this.recognition?.stop(); } catch { /* Already stopped. */ } this.releaseMicrophone(); }
   // abort() discards pending results; onend then restarts recognition because the session is still active.
   reset() { if (this.active && this.recognition) { this.resetting = true; try { this.recognition.abort(); } catch { this.resetting = false; } } }
@@ -270,6 +300,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
     this.microphone?.stop(this.callbacks?.onVoiceActivity); this.microphone = null;
   }
   stop() { this.active = false; this.release(); this.callbacks?.onListening(false); }
+  takePrint() { return this.microphone?.takePrint(); }
   // Deepgram repeats a segment's earlier words in its final result, so flush the segment and drop what comes back.
   reset() {
     this.confirmed = ''; this.spoken = [];

@@ -2,18 +2,19 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { Activity, AudioLines, BookUser, ChevronDown, Clipboard, Cpu, FileText, HelpCircle, Mic, MicOff, Pin, Send, Settings2, Smartphone, Sparkles, Square, Upload, Wifi, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
 import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, type LLMProvider, type Mode } from './providers';
-import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
+import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
 import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
 import { acceptedFiles, extractText } from './documents';
 import { deepgramKeyFromEnv } from './env';
 import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
-import { awaitingCheck, guessSpeaker, parseSpeakerLabels, speakerInstructions, speakerPrompt, voiceRoles, type Speaker, type SpeakerSource } from './speakers';
+import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, speakerInstructions, speakerPrompt, voiceGuess, voiceRoles, voiceSamples, type Speaker, type SpeakerSource } from './speakers';
+import type { VoicePrint } from './voice';
 import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind } from './text';
 import { PastAnswer, answerContent, questionLabel, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
 
-type Line = { id: number; text: string; time: string; at: number; confidence?: number; speaker?: Speaker; by?: SpeakerSource; voice?: number };
+type Line = { id: number; text: string; time: string; at: number; confidence?: number; speaker?: Speaker; by?: SpeakerSource; voice?: number; print?: VoicePrint; heard?: Speaker };
 type AudioInput = { deviceId: string; label: string };
 /** `replace` updates the current card instead of starting a new one (a question that continued after a pause). */
 type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean; replace?: boolean };
@@ -48,6 +49,8 @@ export default function App() {
   const [clearOnStop, setClearOnStop] = useState(false); const [extraTerms, setExtraTerms] = useState('');
   const [speakers, setSpeakers] = useState(true); const [transcriptFilter, setTranscriptFilter] = useState<'all' | Speaker>('all'); const [speakerTick, setSpeakerTick] = useState(0);
   const lineId = useRef(0); const speakerCheck = useRef<AbortController | null>(null); const speakerPauseUntil = useRef(0);
+  // Your voice sample from "Learn my voice": a few numbers per stretch of speech, kept in memory for this tab only.
+  const myVoice = useRef<VoicePrint[]>([]); const [voiceSetup, setVoiceSetup] = useState<{ state: 'idle' | 'recording' | 'done' | 'error'; seconds?: number; message?: string }>({ state: 'idle' });
   const [boostVocabulary, setBoostVocabulary] = useState(false); const [onDevice, setOnDevice] = useState<OnDeviceStatus | 'checking' | 'installing' | null>(null); const [micNotice, setMicNotice] = useState('');
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
   const [role, setRole] = useState(savedContext?.role ?? ''); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
@@ -133,11 +136,17 @@ export default function App() {
 
   const commitSpeech = useCallback((text: string, confidence?: number, voice?: number) => {
     const utterance = text.trim(); if (!utterance) return;
-    // A Deepgram voice keeps the label it has had; otherwise guess from the words until the background check runs.
+    // A Deepgram voice keeps the label it has had. Otherwise compare how the line sounded with each person's voice so far:
+    // the words decide unless they say nothing or the voice clearly disagrees, and the background check has the last word.
     const known = voice === undefined ? undefined : voiceRoles(transcriptRef.current).get(voice);
-    addLine({ text: utterance, time: stamp(), at: Date.now(), confidence, voice, speaker: known ?? guessSpeaker(utterance, sessionLanguage.current), by: known ? 'voice' : 'guess' });
+    const print = voice === undefined ? speech.current?.takePrint?.() : undefined;
+    const sounds = known ? undefined : voiceGuess(voiceSamples(transcriptRef.current, myVoice.current), print);
+    const worded = guessSpeaker(utterance, sessionLanguage.current);
+    const speaker = known ?? (sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded);
+    addLine({ text: utterance, time: stamp(), at: Date.now(), confidence, voice, print, heard: sounds?.speaker, speaker, by: known || (sounds && speaker === sounds.speaker && speaker !== worded) ? 'voice' : 'guess' });
     const uncertain = !!confidence && confidence < 0.45; const previous = lastQuestion.current;
-    if (likelyQuestion(utterance, sessionLanguage.current)) {
+    // Your own clarifying questions ("can I assume…") need no suggested answer.
+    if (likelyQuestion(utterance, sessionLanguage.current) && !isClarifyingQuestion(utterance)) {
       lastQuestion.current = { text: utterance, at: Date.now() };
       // The draft answer started from interim words already matches the final wording, so keep it.
       if (partialAnswer.current && compactText(utterance) === compactText(partialQuestion.current)) { partialAnswer.current = false; partialQuestion.current = ''; setQuestion(utterance); setLowConfidence(uncertain); }
@@ -185,9 +194,12 @@ export default function App() {
     const showInterim = (text: string) => { interimRef.current = text; setInterim([browserFinal.current, text].filter(Boolean).join(' ')); };
     const commitBrowserFinal = () => { const text = browserFinal.current; const confidence = browserConfidence.current; browserFinal.current = ''; browserConfidence.current = undefined; browserFinalTimer.current = null; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence); };
     const scheduleBrowserCommit = () => { clearTimer(browserFinalTimer); browserFinalTimer.current = window.setTimeout(commitBrowserFinal, 450); };
+    let draftText = ''; // The question-like words a draft answer is waiting to start from.
+    const startDraft = () => { clearTimer(partialTimer); const text = draftText; draftText = ''; if (text && current() && activeRef.current) void latest.current.generate(text, { partial: true }); };
     void speech.current.start({
       onListening: listening => { if (!current()) return; if (listening) setMicReady(true); else if (activeRef.current) latest.current.endListening(false); },
-      onVoiceActivity: detected => { if (current()) setVoiceDetected(detected); },
+      // When the voice stops after a complete-sounding question, start the draft now rather than waiting out the timer.
+      onVoiceActivity: detected => { if (!current()) return; setVoiceDetected(detected); if (!detected && draftText && !endsMidPhrase(draftText)) startDraft(); },
       onInterim: text => {
         if (!current()) return;
         showInterim(text);
@@ -198,13 +210,13 @@ export default function App() {
         if (!pending && text.trim() && partialQuestion.current && compactText(text) !== compactText(partialQuestion.current)) {
           partialAnswer.current = false; partialQuestion.current = text; abortAnswer(); setAnswer(''); setQuestion(text.trim()); setLowConfidence(true); setStatus('Question changed · updating…');
         }
-        clearTimer(partialTimer);
+        clearTimer(partialTimer); draftText = '';
         const spoken = [pending, text].filter(Boolean).join(' ');
-        if (text.trim() && draftReady(spoken, lang) && likelyQuestion(spoken, lang)) partialTimer.current = window.setTimeout(() => { if (current() && activeRef.current) void latest.current.generate(spoken, { partial: true }); }, 650);
+        if (text.trim() && draftReady(spoken, lang) && likelyQuestion(spoken, lang) && !isClarifyingQuestion(spoken)) { draftText = spoken; partialTimer.current = window.setTimeout(startDraft, 650); }
       },
       onFinal: result => {
         if (!current()) return;
-        clearTimer(partialTimer);
+        clearTimer(partialTimer); draftText = '';
         if (engine === 'browser') {
           // Chrome can split one question into several final segments; merge segments that arrive close together.
           if (!browserFinal.current) browserFinalSince.current = Date.now();
@@ -303,6 +315,16 @@ export default function App() {
     finally { setMirrorBusy(false); }
   }, []);
   const mirrorHere = useCallback(async () => { setMirrorMessage(''); try { await mirrorConnection.current?.claim(); } catch (reason: any) { setMirrorMessage(reason?.message || 'Could not mirror this tab.'); } }, []);
+  // Eight seconds of you reading aloud, so lines in your voice are labeled You from the start (the same microphone as listening).
+  const teachVoice = useCallback(async () => {
+    setVoiceSetup({ state: 'recording' });
+    try {
+      const prints = await learnVoice(8, speechEngine === 'deepgram' ? audioDeviceId : '');
+      const seconds = Math.round(prints.reduce((sum, print) => sum + print.seconds, 0));
+      if (prints.filter(print => print.pitch !== undefined).length < 2 || seconds < 3) throw new Error('Roomside did not hear enough of your voice. Try again a little closer to the microphone.');
+      myVoice.current = prints; setVoiceSetup({ state: 'done', seconds });
+    } catch (reason: any) { setVoiceSetup({ state: 'error', message: reason?.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow it in the browser, then try again.' : reason?.message || 'Could not record your voice.' }); }
+  }, [speechEngine, audioDeviceId]);
   // Your correction wins over guesses and checks, and later lines from the same Deepgram voice follow it.
   const flipSpeaker = useCallback((id: number) => {
     const next = transcriptRef.current.map(line => line.id === id ? { ...line, speaker: line.speaker === 'interviewer' ? 'candidate' as const : 'interviewer' as const, by: 'you' as const } : line);
@@ -460,6 +482,7 @@ export default function App() {
       <div className="settings-note"><div className="privacy-dot"/><div><b>Memory only</b><p>Transcript and answers are not saved by this page and clear when it closes. Microphone access begins only after you press Start. {speechEngine === 'deepgram' ? 'Audio streams to Deepgram for transcription while listening.' : 'Browser speech recognition may process audio through its service provider.'}</p></div></div>
       <label className="toggle-row"><span><b>Clear transcript when stopping</b><small>End the session and discard its context on Stop listening</small></span><input type="checkbox" checked={clearOnStop} onChange={event => setClearOnStop(event.target.checked)}/></label>
       <label className="toggle-row"><span><b>Tell speakers apart</b><small>Labels each transcript line Interviewer or You, so answers know who said what. {source === 'demo' ? 'Guesses from the wording only; with Claude or an OpenAI-compatible provider, a quick background check also reads the conversation.' : `A quick background check by ${source === 'claude' ? 'Claude Haiku (a little of your Claude usage)' : 'your answer provider'} fixes wrong guesses.`}{speechEngine === 'deepgram' ? ' Deepgram also separates voices.' : ''} Click a label to correct it.</small></span><input type="checkbox" checked={speakers} onChange={event => setSpeakers(event.target.checked)}/></label>
+      {speakers && <div className="voice-row"><span className="settings-hint">{voiceSetup.state === 'recording' ? 'Read this aloud, as you would in the interview: "I am practicing for an interview today. I enjoy building reliable software and explaining how it works."' : voiceSetup.state === 'done' ? `Learned your voice from ${voiceSetup.seconds} s of speech. Lines that sound like you are labeled You right away.` : voiceSetup.state === 'error' ? voiceSetup.message : active ? 'Stop listening to teach Roomside your voice.' : 'Optional: read a sentence aloud for 8 seconds so lines in your voice are labeled You from the start. Only a few numbers about your voice are kept, in this tab.'}</span>{voiceSetup.state === 'done' && <button className="text-button" onClick={() => { myVoice.current = []; setVoiceSetup({ state: 'idle' }); }}>Forget</button>}<button className="secondary" onClick={() => void teachVoice()} disabled={voiceSetup.state === 'recording' || active}>{voiceSetup.state === 'recording' ? 'Listening…' : voiceSetup.state === 'done' ? 'Learn again' : 'Learn my voice'}</button></div>}
       <div className="context-link"><span><b>Your context</b><small>{profile.used ? `${files.filter(file => file.status === 'ready').length} file(s) and notes · ${profile.used.toLocaleString()} characters` : 'Role, notes about you, résumé, and other files'}</small></span><button className="secondary" onClick={() => setPanel('context')}>Edit context</button></div>
       <div className="settings-section-title provider-title">ANSWER PROVIDER</div><label className="field-label">Answers from<select value={source} onChange={event => { sourceChosen.current = true; setSource(event.target.value as AnswerSource); setProviderCheck(''); }}><option value="claude">Claude, with your Claude subscription</option><option value="openai">OpenAI-compatible endpoint (API key)</option><option value="demo">Offline demo answers</option></select></label>
       {source === 'claude' && <div className="fields"><label>Model<select value={claudeModel} onChange={event => { setClaudeModel(event.target.value as ClaudeModel); setProviderCheck(''); }}>{claudeModels.map(item => <option key={item.id} value={item.id}>{item.label} ({item.note})</option>)}</select></label><small>Runs through Claude Code on this computer, signed in with your Claude account: no API key, and usage counts toward your plan. Works while Roomside runs from <code>npm start</code>.</small><button className="secondary full" onClick={() => void checkProvider()} disabled={checkingProvider}>{checkingProvider ? 'Checking…' : 'Test connection'}</button>{providerCheck && <div className={'provider-result ' + (providerCheck.startsWith('Connected') ? 'success' : '')}>{providerCheck}</div>}</div>}

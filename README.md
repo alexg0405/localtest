@@ -10,11 +10,13 @@ Install Node.js 20+ and npm, then double-click `run.command` on macOS, or run `.
 
 The Tauri 2 shell is scaffolded as an installable desktop app, including a Roomside app icon. On macOS, install Xcode Command Line Tools, Node.js 20+, and Rust, then double-click `desktop.command` (or run `npm install` followed by `npm run desktop`). `npm run desktop:build` creates a release bundle. Windows needs the Microsoft C++ Build Tools and WebView2; Linux needs the Tauri WebKitGTK build dependencies. The shell requests microphone permission with a clear macOS usage description. If the system webview does not expose its speech recognition API, use the browser launcher or type questions manually.
 
+Without Rust installed locally, you can build the desktop app on GitHub: open **Actions → Desktop build → Run workflow** and tick the macOS option to download `Roomside.app` (unsigned, so right-click it and choose **Open** the first time). The same workflow compiles the shell on Linux whenever `src-tauri/` changes.
+
 If macOS blocks the microphone, open the site in Chrome and allow microphone access for `127.0.0.1` in the address bar/site settings. If speech recognition is unavailable or network speech processing is disabled, type the question in the manual field. For model errors, confirm the endpoint and model name, then verify that the endpoint accepts browser CORS requests.
 
 ## Tests
 
-Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer). They cover question detection, answer formatting, the OpenAI-compatible and demo answer providers (with `fetch` mocked), Deepgram message handling, and how browser speech recognition starts, restarts, and fails.
+Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer); GitHub Actions runs them, plus the production build, on every push and pull request. They cover question detection, answer formatting, the OpenAI-compatible and demo answer providers (with `fetch` mocked), Deepgram message handling, and how browser speech recognition starts, restarts, and fails.
 
 ## Providers
 

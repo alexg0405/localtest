@@ -1,0 +1,61 @@
+name: Desktop build
+
+# Compiles the Tauri shell, which needs Rust. Runs when src-tauri changes and on demand;
+# the macOS app build only runs on demand because macOS runner minutes cost more.
+on:
+  push:
+    branches: [main]
+    paths: ['src-tauri/**']
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Also build a macOS Roomside.app you can download
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Compile on Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci
+      - run: npx tauri build --no-bundle
+
+  macos:
+    name: Build macOS app
+    if: github.event_name == 'workflow_dispatch' && inputs.macos
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npx tauri build --bundles app
+      # Zip with ditto so the app keeps its executable permissions inside the artifact.
+      - run: ditto -c -k --keepParent src-tauri/target/release/bundle/macos/Roomside.app Roomside-macos.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Roomside-macos
+          path: Roomside-macos.zip

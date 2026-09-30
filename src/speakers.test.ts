@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, joinPrints, nearestVoice, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
+import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, joinPrints, lastAsk, nearestVoice, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
 import type { VoicePrint } from './voice';
 
 describe('guessSpeaker', () => {
@@ -40,6 +40,33 @@ describe('guessSpeaker', () => {
     expect(guessSpeaker('wait, can I assume the input is sorted')).toBe('candidate');
     expect(guessSpeaker('oh wait, how long were you there')).toBe('interviewer');
     expect(guessSpeaker('sorry, what was the last part')).toBe('interviewer');
+  });
+});
+
+describe('lastAsk', () => {
+  it("finds the interviewer's latest question in a line, with what led up to it and without what came after", () => {
+    expect(lastAsk('Those arrays are sorted in either order. What is the complexity to find the largest? O of one, compare the ends.')).toBe('Those arrays are sorted in either order. What is the complexity to find the largest?');
+    expect(lastAsk("Hey, I'm Sam from Acme. Why don't you tell me about yourself?")).toBe("Hey, I'm Sam from Acme. Why don't you tell me about yourself?");
+    expect(lastAsk('What is a hash map? And when would you use one?')).toBe('What is a hash map? And when would you use one?');
+    expect(lastAsk('walk me through your latest project')).toBe('walk me through your latest project'); // Browser recognition adds no punctuation.
+    expect(lastAsk('Nice. Got it. And how did the team take it?')).toBe('Nice. Got it. And how did the team take it?');
+    // Several questions run together: the latest, with only what led up to it.
+    expect(lastAsk('What is the complexity to find the max? O of one. Now take two files. What is the overall complexity? O of m plus n.')).toBe('O of one. Now take two files. What is the overall complexity?');
+  });
+
+  it("skips the candidate's own questions, and lines that ask nothing", () => {
+    for (const text of ['Do I go first?', "I think it's O of n, right?", 'How do I handle the empty case? Let me think.', 'Can I assume the input is sorted?', "It's a linked list. Does that make sense?", 'Sorry?', 'What?', 'I worked at Acme for two years.', 'Right?', '']) expect(lastAsk(text)).toBeUndefined();
+    // Their question still counts after your own.
+    expect(lastAsk('Does that make sense? Yes. So what would you change?')).toBe('Does that make sense? Yes. So what would you change?');
+    for (const text of ["So for each pair I swap them. You see what I'm saying, though?", "I'm not sure yet, would you like me to start with brute force?", 'I just use two pointers, if that makes sense?']) expect(lastAsk(text)).toBeUndefined();
+  });
+
+  it('takes a problem to solve with the constraints that follow it', () => {
+    expect(lastAsk('Sure. So, given a linked list, swap every two adjacent nodes and return its head. You must not modify the values. Okay.'))
+      .toBe('Sure. So, given a linked list, swap every two adjacent nodes and return its head. You must not modify the values. Okay.');
+    // Up to where you start answering.
+    expect(lastAsk("Given an array of integers, return the largest sum of a subarray. Okay so I'd use Kadane's algorithm.")).toBe('Given an array of integers, return the largest sum of a subarray.');
+    expect(lastAsk("Given a sorted array I'd just use binary search.")).toBeUndefined();
   });
 });
 

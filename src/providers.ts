@@ -70,6 +70,9 @@ const personNote = (question: string) => personal.test(question) ? ' This questi
 
 const userMessage = (context: string, question: string, mode: Mode) => `${context ? `${context}\n\n` : ''}Question: ${question}\n\nAnswer format: ${formats[mode]} ${smallTalk}${personNote(question)}`;
 
+/** For the key points to hit while the candidate answers in their own words (see live.ts); `complete` sends it. */
+export const pointsInstructions = `You help a job candidate during a live interview, where assistance is explicitly permitted. They are answering a question in their own words and glance at your notes while they talk. From their background, the conversation, the question, and what they have said so far, list the two to four most useful points they have not made yet, most important first: the next thing to say, a detail or example from their background that fits, an edge case or trade-off, or how to wrap up. Write each as a short phrase under 12 words, starting with "• ", one per line, in plain words they could say, with nothing else: no headings, no introduction. If they have covered the question well, give one point on how to finish.`;
+
 const followUpLead = 'Suggest one likely interviewer follow-up to this question:';
 /** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. */
 export const followUpPrompt = (question: string) => `${followUpLead} "${question}". State the follow-up question first, then a brief suggested answer.`;
@@ -185,6 +188,10 @@ export async function claudeCodeStatus(): Promise<ClaudeCodeStatus | null> {
 }
 
 export class LocalDemoProvider implements LLMProvider {
+  async complete(system: string, _prompt: string, signal?: AbortSignal) {
+    await new Promise(resolve => setTimeout(resolve, 200)); if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    return system === pointsInstructions ? '• Say the approach in one line first\n• Walk through one small example\n• Finish with the time and space cost' : '';
+  }
   async answer(question: string, _context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) {
     const followUp = question.startsWith(followUpLead);
     const original = followUp ? question.slice(followUpLead.length).replace(/^\s*"|"\. State the follow-up question first.*$/gs, '') : question;

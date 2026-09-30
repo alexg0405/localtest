@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply, trailingQuestionStart } from './text';
+import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, opensProblem, parseAnswer, questionKind, startsLikeReply, trailingQuestionStart } from './text';
 
 const expectEach = (values: string[], check: (value: string) => boolean, expected: boolean) => { for (const value of values) expect(check(value), value).toBe(expected); };
+
+describe('opensProblem', () => {
+  it('spots a problem being set out, but not your reasoning about one', () => {
+    expectEach(['So, given a linked list, swap every two adjacent nodes', "Given two strings, I want you to check if they're anagrams", "You're given an array of meeting times", 'Okay, design a URL shortener', 'Implement an LRU cache'], opensProblem, true);
+    expectEach(["Given a sorted array I'd use binary search", 'Given that it is sorted, it is fast', 'So design-wise it is simple', 'I would implement it with a map'], opensProblem, false);
+  });
+});
 
 describe('likelyQuestion', () => {
   it('detects English questions and interviewer prompts', () => {
@@ -10,7 +17,7 @@ describe('likelyQuestion', () => {
   });
 
   it('looks past spoken lead-ins', () => {
-    expectEach(['So what is a hash map', 'Okay, so how would you scale this', 'Alright tell me about yourself', 'So, tell me about yourself', 'Um, can you explain closures', 'Next question: how do you handle conflict', "I'd like you to design a URL shortener", "Let's talk about your experience with Kubernetes", 'And why is that', 'I’m curious how you’d approach caching', 'Nice. So tell me about a time you had to work through a disagreement', 'Got it, and how did the team take it', 'Mm-hmm. Nice. So tell me about a time you failed'], likelyQuestion, true);
+    expectEach(['So what is a hash map', 'Okay, so how would you scale this', 'Alright tell me about yourself', 'So, tell me about yourself', 'Um, can you explain closures', 'Next question: how do you handle conflict', "I'd like you to design a URL shortener", "Let's talk about your experience with Kubernetes", 'And why is that', 'I’m curious how you’d approach caching', 'Nice. So tell me about a time you had to work through a disagreement', 'Got it, and how did the team take it', 'Mm-hmm. Nice. So tell me about a time you failed', "I'd love to hear about your time at Acme", "I'd like to hear how you handled it", 'Go ahead and code it up'], likelyQuestion, true);
     expectEach(['Some people prefer tabs', 'Android development is fun', 'Nowadays I mostly write Go', 'Questions are welcome at the end', 'Okay', 'So yeah', 'Nice, that sounds like a fun project', 'Perfect'], likelyQuestion, false);
   });
 

@@ -10,7 +10,7 @@ const startsWith = (words: string) => new RegExp(`^(?:${words})(?![\\p{L}\\p{N}]
 const fillers = /^(?:(?:hey|hi|hello|thanks|thank you|so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|nice|awesome|perfect|excellent|fantastic|amazing|sweet|gotcha|got it|oh|wait|sorry|hold on|hang on|um+|uh+|hmm+|mm+-?hm+|uh-?huh|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
 const english = [
   startsWith('what|why|when|where|which|who|whom|whose|how|can|could|would|will|should|shall|may|do|does|did|is|are|was|were|have|has'),
-  startsWith("tell me|tell us|share an example|share a time|give me an example|give an example|describe|explain|walk me through|walk us through|talk me through|talk us through|i'd like you to|i would like you to|i'd like to hear|i would like to hear|i want you to|i'm curious|i am curious|let's talk about|let's discuss|let me ask|(?:my |the |one |another |a )?(?:next |first |last |final |follow-up |followup )?question"),
+  startsWith("tell me|tell us|share an example|share a time|give me an example|give an example|describe|explain|walk me through|walk us through|talk me through|talk us through|i'd like you to|i would like you to|i'd like to hear|i would like to hear|i'd love to hear|i would love to hear|i want to hear|talk to me about|go ahead and|i want you to|i'm curious|i am curious|let's talk about|let's discuss|let me ask|(?:my |the |one |another |a )?(?:next |first |last |final |follow-up |followup )?question"),
 ];
 // Task openers are also how candidates think aloud ("…then return the result"), so they only count at the very start.
 const tasks = startsWith("given|implement|write|find|return|design|calculate|suppose|assume|imagine|compare|define|elaborate|talk about|you are given|you're given|let's say|say you|if you had to|if you were");
@@ -35,7 +35,7 @@ export function trailingQuestionStart(text: string) {
   if (!match?.index || statementLead.test(value.slice(0, match.index))) return -1;
   return cutInLead.exec(value.slice(0, match.index))?.index ?? match.index;
 }
-const firstPersonPlan = /(?<![\p{L}\p{N}'])(?:i|we)(?:'d|'ll|'m going to| would| will| am going to| are going to| think| guess)(?![\p{L}\p{N}])(?! like you| love you| want you)/iu;
+const firstPersonPlan = /(?<![\p{L}\p{N}'])(?:i|we)(?:'d|'ll|'m going to| would| will| am going to| are going to| think| guess)(?![\p{L}\p{N}])(?! like you| love you| want you| like to hear| love to hear)/iu;
 // Chrome's recognizer adds no punctuation, so each supported language needs its own question cues.
 const localized: Record<string, RegExp[]> = {
   es: [startsWith('qué|cómo|por qué|cuál|cuáles|cuándo|dónde|quién|quiénes|cuánto|cuántos|cuánta|cuántas|puedes|podrías|podría|puede|explica|explícame|explique|describe|descríbeme|describa|háblame|hábleme|cuéntame|cuénteme|dime|compara|define')],
@@ -57,6 +57,17 @@ export function likelyQuestion(text: string, language = 'en-US') {
   if (statement.test(spoken) || firstPersonPlan.test(value)) return false;
   const local = localizedStatements[baseLanguage(language)]?.test(value) ? [] : localized[baseLanguage(language)] ?? [];
   return tasks.test(value) || [...english, ...local].some(pattern => pattern.test(spoken) || pattern.test(value)) || endsWithQuestion(spoken);
+}
+
+// A problem to solve ("So, given a linked list, swap every two adjacent nodes…"), after any spoken lead-in, unless it is
+// your own reasoning ("given a sorted array I'd use binary search").
+const problemOpener = startsWith("given (?:a|an|the|two|three|some|n|k|\\d+)|you(?:'re| are) given|design (?:a|an)|implement (?:a|an)|write (?:a|an)|build (?:a|an)");
+const yourReasoning = /(?<![\p{L}\p{N}'])(?:i|i'd|i'll|i'm|i've|me|my)(?![\p{L}\p{N}'])/iu;
+const addressed = /(?<![\p{L}\p{N}'])(?:you|your)(?![\p{L}\p{N}'])/iu;
+/** Whether a sentence sets out a problem to solve. */
+export function opensProblem(text: string) {
+  const value = text.trim().replace(/[‘’]/g, "'");
+  return problemOpener.test(value.replace(fillers, '')) && (!yourReasoning.test(value) || addressed.test(value));
 }
 
 /** Whether an utterance stops mid-phrase ("Can you walk me through…"), so the next one probably finishes the question. */

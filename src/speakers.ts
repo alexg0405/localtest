@@ -1,7 +1,7 @@
 // Who said each transcript line: a quick guess from the words, then a check by a fast model that reads the lines around
 // it, and (with Deepgram) the voice it came from. Lines that repeat a suggested answer are yours: you reading it aloud.
 // Clicking a line's label in the transcript corrects it.
-import { endsMidPhrase, likelyQuestion, trailingQuestionStart } from './text';
+import { endsMidPhrase, likelyQuestion, opensProblem, trailingQuestionStart } from './text';
 import type { VoicePrint, VoiceSegment } from './voice';
 
 export type Speaker = 'interviewer' | 'candidate';
@@ -35,6 +35,43 @@ export function guessSpeaker(text: string, language = 'en-US'): Speaker | undefi
 
 /** The candidate asking the interviewer to clarify something: no suggested answer is needed. */
 export const isClarifyingQuestion = (text: string) => clarifyingQuestion.test(text.trim().replace(/[‘’]/g, "'"));
+
+// A first-person question is you thinking aloud ("how do I handle the empty case?"), a tag on a statement or a check-in
+// is you checking ("that's O of n, right?", "you see what I'm saying?"), and "What?" or "Sorry?" asks for nothing to answer.
+const checkIn = /(?<![\p{L}\p{N}'])(?:(?:see|know|get) what i(?:'m| am) (?:saying|getting at)|(?:know|see) what i mean|(?:if|does) that makes? sense|am i making sense|(?:are )?you with me|(?:are )?you following|does that sound (?:right|good|okay|ok))(?![\p{L}\p{N}'])/iu;
+const clarifyingAnywhere = new RegExp(`(?<![\\p{L}\\p{N}'])${clarifying}${wordEnd}`, 'iu');
+const selfQuestion = /(?<![\p{L}\p{N}'])(?:do|does|did|should|shall|can|could|would|will|am|was|have|need|must)\s+i(?![\p{L}\p{N}'])/iu;
+const questionTag = /[\s,]*(?:right|correct|yeah|yes|no|okay|ok|you know|make sense|makes sense|isn't it|doesn't it|won't it|wouldn't it)\s*[?？]+["'”)\]]*$/iu;
+const nothingAsked = /^(?:what|huh|sorry|pardon|come again|excuse me|hm+|eh)[\s?？.!]*$/iu;
+
+/** The interviewer's latest question or request in a line, with what led up to it: "Those arrays are sorted. What is the
+ * complexity? O of one." gives its first two sentences, since lines often run on into the answer (or mix both people's
+ * words). A problem to solve keeps the constraints that follow it. Questions a candidate asks, and anything said after a
+ * question, do not count. */
+export function lastAsk(text: string, language = 'en-US'): string | undefined {
+  const sentences = text.match(/[^.?!？。！…]+(?:[.?!？。！…]+["'”’)\]]*|$)/gu) ?? [];
+  const yours = (sentence: string) => guessSpeaker(sentence, language) === 'candidate';
+  const asks = (sentence: string) => {
+    const value = sentence.trim().replace(/[‘’]/g, "'"); const core = value.replace(questionTag, '');
+    if (!value || nothingAsked.test(value) || !likelyQuestion(value, language) || (core !== value && !likelyQuestion(core, language))) return false;
+    return !yours(value) && !clarifyingAnywhere.test(value) && !checkIn.test(value) && !selfQuestion.test(value);
+  };
+  // What led up to it: back to their question before, if the line holds more than one, or before that for a short question
+  // that goes on from it ("And when would you use one?").
+  const leadIn = (index: number): number => {
+    let start = index; while (start > 0 && !asks(sentences[start - 1]) && !opensProblem(sentences[start - 1])) start--;
+    const value = sentences[index].trim(); const goesOn = /^(?:and|or|but|also|plus)(?![\p{L}\p{N}'])/iu.test(value) && value.split(/\s+/).length <= 8;
+    return goesOn && start > 0 ? leadIn(start - 1) : start;
+  };
+  for (let index = sentences.length - 1; index >= 0; index--) {
+    if (opensProblem(sentences[index])) {
+      let end = index + 1; while (end < sentences.length && !yours(sentences[end])) end++;
+      return sentences.slice(leadIn(index), end).join('').trim();
+    }
+    if (asks(sentences[index])) return sentences.slice(leadIn(index), index + 1).join('').trim();
+  }
+  return undefined;
+}
 
 /** Lines whose label is still a guess, oldest first. */
 export const awaitingCheck = <T extends SpokenLine>(lines: readonly T[]) => lines.filter(line => line.by === 'guess' || line.by === 'voice');

@@ -153,6 +153,23 @@ describe('BrowserSpeechToTextProvider', () => {
     return { events, provider, recognition: FakeRecognition.instances[0] };
   }
 
+  it('passes on each stretch of speech the voice worklet hears', async () => {
+    const nodes: { port: { onmessage: ((event: { data: unknown }) => void) | null } }[] = [];
+    class FakeWorkletNode { port = { onmessage: null }; constructor() { nodes.push(this); } disconnect() { /* Nothing to disconnect. */ } }
+    class FakeAudioContext { state = 'running'; audioWorklet = { addModule: async () => undefined }; async resume() { /* Running already. */ } createMediaStreamSource() { return { connect() { /* No audio here. */ } }; } async close() { /* Nothing to close. */ } }
+    vi.stubGlobal('window', { SpeechRecognition: FakeRecognition, AudioContext: FakeAudioContext });
+    vi.stubGlobal('AudioWorkletNode', FakeWorkletNode);
+    const { callbacks } = recordingCallbacks(); const segments: string[] = [];
+    callbacks.onVoiceSegment = segment => segments.push(`${segment.phase}${segment.print ? ` ${segment.print.seconds.toFixed(2)} s` : ''}`);
+    const provider = new BrowserSpeechToTextProvider('en-US'); await provider.start(callbacks); await settle();
+    const frame = (level: number, pitch = 0) => nodes[0].port.onmessage!({ data: { level, pitch, tilt: 0.05 } });
+    for (let i = 0; i < 50; i++) frame(-50);
+    for (let i = 0; i < 40; i++) frame(-20, 200);
+    for (let i = 0; i < 15; i++) frame(-50);
+    expect(segments).toEqual(['start', 'early 0.64 s', 'end 0.78 s']);
+    provider.stop();
+  });
+
   it('reports the end when recognition fails before it starts', async () => {
     FakeRecognition.failBeforeStart = 'service-not-allowed';
     const { events } = await listen();

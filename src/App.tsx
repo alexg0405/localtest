@@ -9,7 +9,7 @@ import { contextFilesFromEnv, deepgramKeyFromEnv } from './env';
 import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
-import { awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerInstructions, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type Speaker, type SpeakerSource } from './speakers';
+import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerInstructions, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type Speaker, type SpeakerSource } from './speakers';
 import type { VoicePrint } from './voice';
 import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
 import { AnswerContent, EntryMeta, PastAnswer, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
@@ -80,6 +80,7 @@ export default function App() {
   const partialQuestion = useRef('');
   const browserFinal = useRef(''); const browserConfidence = useRef<number | undefined>(undefined); const browserFinalTimer = useRef<number | null>(null); const browserFinalSince = useRef(0);
   const pendingVoice = useRef<number | undefined>(undefined); // With Deepgram, who said the words waiting in browserFinal.
+  const lineVoice = useRef(new LineVoice()); // What those words' stretches of speech sounded like.
   const lastQuestion = useRef<{ text: string; at: number } | null>(null);
   const transcriptBody = useRef<HTMLDivElement>(null); const followTranscript = useRef(true); const manualInput = useRef<HTMLInputElement>(null); const settingsPanel = useRef<HTMLElement>(null); const workspace = useRef<HTMLElement>(null);
   // The answer on screen as of the last render, so it can be kept in Recent when something replaces it.
@@ -163,13 +164,14 @@ export default function App() {
     transcriptRef.current = next; setTranscript(next);
   }, []);
 
-  const commitSpeech = useCallback((text: string, confidence?: number, deepgramVoice?: number) => {
+  // `linePrint` is what the line's own stretches of speech sounded like (see LineVoice), with either engine.
+  const commitSpeech = useCallback((text: string, confidence?: number, deepgramVoice?: number, linePrint?: VoicePrint) => {
     const said = text.trim(); if (!said) return;
     const language = sessionLanguage.current;
     const voiceKey = `${sessionId.current}:${deepgramVoice}`;
     if (deepgramVoice !== undefined && !voiceIds.current.has(voiceKey)) voiceIds.current.set(voiceKey, nextVoice.current++);
     const heardVoice = deepgramVoice === undefined ? undefined : voiceIds.current.get(voiceKey);
-    const heardPrint = heardVoice === undefined ? speech.current?.takePrint?.() : undefined;
+    const heardPrint = linePrint;
     const heardRole = heardVoice === undefined ? undefined : voiceRoles(transcriptRef.current).get(heardVoice);
     // The interviewer cut in while you were talking or reading a suggested answer aloud ("…and before that I was at oh so how
     // was that"): your words get their own line, and theirs are handled below like any utterance. Neither line keeps the
@@ -177,12 +179,15 @@ export default function App() {
     const cut = splitInterruption(said, readable.current, language, heardRole === 'interviewer');
     if (cut) addLine({ text: cut.yours, time: stamp(), at: Date.now(), confidence, speaker: 'candidate', by: cut.read ? 'answer' : 'guess' });
     const utterance = cut ? cut.theirs : said;
-    const voice = cut ? undefined : heardVoice; const print = cut ? undefined : heardPrint; const known = cut ? undefined : heardRole;
+    const voice = cut ? undefined : heardVoice; const print = cut ? undefined : heardPrint;
     // You reading a suggested answer aloud: yours, whatever the voice or the wording suggests, and it needs no answer.
     const read = !cut && readsAnswer(utterance, readable.current, language);
-    // A Deepgram voice keeps the label it has had. Otherwise compare how the line sounded with each person's voice so far:
-    // the words decide unless they say nothing or the voice clearly disagrees, and the background check has the last word.
-    const sounds = known || read ? undefined : voiceGuess(voiceSamples(transcriptRef.current, myVoice.current), print);
+    // Compare how the line sounded with each person's voice so far. A Deepgram voice keeps the label it has had unless the
+    // sound clearly disagrees; otherwise the words decide unless they say nothing or the sound clearly disagrees, and the
+    // background check has the last word.
+    const sounds = read ? undefined : voiceGuess(voiceSamples(transcriptRef.current, myVoice.current), print);
+    const role = cut ? undefined : heardRole;
+    const known = role && !(sounds && sounds.speaker !== role && sounds.strength >= 5) ? role : undefined;
     const worded = guessSpeaker(utterance, language);
     const speaker = read ? 'candidate' : known ?? (sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded);
     addLine({ text: utterance, time: stamp(), at: Date.now(), confidence, voice, print, heard: sounds?.speaker, speaker, by: read ? 'answer' : known || (sounds && speaker === sounds.speaker && speaker !== worded) ? 'voice' : 'guess' });
@@ -215,7 +220,7 @@ export default function App() {
 
   const resetConversation = useCallback(() => {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear(); nextVoice.current = 0;
-    browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
+    browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; lineVoice.current.reset(); interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
     transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setNewBelow(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading]);
@@ -230,8 +235,9 @@ export default function App() {
     activeRef.current = false; setActive(false); setMicReady(false); setVoiceDetected(false);
     speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer);
     const pending = [browserFinal.current, interimRef.current].filter(Boolean).join(' '); const confidence = browserConfidence.current; const voice = pendingVoice.current;
+    const print = lineVoice.current.take(true); // The committed words include the unfinished ones, so all of what was heard.
     browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; interimRef.current = ''; setInterim('');
-    if (discard) { clear(); setStatus('Session ended · context cleared'); } else commitSpeech(pending, confidence, voice);
+    if (discard) { clear(); setStatus('Session ended · context cleared'); } else commitSpeech(pending, confidence, voice, print);
     partialAnswer.current = false; partialQuestion.current = '';
   }, [clear, commitSpeech]);
   const stop = useCallback(() => { sessionId.current++; endListening(clearOnStop); }, [clearOnStop, endListening]);
@@ -248,22 +254,34 @@ export default function App() {
     if (activeRef.current) return;
     setError(''); setMicNotice(''); stopReading();
     const thisSession = ++sessionId.current; const engine = speechEngine; const lang = language; sessionLanguage.current = lang;
-    clearTimer(partialTimer); clearTimer(browserFinalTimer); browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; interimRef.current = '';
+    clearTimer(partialTimer); clearTimer(browserFinalTimer); browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; lineVoice.current.reset(); interimRef.current = '';
     partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; setVoiceDetected(false); setMicReady(false); activeRef.current = true; setActive(true);
     speech.current?.stop(); speech.current = engine === 'deepgram' ? new DeepgramSpeechToTextProvider(deepgramKey, lang, audioDeviceId, keytermsFor(extraTerms)) : new BrowserSpeechToTextProvider(lang, boostVocabulary ? keytermsFor(extraTerms) : []);
     const current = () => sessionId.current === thisSession;
     const showInterim = (text: string) => { interimRef.current = text; setInterim([browserFinal.current, text].filter(Boolean).join(' ')); };
     let draftText = ''; // The question-like words a draft answer is waiting to start from.
     let silent = false; let quietSince = 0; let lastWordsAt = 0; // Whether the voice detector hears silence now, and since when.
+    // How each stretch of speech sounds decides lines too: someone who sounds clearly different from the open line ends it
+    // with their first words, and the same voice going on after a pause keeps it open. Deepgram numbers voices as well, so
+    // with it the sound has to be clearer to overrule those numbers.
+    const voices = lineVoice.current; const strict = engine === 'deepgram';
+    const samples = () => voiceSamples(transcriptRef.current, myVoice.current);
+    const apart = () => voices.seen && voicesDistinct(samples()); // Only then does sounding the same say much.
+    let resumed = false; // The open line's speaker went on after a pause, by the sound of it.
+    let switchTo = 0; // A stretch of speech that sounds like someone new; their first words end the open line.
+    let doubted = false; // The open line's Deepgram voice number went with a voice that sounded like someone else.
+    let switchedFrom: number | undefined; // The voice number of a line ended by someone new, whose words may come in under it.
     // How long someone stays quiet before what they said becomes a line: a finished question goes at once, so its answer is
     // not held up; a sentence cut off mid-phrase ("…and before that I") waits longest; anything else waits out a breath. The
-    // browser's recognizer cannot tell voices apart, so it waits less, or the next person's words would join the line.
-    const settleTime = (text: string) => endsMidPhrase(text) ? 1800 : likelyQuestion(text, lang) ? 0 : engine === 'deepgram' ? 1200 : 600;
-    // Commits the words waiting to become a line (and answers them, if they are a question).
+    // browser's recognizer cannot tell voices apart, so unless their sound can, it waits less, or the next person's words
+    // would join the line.
+    const settleTime = (text: string) => endsMidPhrase(text) ? 1800 : likelyQuestion(text, lang) ? 0 : apart() && resumed ? 1800 : engine === 'deepgram' || apart() ? 1200 : 600;
+    // Commits the words waiting to become a line (and answers them, if they are a question), with what they sounded like.
     const flushFinal = () => {
       clearTimer(browserFinalTimer); const text = browserFinal.current; if (!text) return;
-      const confidence = browserConfidence.current; const voice = pendingVoice.current; browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined;
-      clearTimer(partialTimer); draftText = ''; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence, voice);
+      const confidence = browserConfidence.current; const voice = doubted ? undefined : pendingVoice.current; const print = voices.take();
+      browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; resumed = false; switchTo = 0; doubted = false;
+      clearTimer(partialTimer); draftText = ''; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence, voice, print);
     };
     // A line stays open while its speaker keeps talking (up to 4 s for a question, so talk that follows does not hold up its
     // answer, and 15 s otherwise) and until they have been quiet for settleTime, so a pause mid-sentence does not split it.
@@ -287,8 +305,18 @@ export default function App() {
         quietSince = Date.now();
         if (browserFinal.current) commitBrowserFinal(); else if (draftText && !endsMidPhrase(draftText)) startDraft();
       },
+      // Once a new stretch of speech is long enough to tell, compare it with the open line: someone new ends the line with
+      // their first words (so a laugh that never becomes words ends nothing), and the same person keeps it open longer.
+      onVoiceSegment: segment => {
+        if (!current()) return; voices.add(segment);
+        if (segment.phase === 'start') { switchTo = 0; return; } // A newer stretch decides for itself.
+        if (segment.phase !== 'early' || !browserFinal.current) return;
+        const heard = voiceMatch(voices.line(), segment.print, samples(), strict);
+        if (heard === 'different') { voices.release(); switchTo = segment.id; } else if (heard === 'same') resumed = true;
+      },
       onInterim: text => {
         if (!current()) return;
+        if (switchTo && text.trim() && browserFinal.current) { const from = pendingVoice.current; flushFinal(); switchedFrom = from; } // Someone new started talking.
         showInterim(text);
         const pending = browserFinal.current; if (text.trim()) lastWordsAt = Date.now();
         // Still talking after a pause: keep merging into the pending final so the sentence is not split.
@@ -307,13 +335,30 @@ export default function App() {
       onFinal: result => {
         if (!current()) return;
         clearTimer(partialTimer); draftText = ''; lastWordsAt = Date.now();
-        // With Deepgram, someone else speaking ends the line, unless its voice numbering flipped mid-sentence ("…Vaca like a"
-        // "the Japanese term."): cut off mid-phrase, and the new words neither reply nor cut in.
         const pending = browserFinal.current;
-        if (pending && result.speaker !== pendingVoice.current && !(endsMidPhrase(pending) && !startsLikeReply(result.text) && !cutsIn(result.text))) flushFinal();
+        if (pending) {
+          // Words that sound like someone else end the line. With Deepgram, a new voice number ends it too, unless the
+          // numbering flipped mid-sentence ("…Vaca like a" "the Japanese term."): the new words neither reply nor cut in,
+          // don't sound like someone else, and either finish a phrase left hanging or sound like the same person.
+          const renumbered = result.speaker !== pendingVoice.current; // Never with the browser's recognizer.
+          const heard = voiceMatch(voices.line(), voices.words(), samples(), strict && !renumbered);
+          const flip = renumbered && heard !== 'different' && !startsLikeReply(result.text) && !cutsIn(result.text) && (endsMidPhrase(pending) || (heard === 'same' && apart() && !likelyQuestion(pending, lang)));
+          const contradicted = !renumbered && heard === 'different';
+          if (contradicted || (renumbered && !flip)) { flushFinal(); doubted = contradicted && engine === 'deepgram'; } // That voice number is not theirs.
+          else if (heard === 'same') resumed = true;
+        }
         // Recognizers split one sentence into several finals at each pause; they join the same line until it settles.
-        if (!browserFinal.current) { browserFinalSince.current = Date.now(); pendingVoice.current = result.speaker; }
+        if (!browserFinal.current) {
+          browserFinalSince.current = Date.now(); pendingVoice.current = result.speaker; resumed = false;
+          // Someone new ended the last line, but Deepgram gave their words the same number: that number is not theirs.
+          if (switchedFrom !== undefined && result.speaker === switchedFrom) doubted = true;
+        }
+        switchedFrom = undefined;
         browserFinal.current = [browserFinal.current, result.text].filter(Boolean).join(' ').trim(); browserConfidence.current = result.confidence ?? browserConfidence.current; showInterim('');
+        voices.attach();
+        // A final that arrives after the next person already started (recognizers lag): their words end the line.
+        const hearing = voices.current();
+        if (hearing && voiceMatch(voices.line(), hearing.print, samples(), strict) === 'different') { voices.release(); switchTo = hearing.id; }
         if (silent) commitBrowserFinal(); else scheduleBrowserCommit(); // Already quiet: it may be settled now.
       },
       onError: message => { if (current()) setError(message); },

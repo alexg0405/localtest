@@ -1,4 +1,4 @@
-import { VoiceAnalyzer, connectVoiceWorklet, type VoicePrint } from './voice';
+import { VoiceAnalyzer, connectVoiceWorklet, type VoicePrint, type VoiceSegment } from './voice';
 
 /** `speaker` numbers the voice that said it, when the provider tells voices apart (Deepgram does). */
 export type SpeechResult = { text: string; confidence?: number; speaker?: number };
@@ -8,6 +8,8 @@ export interface SpeechCallbacks {
   onError(message: string, permissionDenied?: boolean): void;
   onListening(listening: boolean): void;
   onVoiceActivity(active: boolean): void;
+  /** Each stretch of speech as it starts, once it is long enough to tell who it sounds like, and as it ends (voice worklet only). */
+  onVoiceSegment?(segment: VoiceSegment): void;
   /** Non-fatal information, such as falling back from on-device recognition. */
   onNotice?(message: string): void;
 }
@@ -16,8 +18,6 @@ export interface SpeechToTextProvider {
   stop(): void;
   /** Drops words the recognizer is still holding, so cleared context does not reappear. */
   reset?(): void;
-  /** What the speech since the last call sounded like, for telling voices apart (undefined without the voice worklet). */
-  takePrint?(): VoicePrint | undefined;
 }
 
 class MicrophoneInput {
@@ -30,7 +30,7 @@ class MicrophoneInput {
   private voiced = false;
   constructor(private deviceId = '') {}
 
-  async start(onVoiceActivity: (active: boolean) => void) {
+  async start(onVoiceActivity: (active: boolean) => void, onVoiceSegment?: (segment: VoiceSegment) => void) {
     const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
     if (AudioContextConstructor) {
       const context: AudioContext = new AudioContextConstructor(); this.context = context;
@@ -49,7 +49,7 @@ class MicrophoneInput {
     const report = (detected: boolean) => { if (detected !== this.voiced) { this.voiced = detected; onVoiceActivity(detected); } };
     const source = this.context.createMediaStreamSource(this.stream);
     // The voice worklet runs on the audio thread, so detection keeps working while the tab is in the background.
-    const voice = new VoiceAnalyzer(report); this.voice = voice;
+    const voice = new VoiceAnalyzer(report, segment => { if (this.active) onVoiceSegment?.(segment); }); this.voice = voice;
     this.worklet = await connectVoiceWorklet(this.context, source, frame => { if (this.active) voice.push(frame); });
     if (!this.active) { this.release(); return; }
     if (this.worklet) return;
@@ -139,7 +139,7 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
     if (this.recognition || this.active) return;
     // stop() may run during the awaits below and clear this.microphone, so keep a local handle.
     const microphone = new MicrophoneInput(); this.callbacks = callbacks; this.active = true; this.microphone = microphone;
-    try { await microphone.start(callbacks.onVoiceActivity); }
+    try { await microphone.start(callbacks.onVoiceActivity, segment => callbacks.onVoiceSegment?.(segment)); }
     catch (reason) { this.active = false; microphone.stop(callbacks.onVoiceActivity); throw reason; }
     if (!this.active) { microphone.stop(callbacks.onVoiceActivity); return; }
     const onDevice = this.phrases.length ? await onDeviceStatus(this.language) : null;
@@ -188,7 +188,6 @@ export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
     try { recognition.start(); } catch (reason: any) { this.active = false; this.recognition = null; this.releaseMicrophone(); throw new Error(reason?.message || 'Could not start speech recognition.'); }
   }
   private releaseMicrophone() { this.microphone?.stop(this.callbacks?.onVoiceActivity); this.microphone = null; }
-  takePrint() { return this.microphone?.takePrint(); }
   stop() { this.active = false; try { this.recognition?.stop(); } catch { /* Already stopped. */ } this.releaseMicrophone(); }
   // abort() discards pending results; onend then restarts recognition because the session is still active.
   reset() { if (this.active && this.recognition) { this.resetting = true; try { this.recognition.abort(); } catch { this.resetting = false; } } }
@@ -237,7 +236,7 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
     if (!this.apiKey.trim()) throw new Error('Add a Deepgram API key in Settings first.');
     if (this.active) return;
     this.callbacks = callbacks; this.active = true; this.confirmed = ''; this.spoken = []; this.microphone = new MicrophoneInput(this.deviceId);
-    try { await this.microphone.start(callbacks.onVoiceActivity); }
+    try { await this.microphone.start(callbacks.onVoiceActivity, segment => callbacks.onVoiceSegment?.(segment)); }
     catch (reason) { this.active = false; this.release(); throw reason; }
     if (!this.active || !this.microphone.stream) { this.release(); return; }
     try { this.socket = DeepgramSpeechToTextProvider.open(deepgramUrl(this.language, this.keyterms), this.apiKey); }
@@ -300,7 +299,6 @@ export class DeepgramSpeechToTextProvider implements SpeechToTextProvider {
     this.microphone?.stop(this.callbacks?.onVoiceActivity); this.microphone = null;
   }
   stop() { this.active = false; this.release(); this.callbacks?.onListening(false); }
-  takePrint() { return this.microphone?.takePrint(); }
   // Deepgram repeats a segment's earlier words in its final result, so flush the segment and drop what comes back.
   reset() {
     this.confirmed = ''; this.spoken = [];

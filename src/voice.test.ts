@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VoiceAnalyzer, semitones, voiceWorklet, type VoiceFrame } from './voice';
+import { VoiceAnalyzer, semitones, voiceWorklet, type VoiceFrame, type VoicePrint, type VoiceSegment } from './voice';
 
 /** Runs the worklet source outside a browser: a stand-in base class collects what it posts. */
 function worklet(rate: number) {
@@ -80,5 +80,37 @@ describe('VoiceAnalyzer', () => {
     expect(print.level).toBeCloseTo(30, 0);
     expect(print.seconds).toBeCloseTo(0.78, 5);
     expect(analyzer.takePrint()).toBeUndefined(); // Nothing new since.
+  });
+
+  it('reports each stretch as it starts, once it is long enough to tell who it sounds like, and as it ends', () => {
+    const events: string[] = []; const segments: VoiceSegment[] = [];
+    const analyzer = new VoiceAnalyzer(active => events.push(active ? 'voice' : 'silence'), segment => { events.push(`${segment.phase} ${segment.id}`); segments.push(segment); });
+    for (const frame of [...frames(50, -50), ...frames(60, -20, 200), ...frames(15, -50)]) analyzer.push(frame);
+    expect(events).toEqual(['voice', 'start 1', 'early 1', 'end 1', 'silence']); // The end comes before the silence it causes.
+    const [, early, end] = segments;
+    expect(early.print!.seconds).toBeCloseTo(0.64, 5); // 32 frames: enough for voiceGuess.
+    expect(early.print!.pitch).toBeCloseTo(semitones(200), 5);
+    expect(end.print!.seconds).toBeCloseTo(1.18, 5); // 59 frames; the first loud one only starts it.
+  });
+
+  it('gives no early print to short or unpitched stretches, and no print at all to a blip', () => {
+    const segments: VoiceSegment[] = []; const analyzer = new VoiceAnalyzer(undefined, segment => segments.push(segment));
+    for (const frame of [...frames(50, -50), ...frames(25, -20, 200), ...frames(15, -50)]) analyzer.push(frame);
+    for (const frame of [...frames(60, -20, 0), ...frames(15, -50)]) analyzer.push(frame); // A long cough or typing: no pitch.
+    for (const frame of [...frames(8, -20, 200), ...frames(15, -50)]) analyzer.push(frame);
+    expect(segments.map(segment => segment.phase)).toEqual(['start', 'end', 'start', 'end', 'start', 'end']);
+    expect(segments[1].print!.seconds).toBeCloseTo(0.48, 5);
+    expect(segments[3].print!.pitch).toBeUndefined();
+    expect(segments[5].print).toBeUndefined();
+  });
+
+  it('keeps each stretch to itself, while takePrint still covers everything since the last take', () => {
+    const ends: VoicePrint[] = []; const analyzer = new VoiceAnalyzer(undefined, segment => { if (segment.phase === 'end') ends.push(segment.print!); });
+    for (const frame of [...frames(50, -50), ...frames(40, -20, 120), ...frames(15, -50), ...frames(40, -20, 240), ...frames(15, -50)]) analyzer.push(frame);
+    expect(ends.map(print => print.pitch)).toEqual([semitones(120), semitones(240)]);
+    expect(analyzer.takePrint()!.seconds).toBeCloseTo(1.56, 5);
+    // Nobody takes prints during a long session (only Learn my voice does), so it is capped at a minute.
+    for (let stretch = 0; stretch < 70; stretch++) for (const frame of [...frames(50, -20, 180), ...frames(20, -50)]) analyzer.push(frame);
+    expect(analyzer.takePrint()!.seconds).toBeLessThan(10);
   });
 });

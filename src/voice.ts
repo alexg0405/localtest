@@ -11,6 +11,28 @@ const frameSeconds = 0.02;
 const median = (values: number[]) => { const sorted = [...values].sort((a, b) => a - b); const middle = sorted.length >> 1; return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2; };
 export const semitones = (hertz: number) => 12 * Math.log2(hertz / 55);
 
+/** One stretch of speech, as the voice detector hears it: `start` when the voice begins, `early` once enough of it is voiced
+ * to tell who it sounds like (about 0.7 s in), and `end` when it stops, just before voice activity reports silence. */
+export type VoiceSegment = { id: number; phase: 'start' | 'early' | 'end'; print?: VoicePrint };
+
+// Enough of a stretch to compare voices: 0.64 s of speech (voiceGuess wants 0.6 s), 16 frames of it pitched, so a cough,
+// typing, or a whisper never gets that far.
+const earlyFrames = 32; const earlyPitches = 16;
+
+/** Adds up what speech frames sounded like. */
+class Tally {
+  frames = 0; tilt = 0; snr = 0; pitches: number[] = [];
+  add(frame: VoiceFrame, above: number) {
+    this.frames++; this.tilt += frame.tilt; this.snr += above;
+    if (frame.pitch >= 60 && frame.pitch <= 450) this.pitches.push(semitones(frame.pitch));
+  }
+  /** The print, or undefined if there was too little speech. */
+  print(): VoicePrint | undefined {
+    const { frames, pitches } = this;
+    return frames >= 15 ? { ...(pitches.length >= 8 ? { pitch: median(pitches) } : {}), tilt: this.tilt / frames, level: this.snr / frames, seconds: frames * frameSeconds } : undefined;
+  }
+}
+
 /** Voice activity from frame loudness, with hysteresis, and the voice print of each stretch of speech. */
 export class VoiceAnalyzer {
   private buckets: number[] = []; // The quietest level in each 100 ms of the last 3 s.
@@ -19,8 +41,9 @@ export class VoiceAnalyzer {
   // second, so a long answer with few pauses is not mistaken for noise.
   private floor = -50;
   private active = false; private loud = 0; private quiet = 0;
-  private pitches: number[] = []; private tilt = 0; private snr = 0; private frames = 0;
-  constructor(private onVoiceActivity: (active: boolean) => void = () => undefined) {}
+  private taken = new Tally(); // Since the last takePrint.
+  private segment = new Tally(); private segmentId = 0; private early = false; // The stretch now being heard.
+  constructor(private onVoiceActivity: (active: boolean) => void = () => undefined, private onSegment: (segment: VoiceSegment) => void = () => undefined) {}
 
   get noiseFloor() { return this.floor; }
   get speaking() { return this.active; }
@@ -33,20 +56,22 @@ export class VoiceAnalyzer {
     }
     const above = frame.level - this.floor;
     // Starts after 40 ms clearly above the noise, ends after 300 ms back near it.
-    if (!this.active) { this.loud = above > 9 && frame.level > -65 ? this.loud + 1 : 0; if (this.loud >= 2) { this.active = true; this.quiet = 0; this.onVoiceActivity(true); } }
-    else { this.quiet = above < 5 ? this.quiet + 1 : 0; if (this.quiet >= 15) { this.active = false; this.loud = 0; this.onVoiceActivity(false); } }
+    if (!this.active) {
+      this.loud = above > 9 && frame.level > -65 ? this.loud + 1 : 0;
+      if (this.loud >= 2) { this.active = true; this.quiet = 0; this.segment = new Tally(); this.early = false; this.onVoiceActivity(true); this.onSegment({ id: ++this.segmentId, phase: 'start' }); }
+    } else {
+      this.quiet = above < 5 ? this.quiet + 1 : 0;
+      if (this.quiet >= 15) { this.active = false; this.loud = 0; this.onSegment({ id: this.segmentId, phase: 'end', print: this.segment.print() }); this.onVoiceActivity(false); }
+    }
     if (this.active && above > 5) {
-      this.frames++; this.tilt += frame.tilt; this.snr += above;
-      if (frame.pitch >= 60 && frame.pitch <= 450) this.pitches.push(semitones(frame.pitch));
+      this.segment.add(frame, above); this.taken.add(frame, above);
+      if (this.taken.frames > 3000) this.taken = new Tally(); // A minute nobody took (only Learn my voice takes prints).
+      if (!this.early && this.segment.frames >= earlyFrames && this.segment.pitches.length >= earlyPitches) { this.early = true; this.onSegment({ id: this.segmentId, phase: 'early', print: this.segment.print() }); }
     }
   }
 
   /** The print of the speech heard since the last call, or undefined if there was too little of it. */
-  takePrint(): VoicePrint | undefined {
-    const { frames, pitches } = this; const print = frames >= 15 ? { ...(pitches.length >= 8 ? { pitch: median(pitches) } : {}), tilt: this.tilt / frames, level: this.snr / frames, seconds: frames * frameSeconds } : undefined;
-    this.pitches = []; this.tilt = 0; this.snr = 0; this.frames = 0;
-    return print;
-  }
+  takePrint(): VoicePrint | undefined { const print = this.taken.print(); this.taken = new Tally(); return print; }
 }
 
 /** AudioWorklet that turns microphone audio into VoiceFrames every 20 ms (downsampled to about 16 kHz, pitch by the YIN method). */

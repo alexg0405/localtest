@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
+import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, joinPrints, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
+import type { VoicePrint } from './voice';
 
 describe('guessSpeaker', () => {
   it('gives questions and prompts to the interviewer', () => {
@@ -191,5 +192,73 @@ describe('voiceGuess', () => {
 
   it('adds the voice hint to lines waiting for the check', () => {
     expect(speakerPrompt([], [{ id: 1, text: 'can I assume it is sorted', heard: 'candidate' }])).toBe('Lines to label:\n1 (sounds like the candidate). can I assume it is sorted');
+    expect(speakerPrompt([], [{ id: 1, text: 'so how was that', voice: 1, heard: 'interviewer' }])).toBe('Lines to label:\n1 (voice 2, sounds like the interviewer). so how was that');
+  });
+});
+
+describe('comparing stretches of speech', () => {
+  const print = (pitch: number | undefined, level = 20, tilt = 0.03, seconds = 1.5): VoicePrint => ({ ...(pitch === undefined ? {} : { pitch }), tilt, level, seconds });
+
+  it('joinPrints weighs stretches by length, taking pitch only from those that had one', () => {
+    const joined = joinPrints([print(20, 20, 0.02, 1), print(26, 30, 0.04, 3), print(undefined, 10, 0.1, 1), undefined])!;
+    expect(joined.pitch).toBeCloseTo((20 + 26 * 3) / 4, 5);
+    expect(joined.level).toBeCloseTo((20 + 90 + 10) / 5, 5);
+    expect(joined.tilt).toBeCloseTo((0.02 + 0.12 + 0.1) / 5, 5);
+    expect(joined.seconds).toBe(5);
+    expect(joinPrints([])).toBeUndefined();
+    expect(joinPrints([undefined])).toBeUndefined();
+  });
+
+  it('voiceMatch compares two stretches directly until both voices are learned', () => {
+    expect(voiceMatch(print(20), print(20.8, 22))).toBe('same');
+    expect(voiceMatch(print(10), print(22))).toBe('different'); // A man and a woman, about 12 semitones apart.
+    expect(voiceMatch(print(20), print(25))).toBeUndefined(); // Emphasis or laughter can do that on its own.
+    expect(voiceMatch(print(20, 28), print(24.5, 18))).toBe('different'); // Pitch, backed up by loudness (an interviewer through speakers).
+    expect(voiceMatch(print(20, 28), print(20, 12))).toBeUndefined(); // Loudness alone: turning your head, auto-gain.
+    expect(voiceMatch(print(20), print(28))).toBe('different');
+    expect(voiceMatch(print(20), print(28), [], true)).toBeUndefined(); // Strict, for when Deepgram's voice numbers disagree.
+    expect(voiceMatch(print(undefined), print(20))).toBeUndefined();
+    expect(voiceMatch(print(20, 20, 0.03, 0.4), print(20))).toBeUndefined(); // Too short to tell.
+  });
+
+  it('with both voices learned, voiceMatch asks who each stretch sounds like, and voicesDistinct says whether that is telling', () => {
+    const interviewer = (pitch: number) => print(pitch, 18, 0.05, 2), candidate = (pitch: number) => print(pitch, 28, 0.02, 2);
+    const samples: VoiceSample[] = [
+      ...[9, 10.5, 11, 9.5].map(pitch => ({ speaker: 'interviewer' as const, print: interviewer(pitch) })),
+      ...[21, 22.5, 23, 21.5].map(pitch => ({ speaker: 'candidate' as const, print: candidate(pitch) })),
+    ];
+    expect(voiceMatch(interviewer(10), candidate(22), samples)).toBe('different');
+    expect(voiceMatch(candidate(21), candidate(23.5), samples)).toBe('same'); // 2.5 semitones apart, but both clearly you.
+    expect(voicesDistinct(samples)).toBe(true);
+    expect(voicesDistinct(samples.filter(sample => sample.speaker === 'candidate'))).toBe(false);
+    const alike: VoiceSample[] = [...[20, 21, 20.5].map(pitch => ({ speaker: 'interviewer' as const, print: print(pitch) })), ...[20.5, 21.5, 20].map(pitch => ({ speaker: 'candidate' as const, print: print(pitch) }))];
+    expect(voicesDistinct(alike)).toBe(false);
+  });
+
+  it('LineVoice gives each line only its own stretches, even when the words arrive after the next person started', () => {
+    const voices = new LineVoice(); const you = print(22, 28, 0.02, 1), them = print(10, 18, 0.05, 1);
+    voices.add({ id: 1, phase: 'start' }); voices.add({ id: 1, phase: 'end', print: you });
+    voices.add({ id: 2, phase: 'start' }); voices.add({ id: 2, phase: 'early', print: them });
+    voices.attach(); // Your words arrive late: the stretch that ended is yours, not the one still going.
+    expect(voices.line()).toEqual(you);
+    expect(voices.current()).toEqual({ id: 2, print: them });
+    voices.release(); // It sounded like someone else, so it waits for the next line.
+    expect(voices.take()).toEqual(you);
+    voices.attach(); // Their words: now the stretch still going is the line's.
+    voices.add({ id: 2, phase: 'end', print: them });
+    expect(voices.line()).toEqual(them);
+    expect(voices.seen).toBe(true);
+  });
+
+  it('LineVoice claims the stretch still going when nothing else was heard, and words() covers what is not in the line yet', () => {
+    const voices = new LineVoice(); const a = print(22, 28, 0.02, 1), b = print(22.5, 27, 0.02, 1);
+    voices.add({ id: 1, phase: 'start' }); voices.add({ id: 1, phase: 'early', print: a });
+    voices.attach(); // Words while the stretch goes on.
+    voices.add({ id: 1, phase: 'end', print: a });
+    voices.add({ id: 2, phase: 'start' }); voices.add({ id: 2, phase: 'end', print: b });
+    expect(voices.words()).toEqual(b);
+    expect(voices.line()).toEqual(a);
+    expect(voices.take(true)!.seconds).toBe(2); // Stopping takes everything heard.
+    expect(voices.line()).toBeUndefined();
   });
 });

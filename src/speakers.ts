@@ -2,7 +2,7 @@
 // it, and (with Deepgram) the voice it came from. Lines that repeat a suggested answer are yours: you reading it aloud.
 // Clicking a line's label in the transcript corrects it.
 import { endsMidPhrase, likelyQuestion, trailingQuestionStart } from './text';
-import type { VoicePrint } from './voice';
+import type { VoicePrint, VoiceSegment } from './voice';
 
 export type Speaker = 'interviewer' | 'candidate';
 /** How a label was decided: `guess` from the words, `voice` from earlier labels for the same Deepgram voice, `ai` checked
@@ -182,10 +182,85 @@ export function voiceGuess(samples: readonly VoiceSample[], print?: VoicePrint):
   return worst < 1.2 ? { speaker: same, strength: 2 } : worst > 3 ? { speaker: same === 'interviewer' ? 'candidate' : 'interviewer', strength: 2 } : undefined;
 }
 
+/** Several stretches of speech as one print, weighted by how long each lasted; pitch comes only from those that had one. */
+export function joinPrints(prints: readonly (VoicePrint | undefined)[]): VoicePrint | undefined {
+  const heard = prints.filter((print): print is VoicePrint => !!print && print.seconds > 0); if (!heard.length) return undefined;
+  const pitched = heard.filter(print => print.pitch !== undefined);
+  const weighted = (list: VoicePrint[], value: (print: VoicePrint) => number) => list.reduce((sum, print) => sum + value(print) * print.seconds, 0) / list.reduce((sum, print) => sum + print.seconds, 0);
+  return { ...(pitched.length ? { pitch: weighted(pitched, print => print.pitch!) } : {}), tilt: weighted(heard, print => print.tilt), level: weighted(heard, print => print.level), seconds: heard.reduce((sum, print) => sum + print.seconds, 0) };
+}
+
+// How far apart two stretches have to sound to count as the same person or different people: pitch in semitones (one
+// person's stretches differ by 1–1.5, and by up to 5 with emphasis or laughter; a man and a woman by about 11), loudness in
+// dB above the room, and brightness on a log scale. Loudness and brightness only back up pitch, since auto-gain, turning
+// your head, and the sounds being said move them too. Strict asks for more, for when Deepgram's voice numbers disagree.
+const sameVoice = { pitch: 1.5, level: 4, tilt: 0.4 };
+const otherVoice = { pitch: 7, pitchWithCue: 4, level: 8, tilt: 0.6 };
+const otherVoiceStrict = { pitch: 9, pitchWithCue: 5, level: 10, tilt: 0.8 };
+
+/** Whether two stretches of speech sound like the same person or different people, or undefined if it is not clear. With
+ * both people's voices learned, it asks voiceGuess about each; otherwise it compares the two stretches directly. */
+export function voiceMatch(a: VoicePrint | undefined, b: VoicePrint | undefined, samples: readonly VoiceSample[] = [], strict = false): 'same' | 'different' | undefined {
+  if (a?.pitch === undefined || b?.pitch === undefined || a.seconds < 0.6 || b.seconds < 0.6) return undefined;
+  const first = voiceGuess(samples, a), second = voiceGuess(samples, b), sure = strict ? 5 : 3; // Strength 3 needs both voices learned.
+  if (first && second && first.strength >= sure && second.strength >= sure) return first.speaker === second.speaker ? 'same' : 'different';
+  const [pitchA, tiltA, levelA] = features(a) as number[], [pitchB, tiltB, levelB] = features(b) as number[];
+  const pitch = Math.abs(pitchA - pitchB), tilt = Math.abs(tiltA - tiltB), level = Math.abs(levelA - levelB), other = strict ? otherVoiceStrict : otherVoice;
+  if (pitch >= other.pitch || (pitch >= other.pitchWithCue && (level >= other.level || tilt >= other.tilt))) return 'different';
+  return pitch <= sameVoice.pitch && level <= sameVoice.level && tilt <= sameVoice.tilt ? 'same' : undefined;
+}
+
+/** Whether the interviewer's voice and yours, as learned so far, are far enough apart to tell by sound (about 4 spreads). */
+export function voicesDistinct(samples: readonly VoiceSample[]) {
+  const interviewer = profile(samples, 'interviewer'), candidate = profile(samples, 'candidate'); if (!interviewer || !candidate) return false;
+  let apart = 0;
+  for (let dim = 0; dim < floors.length; dim++) { const a = interviewer[dim], b = candidate[dim]; if (a && b) apart += ((a.mean - b.mean) / Math.max(a.spread, b.spread)) ** 2; }
+  return apart >= 16;
+}
+
+type Stretch = { id: number; early?: VoicePrint; print?: VoicePrint; ended: boolean; mine?: boolean };
+/** Which stretches of speech since the last committed line belong to the line still open. They join it as its words arrive,
+ * since recognizers lag behind the voice, and a stretch that sounds like someone else is kept for the next line. */
+export class LineVoice {
+  private stretches: Stretch[] = [];
+  /** Whether any speech was heard this session (without the voice worklet, none ever is). */
+  seen = false;
+  add(segment: VoiceSegment) {
+    if (segment.phase === 'start') { this.stretches.push({ id: segment.id, ended: false }); this.seen = true; return; }
+    const stretch = this.stretches.find(item => item.id === segment.id); if (!stretch) return;
+    if (segment.phase === 'early') stretch.early = segment.print; else { stretch.print = segment.print; stretch.ended = true; }
+  }
+  /** The open line's words grew: the stretches that ended since are theirs, or else the one still going. A stretch going on
+   * after others ended is left alone, since it is probably the next person. */
+  attach() {
+    const ended = this.stretches.filter(item => item.mine === undefined && item.ended);
+    for (const stretch of ended.length ? ended : this.going() && this.going()!.mine === undefined ? [this.going()!] : []) stretch.mine = true;
+  }
+  /** The stretch being heard now is someone else's; it goes to the next line. */
+  release() { const stretch = this.going(); if (stretch) stretch.mine = false; }
+  /** What the open line sounds like so far. */
+  line() { return joinPrints(this.stretches.filter(item => item.mine).map(item => item.print ?? item.early)); }
+  /** What the speech not yet in the line sounds like. */
+  words() { return joinPrints(this.stretches.filter(item => item.mine === undefined).map(item => item.print ?? item.early)); }
+  /** The stretch being heard now, once it is long enough to tell who it sounds like. */
+  current() { const stretch = this.going(); return stretch?.early ? { id: stretch.id, print: stretch.early } : undefined; }
+  /** The open line's print as it is committed; the rest waits for the next line. With `all`, everything heard counts. */
+  take(all = false) {
+    const print = all ? joinPrints(this.stretches.map(item => item.print ?? item.early)) : this.line();
+    this.stretches = all ? [] : this.stretches.filter(item => !item.ended || !item.mine).map(item => ({ ...item, mine: undefined }));
+    return print;
+  }
+  reset() { this.stretches = []; this.seen = false; }
+  private going() { const last = this.stretches[this.stretches.length - 1]; return last && !last.ended ? last : undefined; }
+}
+
 export const speakerInstructions = `You label who said each line of a live job interview transcript. It comes from speech recognition, so words can be misheard and punctuation is often missing. For each numbered line, decide whether the interviewer (I) or the candidate (C) said it. The interviewer usually introduces themselves, the team, or the role, asks the questions, gives coding problems, and reacts briefly ("great", "okay, next question"); the candidate answers, describes their own experience in the first person, thinks aloud while solving problems, and asks clarifying questions or questions about the role. A short reaction such as "okay" or "yeah" usually comes from whoever is listening to the other person. When lines show a voice number, lines with the same number came from the same person. Some lines say who the voice sounds like, from a quick comparison of pitch and tone; that is usually right but can be wrong, especially for short lines. Reply with only a JSON object that maps every line number to "I" or "C", for example {"1":"I","2":"C"}.`;
 
 const label = (speaker?: Speaker) => speaker === 'interviewer' ? 'Interviewer' : speaker === 'candidate' ? 'Candidate' : 'Unlabeled';
-const voiceNote = (line: SpokenLine) => line.voice !== undefined ? ` (voice ${line.voice + 1})` : line.heard ? ` (sounds like the ${line.heard})` : '';
+const voiceNote = (line: SpokenLine) => {
+  const notes = [line.voice !== undefined && `voice ${line.voice + 1}`, line.heard && `sounds like the ${line.heard}`].filter(Boolean);
+  return notes.length ? ` (${notes.join(', ')})` : '';
+};
 
 /** The model's prompt: the lines to label, numbered, after a few already labeled ones for context. */
 export function speakerPrompt(earlier: readonly SpokenLine[], pending: readonly SpokenLine[], role = '') {

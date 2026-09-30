@@ -1,6 +1,5 @@
 # Roomside
 
-A desktop-sized interview practice copilot prototype that keeps everything in memory unless you save a session. It uses only the secondary device's microphone when **Start listening** is explicitly pressed. Use it for practice or when live AI assistance is explicitly permitted.
 
 ## Run
 

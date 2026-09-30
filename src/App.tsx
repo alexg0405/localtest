@@ -1,7 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, ListChecks, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
-import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, coachInstructions, describeProviderError, followUpPrompt, pointsInstructions, type LLMProvider, type Mode } from './providers';
+import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, liveCoachInstructions, reviewInstructions, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
 import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
 import { acceptedFiles, extractText } from './documents';
@@ -15,8 +15,8 @@ import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, ope
 import { AnswerContent, EntryMeta, PastAnswer, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
 import { SessionMenu } from './SessionMenu';
 import { deleteSession, lastIds, listSessions, loadSession, newSessionId, storeSession, type SavedSession, type SessionLine, type SessionSummary } from './sessions';
-import { liveSteps, pointsPrompt, type LiveHeard, type LiveStep, type LiveTurn } from './live';
-import { coachPrompt, parseCoaching, reviewSession } from './review';
+import { acknowledges, closes, liveCoachPrompt, liveSteps, parseLiveCoach, type LiveCoach, type LiveHeard, type LiveStep, type LiveTurn } from './live';
+import { coachPrompt, countFillers, parseCoaching, reviewSession } from './review';
 import { ReviewPanel, type CoachingState } from './ReviewPanel';
 
 type Line = SessionLine;
@@ -112,12 +112,13 @@ export default function App() {
   // The live answer (see live.ts): the turn it responds to, the prompt a preview from words still coming used, and the next
   // update waiting its turn, so updates stay at least 2 s apart while people talk.
   const [liveAnswers, setLiveAnswers] = useState(true); const liveOn = useRef(true);
-  // Key points to hit while you answer in your own words: worked out again as you go on, at most every 8 s and once you
-  // have said a dozen more words of your own, without touching the answer they sit above.
-  const [points, setPoints] = useState<{ text: string; busy: boolean; after: string } | null>(null);
-  const pointsRun = useRef<AbortController | null>(null); const pointsAt = useRef(0); const pointsWords = useRef(0); const pointsTimer = useRef<number | null>(null);
-  // Coaching on the review of this session (see review.ts), from the last time you asked for it.
-  const [coaching, setCoaching] = useState<CoachingState>({ state: 'idle' }); const coachRun = useRef<AbortController | null>(null);
+  // The live coach, pinned above the answers: a request separate from the answer that reads each question and what is said
+  // about it, for the key idea to land, the next points to make, and a tip on how you are coming across.
+  const [liveCoach, setLiveCoach] = useState(true); const coachOn = useRef(true);
+  const [coach, setCoach] = useState<(LiveCoach & { busy: boolean; after: string; asked: string }) | null>(null);
+  const coachRun = useRef<AbortController | null>(null); const coachAt = useRef(0); const coachWords = useRef(0); const coachTimer = useRef<number | null>(null); const turnAt = useRef(0);
+  // Coaching on the review of this session afterwards (see review.ts), from the last time you asked for it.
+  const [coaching, setCoaching] = useState<CoachingState>({ state: 'idle' }); const reviewRun = useRef<AbortController | null>(null);
   const liveTurn = useRef<LiveTurn | null>(null); const livePartial = useRef(''); const liveHeard = useRef(''); const liveQueue = useRef<LiveUpdate | null>(null); const liveStarted = useRef(0); const liveTimer = useRef<number | null>(null);
   // Live answers rewritten in place, which you may still be reading aloud; with `readable`, what reading is checked against.
   const rewritten = useRef<ReadableAnswer[]>([]); const reading = useRef<ReadableAnswer[]>([]);
@@ -183,8 +184,6 @@ export default function App() {
     return true;
   }, []);
 
-  const dropPoints = useCallback(() => { pointsRun.current?.abort(); pointsRun.current = null; clearTimer(pointsTimer); pointsWords.current = 0; setPoints(null); }, []);
-
   const generate = useCallback(async (q: string, options: GenerateOptions = {}) => {
     const text = q.trim(); if (!text) return;
     samplePending.current = false;
@@ -194,7 +193,7 @@ export default function App() {
     partialQuestion.current = options.partial ? text : '';
     controller.current?.abort(); const current = new AbortController(); controller.current = current;
     if (!options.keep) setAnswer('');
-    dropPoints(); setQuestion(text); setLowConfidence(!!options.uncertain); setAnswerError(''); setShownMode(selectedMode); setAnswerKind(options.followUp ? 'followup' : 'answer'); setGenerating(true); setStatus(options.keep ? 'Updating…' : 'Preparing response…');
+    setQuestion(text); setLowConfidence(!!options.uncertain); setAnswerError(''); setShownMode(selectedMode); setAnswerKind(options.followUp ? 'followup' : 'answer'); setGenerating(true); setStatus(options.keep ? 'Updating…' : 'Preparing response…');
     let fresh = !!options.keep; // The first words replace the answer kept up meanwhile.
     try {
       const result = await provider().answer(options.followUp ? followUpPrompt(text) : text, context(text, options.before), selectedMode, chunk => {
@@ -204,7 +203,7 @@ export default function App() {
     } catch (reason: any) {
       if (!current.signal.aborted) { partialAnswer.current = false; setStatus('Could not get a response'); setAnswerError(describeProviderError(reason)); }
     } finally { if (controller.current === current) { controller.current = null; setGenerating(false); } }
-  }, [mode, provider, context, stopReading, archiveCurrent, dropPoints]);
+  }, [mode, provider, context, stopReading, archiveCurrent]);
 
   // Starts a live answer update now, cutting off one still running (it was about older words). An update, or a preview
   // being replaced, rewrites the card in place and keeps the old answer up until the new one starts arriving.
@@ -230,22 +229,33 @@ export default function App() {
   const requestLive = useCallback((update: LiveUpdate) => { if (update.partial) { liveQueue.current = update; pumpLive(); } else runLive(update); }, [runLive, pumpLive]);
   // A question answered by hand (typed, ↵ on a line, or corrected) is the turn later lines relate to; updates waiting
   // for older words are dropped.
-  const resetLive = useCallback((turn: LiveTurn | null) => { liveTurn.current = turn; liveQueue.current = null; livePartial.current = ''; liveHeard.current = ''; clearTimer(liveTimer); }, []);
-  // Works out the key points again once you have said enough more of your own, waiting out an answer still coming in, a
-  // preview, and the 8 s since the last time.
-  const requestPoints = useCallback(() => {
-    clearTimer(pointsTimer); const turn = liveTurn.current; const model = provider();
-    if (!turn || !liveOn.current || !model.complete || turn.ownWords - pointsWords.current < 12) return;
-    const wait = 8000 - (Date.now() - pointsAt.current);
-    if (wait > 0 || pointsRun.current || controller.current || partialAnswer.current) { pointsTimer.current = window.setTimeout(() => latest.current.requestPoints(), Math.max(wait, 1000)); return; }
-    const run = new AbortController(); pointsRun.current = run; pointsAt.current = Date.now(); pointsWords.current = turn.ownWords;
-    const card = display.current.id; const after = lastWords(turn.said.join(' '), 6);
-    setPoints(value => ({ text: value?.text ?? '', busy: true, after: value?.after ?? after }));
-    model.complete(pointsInstructions, `${context(turn.asked)}\n\n${pointsPrompt(turn)}`, run.signal).then(
-      text => { if (!run.signal.aborted && display.current.id === card && liveTurn.current?.asked === turn.asked) setPoints(text.trim() ? { text: text.trim(), busy: false, after } : null); },
-      () => { if (!run.signal.aborted) setPoints(value => value && { ...value, busy: false }); })
-      .finally(() => { if (pointsRun.current === run) pointsRun.current = null; });
+  // The live coach (see live.ts): starts on each new question with the key idea to land, then follows what is said about
+  // it (your answer, their hints) at most every 8 s, once a dozen more words have been said. It never waits for the answer.
+  const dropCoach = useCallback(() => { coachRun.current?.abort(); coachRun.current = null; clearTimer(coachTimer); coachWords.current = 0; setCoach(null); }, []);
+  const runCoach = useCallback((turn: LiveTurn) => {
+    const model = provider(); if (!model.complete) return;
+    coachRun.current?.abort(); clearTimer(coachTimer); const run = new AbortController(); coachRun.current = run; coachAt.current = Date.now(); coachWords.current = 0;
+    const said = turn.said.join(' '); const after = said ? lastWords(said, 6) : ''; const fillers = countFillers(said).reduce((sum, item) => sum + item.count, 0);
+    setCoach(value => value?.asked === turn.asked ? { ...value, busy: true } : { key: '', points: [], tip: '', busy: true, after: '', asked: turn.asked });
+    model.complete(liveCoachInstructions, `${context(turn.asked)}\n\n${liveCoachPrompt(turn, (Date.now() - turnAt.current) / 1000, fillers)}`, run.signal).then(
+      output => { if (run.signal.aborted || liveTurn.current?.asked !== turn.asked) return; const next = parseLiveCoach(output); setCoach(value => next ? { ...next, busy: false, after, asked: turn.asked } : value && { ...value, busy: false }); },
+      () => { if (!run.signal.aborted) setCoach(value => value && { ...value, busy: false }); })
+      .finally(() => { if (coachRun.current === run) coachRun.current = null; });
   }, [provider, context]);
+  const startCoach = useCallback((turn: LiveTurn) => { if (!coachOn.current) return; turnAt.current = Date.now(); runCoach(turn); }, [runCoach]);
+  const requestCoach = useCallback(() => {
+    clearTimer(coachTimer); const turn = liveTurn.current;
+    if (!turn || !coachOn.current || coachWords.current < 12) return;
+    const wait = 8000 - (Date.now() - coachAt.current);
+    if (wait > 0 || coachRun.current) { coachTimer.current = window.setTimeout(() => latest.current.requestCoach(), Math.max(wait, 1000)); return; }
+    runCoach(turn);
+  }, [runCoach]);
+  // A question answered by hand (typed, ↵ on a line, or corrected) is the turn later lines relate to, and gets coached;
+  // updates waiting for older words are dropped.
+  const resetLive = useCallback((turn: LiveTurn | null) => {
+    liveTurn.current = turn; liveQueue.current = null; livePartial.current = ''; liveHeard.current = ''; clearTimer(liveTimer);
+    if (turn) startCoach(turn); else dropCoach();
+  }, [startCoach, dropCoach]);
 
   const addLine = useCallback((line: Omit<Line, 'id'>) => {
     const next = [...transcriptRef.current, { ...line, id: ++lineId.current }].slice(-3000); // Hours of conversation; Clear conversation empties it.
@@ -310,7 +320,8 @@ export default function App() {
         else if (read) setStatus('Holding still while you read');
         else setStatus(value => value === 'Holding still while you read' ? 'Response ready' : value);
       }
-      requestPoints();
+      if (step.action !== 'hold') startCoach(step.turn);
+      else if (!read && !acknowledges(said) && !closes(said)) { coachWords.current += wordCount(said); requestCoach(); }
     }
     else if (likelyQuestion(utterance, language) && !own) {
       lastQuestion.current = { text: utterance, at: Date.now() };
@@ -331,14 +342,14 @@ export default function App() {
     else if (partialQuestion.current && (!read || compactText(utterance).includes(draftStart))) { partialAnswer.current = false; partialQuestion.current = ''; abortAnswer(); setAnswer(''); setQuestion(''); setLowConfidence(false); setStatus('No question detected'); }
     // You answering right away, when the recognizer ran it into their question.
     if (cut?.reply) addLine({ text: cut.reply, time: stamp(), at: Date.now(), confidence, speaker: 'candidate', by: 'guess' });
-  }, [addLine, generate, runLive, requestPoints, abortAnswer, question]);
+  }, [addLine, generate, runLive, startCoach, requestCoach, abortAnswer, question]);
 
   const resetConversation = useCallback(() => {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear(); nextVoice.current = 0;
     browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; lineVoice.current.reset(); interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
-    resetLive(null); rewritten.current = []; coachRun.current?.abort(); coachRun.current = null; setCoaching({ state: 'idle' }); speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
-    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); dropPoints(); setPinned(null); setHistory([]); setEarlierOpen(false); setNewAnswer(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
-  }, [abortAnswer, stopReading, resetLive, dropPoints]);
+    resetLive(null); rewritten.current = []; reviewRun.current?.abort(); reviewRun.current = null; setCoaching({ state: 'idle' }); speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
+    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setEarlierOpen(false); setNewAnswer(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
+  }, [abortAnswer, stopReading, resetLive]);
   // Clearing starts a new session. A saved one keeps what it had: its latest changes are saved first.
   const clear = useCallback(() => {
     if (sessionNow.current.saved) void storeSession(sessionSnapshot.current()).catch(() => undefined);
@@ -358,11 +369,11 @@ export default function App() {
   const stop = useCallback(() => { sessionId.current++; endListening(clearOnStop); }, [clearOnStop, endListening]);
 
   // Speech callbacks outlive the render that started listening; read the latest mode, provider, and settings through this ref.
-  const latest = useRef({ generate, commitSpeech, endListening, requestLive, pumpLive, requestPoints });
+  const latest = useRef({ generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach });
   const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
   useLayoutEffect(() => {
-    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestPoints }; liveOn.current = liveAnswers; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
-    readable.current = [...(pinned ? [pinned] : []), ...history.slice(-6), { question, answer }]; reading.current = [...rewritten.current, ...readable.current, ...(points?.text ? [{ question, answer: points.text }] : [])]; // Oldest first.
+    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach }; liveOn.current = liveAnswers; coachOn.current = liveAnswers && liveCoach; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
+    readable.current = [...(pinned ? [pinned] : []), ...history.slice(-6), { question, answer }]; reading.current = [...rewritten.current, ...readable.current, ...(coach?.key ? [{ question, answer: [coach.key, ...coach.points].join('\n') }] : [])]; // Oldest first. You might read the coach's notes aloud too.
   });
 
   const start = useCallback(() => {
@@ -518,8 +529,8 @@ export default function App() {
   const pinEntry = useCallback((entry: Entry) => setPinned(current => current?.id === entry.id ? null : entry), []);
   const showSnapshot = useCallback((item: Snapshot, message: string) => {
     archiveCurrent(); abortAnswer(); stopReading(); partialAnswer.current = false; partialQuestion.current = ''; setEntryId(++entryCounter.current); setEntryTime(stamp());
-    setQuestion(item.question); setAnswer(item.answer); setShownMode(item.mode); setAnswerKind(item.kind); dropPoints(); setAnswerError(''); setLowConfidence(false); setStatus(message);
-  }, [archiveCurrent, abortAnswer, stopReading, dropPoints]);
+    setQuestion(item.question); setAnswer(item.answer); setShownMode(item.mode); setAnswerKind(item.kind); setAnswerError(''); setLowConfidence(false); setStatus(message);
+  }, [archiveCurrent, abortAnswer, stopReading]);
   // The pinned answer is usually the live one or still under Earlier, so this scrolls to it; one that is not comes back
   // as the current answer.
   const showPinned = useCallback(() => {
@@ -750,7 +761,7 @@ export default function App() {
   }, [savedContext, addFiles]);
   // A DEEPGRAM_API_KEY in .env (see .env.example) fills in the key and switches transcription to Deepgram.
   useEffect(() => { void deepgramKeyFromEnv().then(key => { if (!key) return; setDeepgramKey(current => current || key); setKeyFromEnv(true); setSpeechEngine('deepgram'); }); }, []);
-  useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); clearTimer(liveTimer); clearTimer(pointsTimer); pointsRun.current?.abort(); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
+  useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); clearTimer(liveTimer); clearTimer(coachTimer); coachRun.current?.abort(); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
 
   const blocks = parseAnswer(answer);
   const heardMinutes = transcript.length ? Math.max(1, Math.round((transcript[transcript.length - 1].at - transcript[0].at) / 60_000)) : 0;
@@ -785,7 +796,7 @@ export default function App() {
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
       entries: showCurrent ? [...pastForPhone, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks) }] : pastForPhone,
-      live: showCurrent, generating, status, answerError, mode, points: points?.text ? mirrorBlocks(parseAnswer(points.text)) : [],
+      live: showCurrent, generating, status, answerError, mode, coach: coach?.key ? { key: coach.key, points: coach.points, tip: coach.tip } : undefined,
       heard: transcript.slice(-8).map(({ time, text, speaker }) => ({ time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
     });
   });
@@ -793,14 +804,14 @@ export default function App() {
   const shownLines = useMemo(() => speakers && transcriptFilter !== 'all' ? transcript.filter(line => line.speaker === transcriptFilter) : transcript, [speakers, transcriptFilter, transcript]);
   // Worked out while the Review panel is open, so it follows the conversation as it goes on.
   const review = useMemo(() => panel === 'review' ? reviewSession(transcript, language) : null, [panel, transcript, language]);
-  const coach = useCallback(async () => {
+  const coachReview = useCallback(async () => {
     const model = provider(); if (!review?.questions.length || !model.complete) return;
-    coachRun.current?.abort(); const run = new AbortController(); coachRun.current = run; setCoaching({ state: 'loading' });
+    reviewRun.current?.abort(); const run = new AbortController(); reviewRun.current = run; setCoaching({ state: 'loading' });
     try {
-      const result = parseCoaching(await model.complete(coachInstructions, coachPrompt(review, role), run.signal));
+      const result = parseCoaching(await model.complete(reviewInstructions, coachPrompt(review, role), run.signal));
       if (!run.signal.aborted) setCoaching(result ? { state: 'done', result, questions: review.questions.slice(-15).map(item => item.question) } : { state: 'error', message: 'The coaching came back in a form Roomside could not read. Try again.' });
     } catch (reason: any) { if (!run.signal.aborted) setCoaching({ state: 'error', message: describeProviderError(reason) }); }
-    finally { if (coachRun.current === run) coachRun.current = null; }
+    finally { if (reviewRun.current === run) reviewRun.current = null; }
   }, [provider, review, role]);
   const earlier = useMemo(() => history.slice().reverse(), [history]); // Newest first, under the live answer.
   const readAloud = () => {
@@ -841,6 +852,10 @@ export default function App() {
         </div>
         <div className="right-col">
           <div className="col-head"><h2>Answers</h2><button className="provider-chip" onClick={() => setPanel('settings')} aria-label={`Answers from ${providerDetails}. Change in Settings`} title={providerDetails}>{providerName}</button><div className="segmented" role="group" aria-label="Answer length">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => chooseMode(item)}>{item.toLowerCase()}</button>)}</div></div>
+          {liveCoach && liveAnswers && coach && <section className={'live-coach' + (coach.busy ? ' busy' : '')} aria-live="polite" aria-label="Live coach">
+            <div className="live-coach-head"><b><i/>Coach</b><span>{coach.busy ? coach.key ? 'Updating…' : 'Reading the question…' : coach.after ? `after “${coach.after}”` : 'for this question'}</span></div>
+            {coach.key ? <><p className="live-coach-key">{coach.key}</p>{coach.points.length > 0 && <ul>{coach.points.map(point => <li key={point}>{point}</li>)}</ul>}{coach.tip && <p className="live-coach-tip">{coach.tip}</p>}</> : <div className="typing" aria-hidden="true"><i/><i/><i/></div>}
+          </section>}
           {pinned && <div className="pinned-answer"><Pin size={13}/><span>{pinned.question}</span><button onClick={showPinned}>Show</button><button className="unpin" onClick={() => setPinned(null)} aria-label="Unpin answer" title="Unpin answer"><X size={13}/></button></div>}
           <div className="answer-feed" ref={feed} onScroll={() => { followFeed.current = latestInView(); if (followFeed.current) setNewAnswer(false); }}>
             {showCurrent ? <article className="qa-entry current" data-entry={entryId} data-current="">
@@ -851,7 +866,6 @@ export default function App() {
                 onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); saveEdit(); } else if (event.key === 'Escape') { event.preventDefault(); setEditing(null); } }}/>
                 <div className="edit-hint">Enter to answer this instead · Esc to cancel</div></>
                 : <div className="question-text">{question || 'Waiting for a question…'}</div>}
-              {points && <div className="key-points" aria-live="polite"><div className="key-points-head"><b>Key points to hit</b><span>{points.busy ? 'Updating…' : `after “${points.after}”`}</span></div>{points.text ? <AnswerContent blocks={parseAnswer(points.text)}/> : <div className="typing" aria-hidden="true"><i/><i/><i/></div>}</div>}
               <div className="response-content" aria-live="polite" aria-busy={generating}><AnswerContent blocks={blocks}/>{!blocks.length && !answerError && (generating ? <div className="typing" aria-hidden="true"><i/><i/><i/></div> : <p className="muted">Your answer will appear here.</p>)}{answerError && <div className="answer-error" role="alert">{answerError}</div>}</div>
               <div className="qa-foot"><span className={'answer-state' + (generating ? ' busy' : answerError ? ' failed' : '')}><i/><span>{status}</span></span><span className="quick-actions"><button onClick={shorter} disabled={!question} title={`Shorter answer (${mod} 1)`}>Shorter</button><button onClick={detailed} disabled={!question} title={`Explain more (${mod} 2)`}>More detail</button><button onClick={followUp} disabled={!question} title="Prepare for the likely follow-up question">Follow-up</button><button onClick={regenerate} disabled={!question} title="Regenerate" aria-label="Regenerate"><RefreshCw size={13}/></button></span></div>
             </article> : !history.length && <div className="empty-answers"><b>Suggested answers appear here</b><span>{liveAnswers ? 'One live answer keeps up with the conversation as people talk, and earlier ones collect below it.' : 'When a question is heard or typed, an answer streams in.'} The length you pick above applies to every answer.</span></div>}
@@ -873,7 +887,8 @@ export default function App() {
       <label className="toggle-row"><span><b>Tell speakers apart</b><small>Labels each line Interviewer or You, so answers know who said what. {source === 'demo' ? 'Guesses from the wording only; with Claude or an OpenAI-compatible provider, a quick background check also reads the conversation.' : `A quick background check by ${source === 'claude' ? 'Claude Haiku (a little of your Claude usage)' : 'your answer provider'} fixes wrong guesses.`}{speechEngine === 'deepgram' ? ' Deepgram also separates voices.' : ''} Click a label to correct it.</small></span><input type="checkbox" checked={speakers} onChange={event => setSpeakers(event.target.checked)}/></label>
       {speakers && <div className="voice-row"><span className="settings-hint">{voiceSetup.state === 'recording' ? 'Read this aloud, as you would in the interview: "I am practicing for an interview today. I enjoy building reliable software and explaining how it works."' : voiceSetup.state === 'done' ? `Learned your voice from ${voiceSetup.seconds} s of speech. Lines that sound like you are labeled You right away.` : voiceSetup.state === 'error' ? voiceSetup.message : active ? 'Stop listening to teach Roomside your voice.' : 'Optional: read a sentence aloud for 8 seconds so your lines are labeled You from the start. Only a few numbers about your voice are kept, in this tab.'}</span>{voiceSetup.state === 'done' && <button className="text-button" onClick={() => { myVoice.current = []; setVoiceSetup({ state: 'idle' }); }}>Forget</button>}<button className="secondary" onClick={() => void teachVoice()} disabled={voiceSetup.state === 'recording' || active}>{voiceSetup.state === 'recording' ? 'Listening…' : voiceSetup.state === 'done' ? 'Learn again' : 'Learn my voice'}</button></div>}
       <div className="settings-section-title">Answers</div><label className="field-label">Answers from<select value={source} onChange={event => { sourceChosen.current = true; setSource(event.target.value as AnswerSource); setProviderCheck(''); }}><option value="claude">Claude, with your Claude subscription</option><option value="openai">OpenAI-compatible endpoint (API key)</option><option value="demo">Offline demo answers</option></select></label>
-      <label className="toggle-row"><span><b>Live answer</b><small>Answers each question or problem as it is asked, starting before they finish, then holds still. While you answer in your own words, key points you have not made yet appear above it and follow what you say. Asides and small talk leave it alone.{source === 'claude' ? ' Uses more of your Claude usage than answering questions only.' : source === 'openai' ? ' Sends more requests than answering questions only.' : ''}</small></span><input type="checkbox" checked={liveAnswers} onChange={event => { const on = event.target.checked; setLiveAnswers(on); liveOn.current = on; resetLive(null); clearTimer(partialTimer); }}/></label>
+      <label className="toggle-row"><span><b>Live answer</b><small>Answers each question or problem once it sounds finished, then holds still while you read or talk. Asides and small talk leave it alone.{source === 'claude' ? ' Uses more of your Claude usage than answering questions only.' : source === 'openai' ? ' Sends more requests than answering questions only.' : ''}</small></span><input type="checkbox" checked={liveAnswers} onChange={event => { const on = event.target.checked; setLiveAnswers(on); liveOn.current = on; resetLive(null); clearTimer(partialTimer); }}/></label>
+      {liveAnswers && <label className="toggle-row"><span><b>Live coach</b><small>A separate check by {source === 'claude' ? 'Claude' : source === 'openai' ? 'your answer provider' : 'the offline demo'}, pinned above the answers: for each question, the key idea to land, the next points to make, and a tip on how you are coming across, following what you say (at most every 8 seconds).{source === 'claude' ? ' Uses a little more of your Claude usage.' : ''}</small></span><input type="checkbox" checked={liveCoach} onChange={event => { const on = event.target.checked; setLiveCoach(on); coachOn.current = on; if (on && liveTurn.current) startCoach(liveTurn.current); else dropCoach(); }}/></label>}
       {source === 'claude' && <><label className="field-label">Model<select value={claudeModel} onChange={event => { setClaudeModel(event.target.value as ClaudeModel); setProviderCheck(''); }}>{claudeModels.map(item => <option key={item.id} value={item.id}>{item.label} ({item.note})</option>)}</select></label><div className="settings-hint">Runs through Claude Code on this computer, signed in with your Claude account: no API key, and usage counts toward your plan. Works while Roomside runs from <code>npm start</code>.</div></>}
       {source === 'openai' && <><label className="field-label">Chat completions endpoint<input type="url" value={endpoint} onChange={event => { setEndpoint(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label className="field-label">Model<input value={model} onChange={event => { setModel(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label className="field-label">API key<input type="password" value={apiKey} onChange={event => { setApiKey(event.target.value); setProviderCheck(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><div className="settings-hint">Sent only to the endpoint above. The browser may block cross-origin requests unless the endpoint allows them.</div></>}
       {source !== 'demo' && <><button className="secondary check-button" onClick={() => void checkProvider()} disabled={checkingProvider}>{checkingProvider ? 'Checking…' : 'Test connection'}</button>{providerCheck && <div className={'provider-result ' + (providerCheck.startsWith('Connected') ? 'success' : '')}>{providerCheck}</div>}</>}
@@ -898,7 +913,7 @@ export default function App() {
       <label className="toggle-row"><span><b>Keep on this computer</b><small>Saves this text in this browser only (never transcripts or keys). Turn it off to delete the saved copy.</small></span><input type="checkbox" checked={keepContext} onChange={event => setKeepContext(event.target.checked)}/></label>
       {contextNotice && <div className="provider-result">{contextNotice}</div>}
     </section></div>}
-    {panel === 'review' && review && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><ReviewPanel ref={settingsPanel} review={review} coaching={coaching} onCoach={() => void coach()} onClose={() => setPanel(null)}
+    {panel === 'review' && review && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><ReviewPanel ref={settingsPanel} review={review} coaching={coaching} onCoach={() => void coachReview()} onClose={() => setPanel(null)}
       coachNote={source === 'claude' ? 'One strength and one thing to practice for each question, from Claude (a little of your Claude usage).' : source === 'openai' ? 'One strength and one thing to practice for each question, from your answer provider.' : 'The offline demo gives sample coaching; choose Claude in Settings for real feedback.'}/></div>}
     {panel === 'phone' && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="phone-title"><div className="modal-head"><h2 id="phone-title">Phone mirror</h2><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close phone mirror"><X size={18}/></button></div>
       <p className="context-intro">See each question and suggested answer on your phone, type questions there, and start or stop listening. Audio still comes only from this computer's microphone, so keep this page open; it can stay in the background.</p>

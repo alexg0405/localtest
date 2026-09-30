@@ -1,14 +1,14 @@
 // The live answer: one suggestion that keeps up with the conversation. Every question (or problem) the interviewer puts to
 // the candidate gets a fresh answer, which grows with what they add before the candidate replies and then holds still:
-// the rest of the conversation about it (asides, hints, the candidate explaining in their own words) goes into the key
-// points to hit next instead of rewriting the answer. Who said a line is only ever a guess, and lines often run one
-// person's words into the other's, so the question in a line decides more than its label.
+// the rest of the conversation about it (asides, hints, the candidate explaining in their own words) goes to the live
+// coach instead of rewriting the answer. Who said a line is only ever a guess, and lines often run one person's words
+// into the other's, so the question in a line decides more than its label.
 import type { Speaker } from './speakers';
 import { endsMidPhrase } from './text';
 
 /** What the live answer responds to: what the interviewer asked (or said, if it was not a question), whether it asks
  * something yet, everything the candidate has said since (read aloud or their own), and how many of those words were
- * their own, which the key points follow. */
+ * their own, which the live coach follows. */
 export type LiveTurn = { asked: string; said: string[]; question: boolean; ownWords: number };
 /** A line, or words still coming. `read` is the candidate reading a suggested answer aloud, `clarifying` them checking
  * what was meant, `question` whether the line asks anything, and `ask` the interviewer's question in it, with what led up
@@ -22,7 +22,7 @@ export type LiveStep = { action: 'hold'; turn: LiveTurn | null } | { action: 'ne
 const acknowledgment = /^(?:(?:mm+[- ]?hm+|m+hm+|uh[- ]?huh|hm+|um+|uh+|er+|oh|ah|okay|ok|right|yeah|yes|yep|yup|sure|cool|nice|great|awesome|wow|interesting|gotcha|got it|i see|i mean|like|you know|alright|all right|perfect|makes sense|that makes sense|sounds good|sounds great|that works|works for me|that's fine|fine|no worries|no problem|all good|totally|exactly|for sure|definitely|of course|fair enough|true|good|very good|love it|(?:great|good|interesting|fair) question|thanks|thank you|take your time|no rush|go ahead|so|and|well|anyway)(?![\p{L}\p{N}'])[\s,.!?…-]*)+$/iu;
 export const acknowledges = (text: string) => acknowledgment.test(text.trim().replace(/[‘’]/g, "'"));
 // Thanks and goodbyes that end a line ("…thanks so much for your time today!" "Thank you, this was great."), which need no
-// answer and no more key points.
+// answer and no more coaching.
 const closing = /(?<![\p{L}\p{N}'])(?:(?:thanks|thank you)(?: so much| again| a lot)? for (?:your time|the time|chatting|talking|today)|(?:this|that) was (?:great|fun|nice|really nice|awesome|a pleasure)|nice (?:talking|chatting|meeting) (?:to |with )?you|have a (?:great|good|nice) (?:day|one|weekend|evening)|take care|talk (?:to you )?soon|(?:good)?bye)(?:\s+(?:today|again|too))?[\s.!]*$/iu;
 export const closes = (text: string) => closing.test(text.replace(/[‘’]/g, "'"));
 
@@ -56,7 +56,7 @@ export function liveStep(turn: LiveTurn | null, heard: LiveHeard): LiveStep {
     return { action: 'new', turn: fresh(ask, true) };
   }
   if (closes(text)) return { action: 'hold', turn };
-  // You, in your own words or asking them something: the answer holds still, and what you say moves the key points.
+  // You, in your own words or asking them something: the answer holds still, and what you say moves the live coach.
   // Someone unlabeled is you too once they have asked their question.
   if (heard.speaker === 'candidate' || (!heard.speaker && turn && (turn.said.length > 0 || !open(turn)))) {
     if (!said) return heard.question ? { action: 'hold', turn } : { action: 'new', turn: fresh(text, false) };
@@ -80,8 +80,26 @@ export function liveSteps(turn: LiveTurn | null, heard: readonly LiveHeard[]): L
   return action === 'hold' || !turn ? { action: 'hold', turn } : { action, turn };
 }
 
-/** What the key points to hit are worked out from: the question, and the latest of what the candidate has said. */
-export function pointsPrompt({ asked, said }: LiveTurn) {
+/** What the live coach works from: the question, the latest of what the candidate has said, and, once they have been at it
+ * a while, how long and how many filler words (counted by the caller). */
+export function liveCoachPrompt({ asked, said }: LiveTurn, seconds: number, fillers = 0) {
   const words = said.join(' '); const recent = words.length > 1200 ? `…${words.slice(-1200).replace(/^\S*\s/, '')}` : words;
-  return `Question: ${asked}\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: "${recent}"`;
+  return [`Question: ${asked}`, `What the candidate has said so far, in their own words or reading from a suggested answer: ${recent ? `"${recent}"` : 'nothing yet'}`,
+    seconds >= 20 && `They have been answering for about ${Math.round(seconds)} seconds${fillers >= 3 ? `, with ${fillers} filler words` : ''}.`].filter(Boolean).join('\n\n');
+}
+
+export type LiveCoach = { key: string; points: string[]; tip: string };
+/** Reads the coach's reply: its KEY line, up to three points, and an optional TIP. Without a KEY line, the first point leads. */
+export function parseLiveCoach(output: string): LiveCoach | null {
+  let key = '', tip = ''; const points: string[] = [];
+  for (const raw of output.split('\n')) {
+    const line = raw.trim().replace(/\*\*/g, ''); if (!line) continue;
+    const labeled = line.match(/^(key|tip)\s*[:：-]\s*(.+)$/i);
+    if (labeled) { if (labeled[1].toLowerCase() === 'key') key = labeled[2].trim(); else tip = labeled[2].trim(); continue; }
+    const point = line.match(/^(?:[•\-*·]|\d+[.)])\s*(.+)$/); if (point) points.push(point[1].trim());
+  }
+  if (!key && points.length) key = points.shift()!;
+  // "TIP: none yet" and the like are the coach having nothing to fix.
+  if (/^(?:none|n\/a|nothing|no tip|not yet|-+|—)(?![\p{L}])/iu.test(tip)) tip = '';
+  return key ? { key, points: points.slice(0, 3), tip } : null;
 }

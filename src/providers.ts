@@ -70,11 +70,17 @@ const personNote = (question: string) => personal.test(question) ? ' This questi
 
 const userMessage = (context: string, question: string, mode: Mode) => `${context ? `${context}\n\n` : ''}Question: ${question}\n\nAnswer format: ${formats[mode]} ${smallTalk}${personNote(question)}`;
 
-/** For the key points to hit while the candidate answers in their own words (see live.ts); `complete` sends it. */
-export const pointsInstructions = `You help a job candidate during a live interview, where assistance is explicitly permitted. They are answering a question in their own words and glance at your notes while they talk. From their background, the conversation, the question, and what they have said so far, list the two or three most useful points they have not made yet, most important first: the next thing to say, a detail or example from their background that fits, an edge case or trade-off, or how to wrap up. Write each as a phrase of at most ten words, not a sentence, starting with "• ", one per line, with nothing else: no headings, no introduction, no explanation after a dash. If they have covered the question well, or are wrapping up, give one point on how to finish.`;
+/** For the live coach (see live.ts): a separate request from the answer, which watches the question and what the
+ * candidate says, and is shown pinned above the answers; `complete` sends it. */
+export const liveCoachInstructions = `You are a live interview coach. A candidate is in a job interview right now, where assistance is explicitly permitted, and glances at your notes while they talk; the interviewer cannot see them. From their background, the conversation, the current question, and what they have said so far, reply in exactly this format, with nothing else:
+KEY: the one idea their answer has to land, in at most 12 words (for a story or personal question, which story or detail from their background to use, or the one they have started)
+• a point to make next, at most 10 words
+• another point, if useful (two or three in all)
+TIP: one short nudge about how they are coming across, based on what they actually said (for example: running long, too vague, no example yet, many filler words, not answering the question); if there is nothing to fix, leave the TIP line out entirely
+Write phrases, not sentences, in plain words they could say. If they have not started answering yet, the points are how to open. Leave out points they have already made. If they are wrapping up, give one point on how to finish. Keep who did what straight: their school, teams, and past jobs are theirs, never the interviewer's.`;
 
-/** For the review of a practice session (see review.ts); `complete` sends it with the questions and what was said. */
-export const coachInstructions = `You coach a job candidate after a practice interview. For each numbered question you get what the interviewer asked, what the candidate said (their own words, and how much they read aloud from a suggested answer), and checks already counted for them. Judge how the answer would land with an interviewer: did it answer the question, was it specific and structured, was it the right length. Reply with only a JSON object: {"questions": [{"n": 1, "good": "…", "improve": "…"}], "overall": ["…", "…", "…"]}. "good" is one concrete strength and "improve" one concrete change they can practice, each under 25 words, in plain second person ("you"), quoting their words where it helps. If they barely answered, say so in "improve" and leave "good" empty. "overall" gives the three most useful habits to work on across the session, most important first. Never invent things they did not say.`;
+/** For the review of a practice session afterwards (see review.ts); `complete` sends it with the questions and what was said. */
+export const reviewInstructions = `You coach a job candidate after a practice interview. For each numbered question you get what the interviewer asked, what the candidate said (their own words, and how much they read aloud from a suggested answer), and checks already counted for them. Judge how the answer would land with an interviewer: did it answer the question, was it specific and structured, was it the right length. Reply with only a JSON object: {"questions": [{"n": 1, "good": "…", "improve": "…"}], "overall": ["…", "…", "…"]}. "good" is one concrete strength and "improve" one concrete change they can practice, each under 25 words, in plain second person ("you"), quoting their words where it helps. If they barely answered, say so in "improve" and leave "good" empty. "overall" gives the three most useful habits to work on across the session, most important first. Never invent things they did not say.`;
 
 const followUpLead = 'Suggest one likely interviewer follow-up to this question:';
 /** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. */
@@ -193,8 +199,8 @@ export async function claudeCodeStatus(): Promise<ClaudeCodeStatus | null> {
 export class LocalDemoProvider implements LLMProvider {
   async complete(system: string, prompt: string, signal?: AbortSignal) {
     await new Promise(resolve => setTimeout(resolve, 200)); if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
-    if (system === pointsInstructions) return '• Say the approach in one line first\n• Walk through one small example\n• Finish with the time and space cost';
-    if (system !== coachInstructions) return '';
+    if (system === liveCoachInstructions) return /: nothing yet$/m.test(prompt) ? 'KEY: Answer the question directly, then back it up\n• Open with your answer in one line\n• Give one concrete example' : 'KEY: Answer the question directly, then back it up\n• Walk through one small example\n• Finish with the result or trade-off\nTIP: Slow down and pause instead of filler words';
+    if (system !== reviewInstructions) return '';
     const count = (prompt.match(/^Question \d+/gm) ?? []).length;
     return JSON.stringify({ questions: Array.from({ length: count }, (_, index) => ({ n: index + 1, good: 'You answered the question directly.', improve: 'Add one specific detail or result from your own experience.' })), overall: ['Lead with the answer, then one example.', 'Name a concrete result or what you learned.', 'Pause instead of filler words.'] });
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acknowledges, bounded, liveStep, liveSteps, pointsPrompt, type LiveHeard, type LiveStep, type LiveTurn } from './live';
+import { acknowledges, bounded, liveCoachPrompt, liveStep, liveSteps, parseLiveCoach, type LiveHeard, type LiveStep, type LiveTurn } from './live';
 import { lastAsk } from './speakers';
 import { likelyQuestion } from './text';
 
@@ -64,7 +64,7 @@ describe('liveStep', () => {
     expect(steps.map(step => step.action)).toEqual(['new', 'hold', 'hold', 'hold', 'hold', 'hold', 'hold', 'hold', 'hold', 'hold', 'hold']);
     const last = steps[steps.length - 1].turn!;
     expect(last.asked).toBe(problem); // A problem keeps its constraints.
-    expect(last.ownWords).toBe(10 + 6 + 22 + 10); // Your own words, which the key points follow.
+    expect(last.ownWords).toBe(10 + 6 + 22 + 10); // Your own words, which the live coach follows.
   });
 
   it('holds still while you read an answer, explain in your own words, check something, or ask them', () => {
@@ -101,7 +101,7 @@ describe('liveStep', () => {
     expect(liveStep(replied, heard('Nice, I like that direction a lot.', 'interviewer'))).toEqual({ action: 'hold', turn: replied });
   });
 
-  it('lets the goodbyes at the end pass without asking for more key points', () => {
+  it('lets the goodbyes at the end pass without asking for more coaching', () => {
     const asked = turn('Do you have any questions for me?', ['what does a typical day look like'], true, 7);
     for (const [text, speaker] of [['Honestly the people. Alright, thanks so much for your time today!', 'interviewer'], ['Thank you, this was great.', 'candidate'], ['Great question.', 'interviewer'], ['Nice talking with you, take care!', 'candidate']] as const) {
       expect(liveStep(asked, heard(text, speaker))).toEqual({ action: 'hold', turn: asked });
@@ -142,10 +142,21 @@ describe('liveSteps', () => {
   });
 });
 
-describe('pointsPrompt', () => {
-  it('gives the question and the latest of what you said', () => {
-    expect(pointsPrompt(turn('Why this role?', ['mostly the scale', 'and the people']))).toBe('Question: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: "mostly the scale and the people"');
-    const long = pointsPrompt(turn('Why this role?', Array.from({ length: 200 }, (_, index) => `point ${index}`)));
+describe('liveCoachPrompt and parseLiveCoach', () => {
+  it('gives the coach the question, the latest of what you said, and how long you have been at it', () => {
+    expect(liveCoachPrompt(turn('Why this role?'), 3)).toBe('Question: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: nothing yet');
+    expect(liveCoachPrompt(turn('Why this role?', ['mostly the scale', 'and the people']), 45, 4)).toBe('Question: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: "mostly the scale and the people"\n\nThey have been answering for about 45 seconds, with 4 filler words.');
+    const long = liveCoachPrompt(turn('Why this role?', Array.from({ length: 200 }, (_, index) => `point ${index}`)), 0);
     expect(long).toMatch(/answer: "…\S/); expect(long).toContain('point 199"'); expect(long).not.toContain('point 1 ');
+  });
+
+  it("reads the coach's key idea, points, and tip", () => {
+    expect(parseLiveCoach('KEY: Relink pointers; a dummy node handles the head\n• Walk through 1→2→3→4\n- Stop when fewer than two remain\n3. Then O(n) time, O(1) space\n• One too many\nTIP: **Slow down** a little'))
+      .toEqual({ key: 'Relink pointers; a dummy node handles the head', points: ['Walk through 1→2→3→4', 'Stop when fewer than two remain', 'Then O(n) time, O(1) space'], tip: 'Slow down a little' });
+    expect(parseLiveCoach('• Lead with the result\n• Then the how')).toEqual({ key: 'Lead with the result', points: ['Then the how'], tip: '' });
+    expect(parseLiveCoach('Sorry, I cannot help with that.')).toBeNull();
+    expect(parseLiveCoach('KEY: Lead with the result\nTIP: none yet—take your time')?.tip).toBe('');
+    expect(parseLiveCoach('KEY: Lead with the result\nTIP: Nothing to fix')?.tip).toBe('');
+    expect(parseLiveCoach('KEY: Lead with the result\nTIP: Nonstop talking; pause')?.tip).toBe('Nonstop talking; pause');
   });
 });

@@ -69,24 +69,29 @@ const wordsOf = (text: string): Word[] => [...text.matchAll(/[\p{L}\p{N}]+(?:['�
   .map(match => ({ text: match[0].toLowerCase().replace(/’/g, "'"), start: match.index, end: match.index + match[0].length }));
 const phrasesOf = (words: readonly Word[]) => new Set(words.slice(2).map((word, index) => `${words[index].text} ${words[index + 1].text} ${word.text}`));
 
-/** Which words of an utterance repeat a suggested answer: those in a three-word run the answer has too. Runs that were
- * already in the answer's question do not count, since the interviewer said them first. */
+/** Which words of an utterance repeat a suggested answer: those in a three-word run the answer has too (`echoed`). Runs the
+ * answer shares with its question (a coding answer restating the problem) also count as `read` only when other words
+ * come from the answer's own wording, since on their own they may just be the interviewer asking again. */
 function readWords(said: readonly Word[], answers: readonly ReadableAnswer[]) {
-  const phrases = new Set<string>();
+  const own = new Set<string>(); const shared = new Set<string>();
   for (const { question, answer } of answers) {
     const asked = phrasesOf(wordsOf(question));
-    for (const phrase of phrasesOf(wordsOf(answer))) if (!asked.has(phrase)) phrases.add(phrase);
+    for (const phrase of phrasesOf(wordsOf(answer))) (asked.has(phrase) ? shared : own).add(phrase);
   }
-  const read = said.map(() => false);
-  for (let index = 0; index + 2 < said.length; index++) if (phrases.has(`${said[index].text} ${said[index + 1].text} ${said[index + 2].text}`)) read[index] = read[index + 1] = read[index + 2] = true;
-  return read;
+  const mark = (phrases: Set<string>) => {
+    const marked = said.map(() => false);
+    for (let index = 0; index + 2 < said.length; index++) if (phrases.has(`${said[index].text} ${said[index + 1].text} ${said[index + 2].text}`)) marked[index] = marked[index + 1] = marked[index + 2] = true;
+    return marked;
+  };
+  const answerOnly = mark(own); const echoed = mark(new Set([...own, ...shared]));
+  return { answerOnly, read: answerOnly.filter(Boolean).length >= 4 ? echoed : answerOnly };
 }
 
 /** Whether an utterance is you reading a suggested answer aloud: most of its words repeat one. A short question that opens
  * with words of its own and then uses the answer's ("why would you use a hash map to store counts?") has to match almost
  * word for word; a reading that ends with your own check-in ("…Does that answer your question?") does not. */
 export function readsAnswer(text: string, answers: readonly ReadableAnswer[], language = 'en-US') {
-  const said = wordsOf(text); const read = readWords(said, answers); const count = read.filter(Boolean).length;
+  const said = wordsOf(text); const { read } = readWords(said, answers); const count = read.filter(Boolean).length;
   const asked = said.length <= 20 && !read[0] && guessSpeaker(text, language) === 'interviewer';
   return count >= 4 && count >= said.length * (asked ? 0.9 : 0.6);
 }
@@ -127,7 +132,7 @@ export type Interruption = { yours: string; theirs: string; reply?: string; read
  * in with a question; `readingOnly` (the voice is already known to be the interviewer's) requires a reading. */
 export function splitInterruption(text: string, answers: readonly ReadableAnswer[], language = 'en-US', readingOnly = false): Interruption | undefined {
   const said = wordsOf(text); if (said.length < 6) return undefined;
-  const read = readWords(said, answers); const lastRead = read.lastIndexOf(true);
+  const { read, answerOnly } = readWords(said, answers); const lastRead = read.lastIndexOf(true);
   const starts = [trailingQuestionStart(text), cutInStart(text, language), lastRead >= 0 && lastRead + 1 < said.length ? said[lastRead + 1].start : -1];
   // The earliest place that works, so a longer question is not cut short.
   for (const start of starts.filter(start => start > 0).sort((a, b) => a - b)) {
@@ -136,8 +141,9 @@ export function splitInterruption(text: string, answers: readonly ReadableAnswer
     const replyAt = replyStart(rest, language);
     const theirs = replyAt < 0 ? rest : rest.slice(0, replyAt).replace(/[\s,;:–—-]+$/u, ''); const count = wordsOf(theirs).length;
     if (first < 1 || count < 2 || count > 16 || guessSpeaker(theirs, language) !== 'interviewer' || selfTalk.test(theirs.replace(/[‘’]/g, "'"))) continue;
-    // A question that is in the answer too ("…what was at stake, how did you communicate") is you still reading.
-    if (read.slice(first, first + count).filter(Boolean).length >= count * 0.6) continue;
+    // A question that is in the answer too ("…what was at stake, how did you communicate") is you still reading; one that
+    // only repeats the original question is the interviewer asking again.
+    if (answerOnly.slice(first, first + count).filter(Boolean).length >= count * 0.6) continue;
     const readBefore = read.slice(0, first).filter(Boolean).length;
     const reading = readBefore >= 4 && readBefore >= first * 0.6;
     const value = yours.replace(/[‘’]/g, "'");

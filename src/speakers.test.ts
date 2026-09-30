@@ -130,6 +130,15 @@ describe('reading a suggested answer aloud', () => {
     expect(readsAnswer('to make it specific what was at stake how did you communicate what changed', questions)).toBe(true);
   });
 
+  it("counts an answer's restatement of the question as reading, but not the interviewer asking again", () => {
+    const twoSum: ReadableAnswer = { question: 'Given an array of integers and a target, return the indices of the two numbers that add up to the target.', answer: "THE PROBLEM\nSo we're given an array of integers and a target, and we want to return the indices of the two numbers that add up to the target.\n\nMY THINKING\nMy first thought is brute force, checking every pair." };
+    expect(readsAnswer("so we're given an array of integers and a target and we want to return the indices of the two numbers that add up to the target", [twoSum])).toBe(true);
+    expect(readsAnswer('given an array of integers and a target return the indices of the two numbers that add up to the target', [twoSum])).toBe(false);
+    // An answer that quotes the question, then the interviewer cutting in: the split comes after the quote.
+    const quoted: ReadableAnswer = { question: 'How would you design a URL shortener for a big company?', answer: 'A strong answer starts with the main idea, then supports it with a concrete example. For "How would you design a URL shortener for a big company?", define the key terms clearly.' };
+    expect(splitInterruption('then supports it with a concrete example for how would you design a URL shortener for oh so how was that', [quoted])).toMatchObject({ theirs: 'oh so how was that', read: true });
+  });
+
   it('splits you talking freely only when you were clearly cut off', () => {
     expect(splitInterruption('I kept going back and forth on it for a while oh wait why did you pick Go', [])).toEqual({ yours: 'I kept going back and forth on it for a while', theirs: 'oh wait why did you pick Go', read: false });
     expect(splitInterruption('and before that I was at so how was that', [])).toMatchObject({ yours: 'and before that I was at', theirs: 'so how was that' });

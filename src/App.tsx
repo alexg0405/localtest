@@ -107,7 +107,14 @@ export default function App() {
     if (lines.length && compactText(lines[lines.length - 1].text) === compactText(q)) lines.pop(); // The question itself is sent separately.
     const named = (line: Line) => speakers && line.speaker ? `${line.speaker === 'interviewer' ? 'Interviewer' : 'Candidate'}: ${line.text}` : line.text;
     const memory = conversationMemory(lines.map(line => ({ at: line.at, text: named(line) }))).text;
-    return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, memory && `Conversation so far (oldest first; from live speech recognition, so words may be misheard${speakers ? ', and the Interviewer and Candidate labels are automatic guesses' : ''}):\n${memory}`].filter(Boolean).join('\n\n');
+    // The last few suggested answers, so the next one does not repeat their stories or wording. Answers to this same
+    // question are left out, since Shorter, More detail, and Regenerate rework them.
+    const earlier = [...new Map(readable.current.filter(entry => entry.answer.trim() && compactText(entry.question) !== compactText(q)).map(entry => [entry.answer, entry])).values()].slice(-3);
+    const suggested = earlier.map(entry => `Q: ${entry.question}\nA: ${entry.answer.length > 600 ? `${entry.answer.slice(0, 600)}…` : entry.answer}`).join('\n\n');
+    // A coding answer always opens with the same headings, so it is only asked for a different example.
+    const openings = questionKind(q) === 'CODING' ? '' : `They began ${earlier.map(entry => `"${entry.answer.trim().split(/\s+/).slice(0, 4).join(' ')}…"`).join(', ')}. Begin this one differently, and use`;
+    return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, memory && `Conversation so far (oldest first; from live speech recognition, so words may be misheard${speakers ? ', and the Interviewer and Candidate labels are automatic guesses' : ''}):\n${memory}`,
+      suggested && `Answers already suggested in this interview, oldest first (the candidate may have said them):\n${suggested}\n\n${openings || 'Use'} a different story, example, or detail from their background than they did (a new side of something already mentioned is fine; something made up is not).`].filter(Boolean).join('\n\n');
   }, [profile, speakers]);
   const addFiles = useCallback((list: FileList | File[]) => {
     for (const file of Array.from(list)) {

@@ -101,7 +101,7 @@ describe('ClaudeCodeProvider', () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => { requests.push(JSON.parse(String(init.body))); return ndjson({ text: 'Sure.' }, { done: true }); }));
     const claude = new ClaudeCodeProvider('claude-haiku-4-5');
     for (const question of ['What do you like to do for fun?', 'How would your friends describe you?', "What's your biggest weakness?", 'How does a hash map work?']) await claude.answer(question, '', 'STANDARD');
-    expect(requests[0].prompt).toMatch(/This question is about them as a person: lead with their personality and life outside work and school .* if a detail is missing, make a plausible, low-key choice and answer naturally/);
+    expect(requests[0].prompt).toMatch(/This question is about them as a person: lead with their personality and life outside work and school\. .* if a detail is missing, make a plausible, low-key choice and answer naturally/);
     expect(requests[1].prompt).toMatch(/about them as a person/);
     expect(requests[2].prompt).toMatch(/Keep it personal and honest: the example can come from school, friends, a club, or a hobby/);
     expect(requests[3].prompt).not.toMatch(/as a person|personal and honest/);

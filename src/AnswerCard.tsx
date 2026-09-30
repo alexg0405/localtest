@@ -16,8 +16,10 @@ export const AnswerContent = ({ blocks }: { blocks: AnswerBlock[] }) => <>{block
     : block.type === 'code' ? <pre key={index}><code>{block.text}</code></pre>
       : block.type === 'label' ? <p key={index}><b>{block.label}:</b> {inline(block.text)}</p> : <p key={index}>{inline(block.text)}</p>)}</>;
 
-/** When the question came, what kind it is, and the mode that produced the answer. */
-export const EntryMeta = (entry: Pick<Entry, 'possible' | 'time' | 'tag' | 'mode' | 'kind'>) => <div className="entry-meta">
+/** When the question came, what kind it is, and the mode that produced the answer. `live` marks the live answer while
+ * listening, `updating` while it is being rewritten. */
+export const EntryMeta = (entry: Pick<Entry, 'possible' | 'time' | 'tag' | 'mode' | 'kind'> & { live?: 'on' | 'updating' }) => <div className="entry-meta">
+  {entry.live && <span className={'live-badge' + (entry.live === 'updating' ? ' busy' : '')} title="Keeps up with the conversation as people talk"><i/>Live</span>}
   {entry.time && <time>{entry.time}</time>}{entry.tag && <span className="tag">{entry.tag}</span>}
   {entry.kind === 'followup' && <span className="kind">Likely follow-up</span>}<span className="mode">{entry.mode.toLowerCase()}</span>
   {entry.possible && <span className="possible">Possible question</span>}

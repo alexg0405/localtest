@@ -7,7 +7,7 @@ export const compactText = (value: string) => value.toLowerCase().replace(/[^\p{
 
 // `\b` is ASCII-only in JavaScript, so accented starters like "qué" need a Unicode-aware word end.
 const startsWith = (words: string) => new RegExp(`^(?:${words})(?![\\p{L}\\p{N}])`, 'iu');
-const fillers = /^(?:(?:hey|hi|hello|thanks|thank you|so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|oh|wait|sorry|hold on|hang on|um+|uh+|hmm+|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
+const fillers = /^(?:(?:hey|hi|hello|thanks|thank you|so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|nice|awesome|perfect|excellent|fantastic|amazing|sweet|gotcha|got it|oh|wait|sorry|hold on|hang on|um+|uh+|hmm+|mm+-?hm+|uh-?huh|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
 const english = [
   startsWith('what|why|when|where|which|who|whom|whose|how|can|could|would|will|should|shall|may|do|does|did|is|are|was|were|have|has'),
   startsWith("tell me|tell us|share an example|share a time|give me an example|give an example|describe|explain|walk me through|walk us through|talk me through|talk us through|i'd like you to|i would like you to|i'd like to hear|i would like to hear|i want you to|i'm curious|i am curious|let's talk about|let's discuss|let me ask|(?:my |the |one |another |a )?(?:next |first |last |final |follow-up |followup )?question"),

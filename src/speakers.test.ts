@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, joinPrints, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
+import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, joinPrints, nearestVoice, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
 import type { VoicePrint } from './voice';
 
 describe('guessSpeaker', () => {
@@ -207,6 +207,17 @@ describe('voiceGuess', () => {
 
 describe('comparing stretches of speech', () => {
   const print = (pitch: number | undefined, level = 20, tilt = 0.03, seconds = 1.5): VoicePrint => ({ ...(pitch === undefined ? {} : { pitch }), tilt, level, seconds });
+
+  it('nearestVoice places a line by the latest lines each person was heard on', () => {
+    const lines: SpokenLine[] = [{ id: 1, text: 'Why this team?', speaker: 'interviewer', print: print(10) }, { id: 2, text: 'I like the people', speaker: 'candidate', print: print(22) }, { id: 3, text: 'Typed question', speaker: 'interviewer', by: 'typed' }];
+    expect(nearestVoice(lines, print(22.5))).toBe('candidate');
+    expect(nearestVoice(lines, print(10.4))).toBe('interviewer');
+    expect(nearestVoice(lines.slice(0, 1), print(22))).toBe('candidate'); // Clearly not the only one heard.
+    expect(nearestVoice(lines.slice(1, 2), print(10))).toBe('interviewer');
+    expect(nearestVoice(lines, print(16))).toBeUndefined(); // Neither the same as one nor clearly apart from both.
+    expect(nearestVoice(lines, undefined)).toBeUndefined();
+    expect(nearestVoice([], print(22))).toBeUndefined();
+  });
 
   it('joinPrints weighs stretches by length, taking pitch only from those that had one', () => {
     const joined = joinPrints([print(20, 20, 0.02, 1), print(26, 30, 0.04, 3), print(undefined, 10, 0.1, 1), undefined])!;

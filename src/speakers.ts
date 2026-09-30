@@ -216,6 +216,17 @@ export function voiceMatch(a: VoicePrint | undefined, b: VoicePrint | undefined,
   return pitch <= sameVoice.pitch && level <= sameVoice.level && tilt <= sameVoice.tilt ? 'same' : undefined;
 }
 
+/** Who a line sounds like by the latest lines each person was heard on, when neither its words nor the voices learned so
+ * far could say: the same voice as one of them, or clearly not the only one heard lately. */
+export function nearestVoice(lines: readonly SpokenLine[], print: VoicePrint | undefined, samples: readonly VoiceSample[] = []): Speaker | undefined {
+  if (!print) return undefined;
+  const recent = lines.slice(-8).reverse();
+  const [interviewer, candidate] = (['interviewer', 'candidate'] as const).map(speaker => { const line = recent.find(item => item.speaker === speaker && item.print); return line && voiceMatch(line.print, print, samples); });
+  if (interviewer === 'same' || candidate === 'same') return interviewer === candidate ? undefined : interviewer === 'same' ? 'interviewer' : 'candidate';
+  if (interviewer === 'different' || candidate === 'different') return interviewer === candidate ? undefined : interviewer === 'different' ? 'candidate' : 'interviewer';
+  return undefined;
+}
+
 /** Whether the interviewer's voice and yours, as learned so far, are far enough apart to tell by sound (about 4 spreads). */
 export function voicesDistinct(samples: readonly VoiceSample[]) {
   const interviewer = profile(samples, 'interviewer'), candidate = profile(samples, 'candidate'); if (!interviewer || !candidate) return false;

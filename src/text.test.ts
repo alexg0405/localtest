@@ -10,8 +10,8 @@ describe('likelyQuestion', () => {
   });
 
   it('looks past spoken lead-ins', () => {
-    expectEach(['So what is a hash map', 'Okay, so how would you scale this', 'Alright tell me about yourself', 'So, tell me about yourself', 'Um, can you explain closures', 'Next question: how do you handle conflict', "I'd like you to design a URL shortener", "Let's talk about your experience with Kubernetes", 'And why is that', 'I’m curious how you’d approach caching'], likelyQuestion, true);
-    expectEach(['Some people prefer tabs', 'Android development is fun', 'Nowadays I mostly write Go', 'Questions are welcome at the end', 'Okay', 'So yeah'], likelyQuestion, false);
+    expectEach(['So what is a hash map', 'Okay, so how would you scale this', 'Alright tell me about yourself', 'So, tell me about yourself', 'Um, can you explain closures', 'Next question: how do you handle conflict', "I'd like you to design a URL shortener", "Let's talk about your experience with Kubernetes", 'And why is that', 'I’m curious how you’d approach caching', 'Nice. So tell me about a time you had to work through a disagreement', 'Got it, and how did the team take it', 'Mm-hmm. Nice. So tell me about a time you failed'], likelyQuestion, true);
+    expectEach(['Some people prefer tabs', 'Android development is fun', 'Nowadays I mostly write Go', 'Questions are welcome at the end', 'Okay', 'So yeah', 'Nice, that sounds like a fun project', 'Perfect'], likelyQuestion, false);
   });
 
   it('ignores the candidate thinking aloud', () => {

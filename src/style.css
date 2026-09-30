@@ -113,6 +113,8 @@ kbd{display:inline-block;min-width:18px;padding:1px 5px;border:1px solid var(--l
 .entry-meta .possible{font-weight:500;color:#a07a32}
 .entry-tools{flex:none;display:flex;align-items:center;gap:1px}
 .question-text{padding:2px 16px 11px;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink)}
+.question-edit{display:block;width:calc(100% - 14px);margin:0 7px;padding:4px 8px;border:1px solid #cfdccf;border-radius:7px;background:#fbfdfb;box-shadow:0 0 0 3px #e9f1e8;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink);resize:none;field-sizing:content;outline:0}
+.edit-hint{padding:6px 16px 10px;font-size:11px;color:var(--faint)}
 .response-content{padding:12px 16px 14px;border-top:1px solid var(--line-soft);font-size:13.5px;line-height:1.6;color:var(--text)}
 .response-content p{margin:0 0 10px}
 .response-content p:last-child{margin-bottom:0}

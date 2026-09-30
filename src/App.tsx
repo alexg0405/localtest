@@ -88,6 +88,8 @@ export default function App() {
   const readable = useRef<ReadableAnswer[]>([]);
   // The card at the bottom of the running list (0 while the sample answer is shown), and whether you are reading it.
   const [entryId, setEntryId] = useState(0); const [entryTime, setEntryTime] = useState(''); const entryCounter = useRef(0);
+  // The question being corrected on the latest card, if it is.
+  const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   const feed = useRef<HTMLDivElement>(null); const followFeed = useRef(true); const [newBelow, setNewBelow] = useState(false);
   const provider = useCallback((): LLMProvider => source === 'claude' ? new ClaudeCodeProvider(claudeModel) : source === 'openai' ? new OpenAICompatibleProvider(endpoint, apiKey, model) : new LocalDemoProvider(), [source, claudeModel, endpoint, apiKey, model]);
   // Start Claude Code now so the first answer skips its startup (the bridge then keeps one ready after every answer).
@@ -390,6 +392,18 @@ export default function App() {
   const detailed = useCallback(() => void generate(question, { mode: 'DETAILED', uncertain: lowConfidence }), [question, generate, lowConfidence]);
   const followUp = useCallback(() => void generate(question, { mode: 'SHORT', followUp: true, uncertain: lowConfidence }), [question, generate, lowConfidence]);
   const regenerate = useCallback(() => void generate(question, { mode: shownMode, followUp: answerKind === 'followup', uncertain: lowConfidence }), [question, generate, shownMode, answerKind, lowConfidence]);
+  // A corrected question is answered in place on its card, and fixes the transcript line it came from, so later answers
+  // remember the right words too.
+  const saveEdit = useCallback(() => {
+    const text = editing?.text.trim(); setEditing(null);
+    if (!text || text === question.trim()) return;
+    const heard = compactText(question); const lines = transcriptRef.current;
+    for (let index = lines.length - 1; index >= 0; index--) {
+      if (compactText(lines[index].text) !== heard) continue;
+      const next = lines.map((line, at) => at === index ? { ...line, text } : line); transcriptRef.current = next; setTranscript(next); break;
+    }
+    void generate(text, { mode: shownMode, followUp: answerKind === 'followup', replace: true });
+  }, [editing, question, generate, shownMode, answerKind]);
   // Taps and typed questions from the phone mirror do exactly what the matching controls here do.
   useLayoutEffect(() => {
     mirrorCommand.current = command => {
@@ -636,8 +650,13 @@ export default function App() {
           <div className="answer-feed" ref={feed} onScroll={() => { followFeed.current = latestInView(); if (followFeed.current) setNewBelow(false); }}>
             {history.map(entry => <PastAnswer key={entry.id} entry={entry} pinned={pinned?.id === entry.id} onPin={pinEntry} onCopy={copyText}/>)}
             {showCurrent ? <article className="qa-entry current" data-entry={entryId} data-current="">
-              <div className="qa-head"><EntryMeta possible={lowConfidence} time={entryTime} tag={tag} mode={shownMode} kind={answerKind}/><span className="entry-tools"><button className="icon-button small" onClick={() => { setDraft(question); manualInput.current?.focus(); }} disabled={!question} title="Edit question" aria-label="Edit question"><Pencil size={14}/></button><button className="icon-button small" onClick={readAloud} disabled={!speaking && (!answer.trim() || active)} title={speaking ? 'Stop reading' : active ? 'Stop listening first, so the microphone does not pick up the read-aloud audio' : 'Read aloud'} aria-label={speaking ? 'Stop reading' : 'Read aloud'}>{speaking ? <Square size={12}/> : <Volume2 size={14}/>}</button><button className={'icon-button small' + (currentPinned ? ' pinned' : '')} onClick={togglePin} disabled={!currentPinned && !canPin} title={currentPinned ? 'Unpin answer' : `Pin answer (${mod} P)`} aria-label={currentPinned ? 'Unpin answer' : 'Pin answer'} aria-pressed={currentPinned}><Pin size={14}/></button><button className="icon-button small" onClick={() => void copyText(answer)} disabled={!answer.trim()} title="Copy answer" aria-label="Copy answer"><Copy size={14}/></button></span></div>
-              <div className="question-text">{question || 'Waiting for a question…'}</div>
+              <div className="qa-head"><EntryMeta possible={lowConfidence} time={entryTime} tag={tag} mode={shownMode} kind={answerKind}/><span className="entry-tools"><button className={'icon-button small' + (editing?.id === entryId ? ' pinned' : '')} onClick={() => setEditing(editing?.id === entryId ? null : { id: entryId, text: question })} disabled={!question} title="Edit question" aria-label="Edit question" aria-pressed={editing?.id === entryId}><Pencil size={14}/></button><button className="icon-button small" onClick={readAloud} disabled={!speaking && (!answer.trim() || active)} title={speaking ? 'Stop reading' : active ? 'Stop listening first, so the microphone does not pick up the read-aloud audio' : 'Read aloud'} aria-label={speaking ? 'Stop reading' : 'Read aloud'}>{speaking ? <Square size={12}/> : <Volume2 size={14}/>}</button><button className={'icon-button small' + (currentPinned ? ' pinned' : '')} onClick={togglePin} disabled={!currentPinned && !canPin} title={currentPinned ? 'Unpin answer' : `Pin answer (${mod} P)`} aria-label={currentPinned ? 'Unpin answer' : 'Pin answer'} aria-pressed={currentPinned}><Pin size={14}/></button><button className="icon-button small" onClick={() => void copyText(answer)} disabled={!answer.trim()} title="Copy answer" aria-label="Copy answer"><Copy size={14}/></button></span></div>
+              {editing?.id === entryId ? <><textarea className="question-edit" value={editing.text} rows={Math.min(4, Math.ceil(editing.text.length / 70) || 1)} aria-label="Question"
+                ref={element => { if (element && document.activeElement !== element) { element.focus(); element.setSelectionRange(element.value.length, element.value.length); } }}
+                onChange={event => setEditing({ id: entryId, text: event.target.value })}
+                onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); saveEdit(); } else if (event.key === 'Escape') { event.preventDefault(); setEditing(null); } }}/>
+                <div className="edit-hint">Enter to answer this instead · Esc to cancel</div></>
+                : <div className="question-text">{question || 'Waiting for a question…'}</div>}
               <div className="response-content" aria-live="polite" aria-busy={generating}><AnswerContent blocks={blocks}/>{!blocks.length && !answerError && (generating ? <div className="typing" aria-hidden="true"><i/><i/><i/></div> : <p className="muted">Your answer will appear here.</p>)}{answerError && <div className="answer-error" role="alert">{answerError}</div>}</div>
               <div className="qa-foot"><span className={'answer-state' + (generating ? ' busy' : answerError ? ' failed' : '')}><i/><span>{status}</span></span><span className="quick-actions"><button onClick={shorter} disabled={!question} title={`Shorter answer (${mod} 1)`}>Shorter</button><button onClick={detailed} disabled={!question} title={`Explain more (${mod} 2)`}>More detail</button><button onClick={followUp} disabled={!question} title="Prepare for the likely follow-up question">Follow-up</button><button onClick={regenerate} disabled={!question} title="Regenerate" aria-label="Regenerate"><RefreshCw size={13}/></button></span></div>
             </article> : !history.length && <div className="empty-answers"><b>Suggested answers appear here</b><span>When a question is heard or typed, an answer streams in. The length you pick above applies to every answer.</span></div>}

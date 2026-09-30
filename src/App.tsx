@@ -9,7 +9,7 @@ import { contextFilesFromEnv, deepgramKeyFromEnv } from './env';
 import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
-import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerInstructions, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type Speaker, type SpeakerSource } from './speakers';
+import { awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerInstructions, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type Speaker, type SpeakerSource } from './speakers';
 import type { VoicePrint } from './voice';
 import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
 import { AnswerContent, EntryMeta, PastAnswer, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
@@ -79,6 +79,7 @@ export default function App() {
   const partialAnswer = useRef(false); const samplePending = useRef(true); // The sample question and answer shown until something is asked.
   const partialQuestion = useRef('');
   const browserFinal = useRef(''); const browserConfidence = useRef<number | undefined>(undefined); const browserFinalTimer = useRef<number | null>(null); const browserFinalSince = useRef(0);
+  const pendingVoice = useRef<number | undefined>(undefined); // With Deepgram, who said the words waiting in browserFinal.
   const lastQuestion = useRef<{ text: string; at: number } | null>(null);
   const transcriptBody = useRef<HTMLDivElement>(null); const followTranscript = useRef(true); const manualInput = useRef<HTMLInputElement>(null); const settingsPanel = useRef<HTMLElement>(null); const workspace = useRef<HTMLElement>(null);
   // The answer on screen as of the last render, so it can be kept in Recent when something replaces it.
@@ -212,7 +213,7 @@ export default function App() {
 
   const resetConversation = useCallback(() => {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear(); nextVoice.current = 0;
-    browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
+    browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
     transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setNewBelow(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading]);
@@ -226,9 +227,9 @@ export default function App() {
   const endListening = useCallback((discard: boolean) => {
     activeRef.current = false; setActive(false); setMicReady(false); setVoiceDetected(false);
     speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer);
-    const pending = [browserFinal.current, interimRef.current].filter(Boolean).join(' '); const confidence = browserConfidence.current;
-    browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = ''; setInterim('');
-    if (discard) { clear(); setStatus('Session ended · context cleared'); } else commitSpeech(pending, confidence);
+    const pending = [browserFinal.current, interimRef.current].filter(Boolean).join(' '); const confidence = browserConfidence.current; const voice = pendingVoice.current;
+    browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; interimRef.current = ''; setInterim('');
+    if (discard) { clear(); setStatus('Session ended · context cleared'); } else commitSpeech(pending, confidence, voice);
     partialAnswer.current = false; partialQuestion.current = '';
   }, [clear, commitSpeech]);
   const stop = useCallback(() => { sessionId.current++; endListening(clearOnStop); }, [clearOnStop, endListening]);
@@ -245,24 +246,34 @@ export default function App() {
     if (activeRef.current) return;
     setError(''); setMicNotice(''); stopReading();
     const thisSession = ++sessionId.current; const engine = speechEngine; const lang = language; sessionLanguage.current = lang;
-    clearTimer(partialTimer); clearTimer(browserFinalTimer); browserFinal.current = ''; browserConfidence.current = undefined; interimRef.current = '';
+    clearTimer(partialTimer); clearTimer(browserFinalTimer); browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; interimRef.current = '';
     partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; setVoiceDetected(false); setMicReady(false); activeRef.current = true; setActive(true);
     speech.current?.stop(); speech.current = engine === 'deepgram' ? new DeepgramSpeechToTextProvider(deepgramKey, lang, audioDeviceId, keytermsFor(extraTerms)) : new BrowserSpeechToTextProvider(lang, boostVocabulary ? keytermsFor(extraTerms) : []);
     const current = () => sessionId.current === thisSession;
     const showInterim = (text: string) => { interimRef.current = text; setInterim([browserFinal.current, text].filter(Boolean).join(' ')); };
     let draftText = ''; // The question-like words a draft answer is waiting to start from.
-    let lastFinalAt = 0; let silent = false; // Whether the voice detector hears silence now.
-    // Waits while words are still being recognized (for up to 4 s), or briefly after an unfinished-sounding final ("How would
-    // you design…", up to 1.5 s), so a question split by a pause is committed whole. The commit answers it, so a draft still
-    // waiting for the same words is dropped.
-    const commitBrowserFinal = () => {
-      clearTimer(browserFinalTimer); if (!browserFinal.current) return; // Silence and the timer can both call this.
-      const continuing = interimRef.current.trim() && Date.now() - browserFinalSince.current < 4000;
-      if (continuing || (endsMidPhrase(browserFinal.current) && Date.now() - lastFinalAt < 1500)) { scheduleBrowserCommit(); return; }
-      const text = browserFinal.current; const confidence = browserConfidence.current; browserFinal.current = ''; browserConfidence.current = undefined;
-      clearTimer(partialTimer); draftText = ''; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence);
+    let silent = false; let quietSince = 0; let lastWordsAt = 0; // Whether the voice detector hears silence now, and since when.
+    // How long someone stays quiet before what they said becomes a line: a finished question goes at once, so its answer is
+    // not held up; a sentence cut off mid-phrase ("…and before that I") waits longest; anything else waits out a breath. The
+    // browser's recognizer cannot tell voices apart, so it waits less, or the next person's words would join the line.
+    const settleTime = (text: string) => endsMidPhrase(text) ? 1800 : likelyQuestion(text, lang) ? 0 : engine === 'deepgram' ? 1200 : 600;
+    // Commits the words waiting to become a line (and answers them, if they are a question).
+    const flushFinal = () => {
+      clearTimer(browserFinalTimer); const text = browserFinal.current; if (!text) return;
+      const confidence = browserConfidence.current; const voice = pendingVoice.current; browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined;
+      clearTimer(partialTimer); draftText = ''; showInterim(interimRef.current); latest.current.commitSpeech(text, confidence, voice);
     };
-    const scheduleBrowserCommit = () => { clearTimer(browserFinalTimer); browserFinalTimer.current = window.setTimeout(commitBrowserFinal, 450); };
+    // A line stays open while its speaker keeps talking (up to 4 s for a question, so talk that follows does not hold up its
+    // answer, and 15 s otherwise) and until they have been quiet for settleTime, so a pause mid-sentence does not split it.
+    const commitBrowserFinal = () => {
+      clearTimer(browserFinalTimer); const text = browserFinal.current; if (!text) return; // Silence and the timer can both call this.
+      const now = Date.now(); const continuing = interimRef.current.trim() && now - browserFinalSince.current < (likelyQuestion(text, lang) ? 4000 : 15_000);
+      // Quiet by the voice detector, though never longer than since words last arrived (a soft voice can slip past it); if
+      // noise keeps it from reporting silence, the words having stopped for a while counts instead.
+      const quiet = silent ? Math.min(now - quietSince, now - lastWordsAt + 300) : now - lastWordsAt - 1500;
+      if (continuing || quiet < settleTime(text)) scheduleBrowserCommit(); else flushFinal();
+    };
+    const scheduleBrowserCommit = () => { clearTimer(browserFinalTimer); browserFinalTimer.current = window.setTimeout(commitBrowserFinal, 300); };
     const startDraft = () => { clearTimer(partialTimer); const text = draftText; draftText = ''; if (text && current() && activeRef.current) void latest.current.generate(text, { partial: true }); };
     if (source === 'claude') ClaudeCodeProvider.warm(claudeModel); // Ready before the first question, however long the page has been open.
     void speech.current.start({
@@ -271,14 +282,15 @@ export default function App() {
       // than waiting out timers (which Chrome slows to once a second while the tab is in the background).
       onVoiceActivity: detected => {
         if (!current()) return; setVoiceDetected(detected); silent = !detected; if (detected) return;
+        quietSince = Date.now();
         if (browserFinal.current) commitBrowserFinal(); else if (draftText && !endsMidPhrase(draftText)) startDraft();
       },
       onInterim: text => {
         if (!current()) return;
         showInterim(text);
-        const pending = browserFinal.current;
-        // Still talking after a pause: keep merging into the pending final (up to 4 s) so the question is not split.
-        if (pending && text.trim() && Date.now() - browserFinalSince.current < 4000) scheduleBrowserCommit();
+        const pending = browserFinal.current; if (text.trim()) lastWordsAt = Date.now();
+        // Still talking after a pause: keep merging into the pending final so the sentence is not split.
+        if (pending && text.trim()) scheduleBrowserCommit();
         // A draft answers what someone cut in with, not your words before it, and never your reading of an answer.
         const asked = (words: string) => splitInterruption(words, readable.current, lang)?.theirs ?? words;
         const asking = asked(text);
@@ -292,14 +304,15 @@ export default function App() {
       },
       onFinal: result => {
         if (!current()) return;
-        clearTimer(partialTimer); draftText = '';
-        if (engine === 'browser') {
-          // Chrome can split one question into several final segments; merge segments that arrive close together.
-          if (!browserFinal.current) browserFinalSince.current = Date.now();
-          lastFinalAt = Date.now();
-          browserFinal.current = [browserFinal.current, result.text].filter(Boolean).join(' ').trim(); browserConfidence.current = result.confidence ?? browserConfidence.current; showInterim('');
-          if (silent) { clearTimer(browserFinalTimer); commitBrowserFinal(); } else scheduleBrowserCommit(); // Already quiet: no need to wait.
-        } else { showInterim(''); latest.current.commitSpeech(result.text, result.confidence, result.speaker); }
+        clearTimer(partialTimer); draftText = ''; lastWordsAt = Date.now();
+        // With Deepgram, someone else speaking ends the line, unless its voice numbering flipped mid-sentence ("…Vaca like a"
+        // "the Japanese term."): cut off mid-phrase, and the new words neither reply nor cut in.
+        const pending = browserFinal.current;
+        if (pending && result.speaker !== pendingVoice.current && !(endsMidPhrase(pending) && !startsLikeReply(result.text) && !cutsIn(result.text))) flushFinal();
+        // Recognizers split one sentence into several finals at each pause; they join the same line until it settles.
+        if (!browserFinal.current) { browserFinalSince.current = Date.now(); pendingVoice.current = result.speaker; }
+        browserFinal.current = [browserFinal.current, result.text].filter(Boolean).join(' ').trim(); browserConfidence.current = result.confidence ?? browserConfidence.current; showInterim('');
+        if (silent) commitBrowserFinal(); else scheduleBrowserCommit(); // Already quiet: it may be settled now.
       },
       onError: message => { if (current()) setError(message); },
       onNotice: message => { if (current()) setMicNotice(message); },

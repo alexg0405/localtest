@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
+import { awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
 
 describe('guessSpeaker', () => {
   it('gives questions and prompts to the interviewer', () => {
@@ -139,6 +139,13 @@ describe('reading a suggested answer aloud', () => {
     expect(splitInterruption('we shipped it to production last month and it went well so how was that', [])).toBeUndefined();
     expect(splitInterruption("I'd store the counts in a hash map and then how do we handle collisions", [])).toBeUndefined();
     expect(splitInterruption('I kept going back and forth on it for a while oh wait why did you pick Go', [], 'en-US', true)).toBeUndefined(); // Their voice is known.
+  });
+
+  it('cutsIn spots words that open by cutting in, which start a new line even mid-sentence', () => {
+    expect(cutsIn('oh wait, how long were you there')).toBe(true);
+    expect(cutsIn('Sorry, what was that?')).toBe(true);
+    expect(cutsIn('the Japanese term.')).toBe(false);
+    expect(cutsIn('Ohio is where I grew up')).toBe(false);
   });
 });
 

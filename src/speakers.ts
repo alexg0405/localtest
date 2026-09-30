@@ -99,6 +99,8 @@ const reaction = new RegExp(`^(?:nice|great|cool|awesome|okay|ok|interesting|got
 // Someone cutting in tends to open with these; "so", "and", and "but" also start the candidate's own next thought.
 const cutIn = /(?<![\p{L}\p{N}'])(?:oh|wait|sorry|hold on|hang on|quick question|real quick)(?![\p{L}\p{N}'])/giu;
 const opensWithCutIn = new RegExp(`^${cutIn.source}`, 'iu');
+/** Whether words open like someone cutting in ("oh, wait…"). */
+export const cutsIn = (text: string) => opensWithCutIn.test(text.trim());
 const cues = /^(?:(?:oh|wait|sorry|hold on|hang on|quick question|real quick|so|and|but|okay|ok|um+|uh+|hmm+)(?![\p{L}\p{N}'])[\s,.!…-]*)+/iu;
 // You answering right away ("…how was that yeah it was great"), when the recognizer ran it all together.
 const replyOpener = new RegExp(`^(?:yeah|yes|yep|yup|sure|no|nope|honestly|definitely|absolutely|it was|it's|it is|i|i'm|i've|i'd|i was|well|um+|uh+|mhm)${wordEnd}`, 'iu');

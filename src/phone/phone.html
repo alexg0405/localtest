@@ -37,11 +37,19 @@
     <div id="transcript"></div>
   </details>
   <p class="footnote" id="provider"></p>
+  <div id="spacer" aria-hidden="true"></div>
 </main>
-<button class="jump" id="jump" type="button" hidden>New answer ↓</button>
-<form class="ask" id="ask" autocomplete="off">
-  <input id="ask-input" type="text" placeholder="Type a question…" maxlength="2000" enterkeyhint="send" aria-label="Question">
-  <button id="ask-send" type="submit" aria-label="Send question" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
-</form>
+<div class="dock" id="dock">
+  <button class="jump" id="jump" type="button" hidden>New answer ↓</button>
+  <nav class="steps" id="steps" aria-label="Questions" hidden>
+    <button id="previous" type="button">↑ Previous</button>
+    <span id="position"></span>
+    <button id="next" type="button">Next ↓</button>
+  </nav>
+  <form class="ask" id="ask" autocomplete="off">
+    <input id="ask-input" type="text" placeholder="Type a question…" maxlength="2000" enterkeyhint="send" aria-label="Question">
+    <button id="ask-send" type="submit" aria-label="Send question" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+  </form>
+</div>
 </body>
 </html>

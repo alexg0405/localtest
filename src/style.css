@@ -96,7 +96,7 @@ kbd{display:inline-block;min-width:18px;padding:1px 5px;border:1px solid var(--l
 .pinned-answer button{border:0;background:none;font-size:12px;font-weight:600;color:var(--green-ink);cursor:pointer}
 .pinned-answer button:hover{text-decoration:underline}
 .pinned-answer .unpin{display:grid;place-items:center;padding:3px;color:#939b90}
-.answer-feed{position:relative;flex:1;min-height:240px;overflow-y:auto;overscroll-behavior:contain;margin-right:-8px;padding-right:8px}
+.answer-feed{position:relative;flex:1;min-height:240px;overflow-y:auto;overscroll-behavior:contain;overflow-anchor:none;margin-right:-8px;padding-right:8px} /* App.tsx keeps your place in it, the same way in every browser. */
 .empty-answers{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px;border:1px dashed #dde2d9;border-radius:10px;text-align:center;font-size:13px;color:var(--muted)}
 .empty-answers b{font-weight:600;color:#5d625a}
 .empty-answers span{max-width:320px;font-size:12px;line-height:1.5;color:var(--faint)}

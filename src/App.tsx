@@ -112,6 +112,10 @@ export default function App() {
   // The question being corrected on the latest card, if it is.
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   const feed = useRef<HTMLDivElement>(null); const followFeed = useRef(true); const [newAnswer, setNewAnswer] = useState(false); const [earlierOpen, setEarlierOpen] = useState(false);
+  // While you read an earlier answer: the card at the reading line, how far down the list it is, and where the list sits.
+  // `feedAdjusted` is the scroll position the list was last moved to for it, and `feedJump` when a smooth jump to the live
+  // answer ends, so neither is taken for your scrolling.
+  const feedAnchor = useRef<{ id: string; top: number; feedTop: number; pageY: number } | null>(null); const feedAdjusted = useRef(-1); const feedJump = useRef(0);
   // The live answer (see live.ts): the turn it responds to, the prompt a preview from words still coming used, and the next
   // update waiting its turn, so updates stay at least 2 s apart while people talk.
   const [liveAnswers, setLiveAnswers] = useState(true); const liveOn = useRef(true);
@@ -382,7 +386,7 @@ export default function App() {
     browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; lineVoice.current.reset(); interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
     resetLive(null); rewritten.current = []; reviewRun.current?.abort(); reviewRun.current = null; setCoaching({ state: 'idle' });
     topicsRun.current?.abort(); topicsRun.current = null; clearTimer(topicsTimer); topicsNow.current = noTopics; setTopics(noTopics); setTopicsOpen(false); setTopicsBusy(false); topicsSeen.current = 0; topicsWords.current = 0; topicsDue.current = false; speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
-    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setEarlierOpen(false); setNewAnswer(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
+    transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setEarlierOpen(false); setNewAnswer(false); followFeed.current = true; feedAnchor.current = null; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading, resetLive]);
   // Clearing starts a new session. A saved one keeps what it had: its latest changes are saved first.
   const clear = useCallback(() => {
@@ -574,19 +578,44 @@ export default function App() {
     if (history.some(entry => entry.id === pinned.id)) { setEarlierOpen(true); window.requestAnimationFrame(scroll); } else showSnapshot(pinned, 'Pinned answer restored');
   }, [pinned, history, showSnapshot]);
   const copyText = useCallback(async (text: string) => { try { await navigator.clipboard.writeText(text); setStatus('Answer copied'); } catch { setStatus('Clipboard access is blocked. Select and copy the answer instead.'); } }, []);
-  // Follow the newest card while you are reading it; if you scrolled up to an earlier answer, offer a jump instead.
-  const latestInView = () => {
+  // You follow the live answer while its top is in view, or while it still reaches the reading line a third of the way down.
+  // Below that you are reading an earlier answer: a new one waits behind a jump button, and what you read stays put.
+  const followingLatest = () => {
     const body = feed.current; if (!body) return true;
-    const card = body.querySelector<HTMLElement>('[data-current]'); if (!card) return body.scrollHeight - body.scrollTop - body.clientHeight < 40;
-    return card.offsetTop + card.offsetHeight > body.scrollTop + 8 && card.offsetTop < body.scrollTop + body.clientHeight - 8;
+    const card = body.querySelector<HTMLElement>('[data-current]'); if (!card) return body.scrollTop < 8;
+    return body.scrollTop <= card.offsetTop + 8 || card.offsetTop + card.offsetHeight > body.scrollTop + body.clientHeight / 3;
+  };
+  const readingAnchor = (body: HTMLElement) => {
+    const line = body.scrollTop + body.clientHeight / 3; let card: HTMLElement | undefined;
+    for (const item of body.querySelectorAll<HTMLElement>('[data-entry]')) { if (item.offsetTop > line) break; card = item; }
+    return card?.dataset.entry ? { id: card.dataset.entry, top: card.offsetTop, feedTop: body.getBoundingClientRect().top, pageY: window.scrollY } : null;
+  };
+  const feedScrolled = () => {
+    const body = feed.current; if (!body) return;
+    const own = Math.abs(body.scrollTop - feedAdjusted.current) < 1 || Date.now() < feedJump.current; feedAdjusted.current = -1; if (own) return;
+    followFeed.current = followingLatest(); feedAnchor.current = followFeed.current ? null : readingAnchor(body);
+    if (followFeed.current) setNewAnswer(false);
   };
   // Following scrolls instantly: a background tab may not run the smooth animation.
   const jumpToLatest = useCallback((smooth = true) => {
     const body = feed.current; const card = body?.querySelector<HTMLElement>('[data-current]');
-    if (body && card) body.scrollTo({ top: card.offsetTop - 6, behavior: smooth ? 'smooth' : 'auto' });
-    followFeed.current = true; setNewAnswer(false);
+    if (body && card) { body.scrollTo({ top: card.offsetTop - 6, behavior: smooth ? 'smooth' : 'auto' }); if (smooth) feedJump.current = Date.now() + 1000; }
+    followFeed.current = true; feedAnchor.current = null; setNewAnswer(false);
   }, []);
   useLayoutEffect(() => { if (!entryId) return; if (followFeed.current) jumpToLatest(false); else setNewAnswer(true); }, [entryId, jumpToLatest]);
+  // After every change, the card you are reading goes back to where it was. Otherwise the live answer streaming above it,
+  // the last answer moving under Earlier, or the coach and main question resizing would push it away.
+  useLayoutEffect(() => {
+    const body = feed.current; const anchor = feedAnchor.current; if (!body || !anchor || followFeed.current) return;
+    const card = body.querySelector<HTMLElement>(`[data-entry="${anchor.id}"]`);
+    if (!card) { feedAnchor.current = null; followFeed.current = followingLatest(); return; }
+    // Your own scrolling moves neither the card within the list nor the list. The whole list moving counts only while the
+    // page is not scrolled (it is in the narrow layout), since the browser may then make up for it itself.
+    const feedTop = body.getBoundingClientRect().top;
+    const shift = card.offsetTop - anchor.top + (!window.scrollY && !anchor.pageY ? feedTop - anchor.feedTop : 0);
+    if (Math.abs(shift) >= 1) { body.scrollTop += shift; feedAdjusted.current = body.scrollTop; }
+    feedAnchor.current = { id: anchor.id, top: card.offsetTop, feedTop, pageY: window.scrollY };
+  });
   const checkProvider = useCallback(async () => {
     if (source === 'demo') { setProviderCheck('The offline demo provider is ready.'); return; }
     if (source === 'claude') {
@@ -856,7 +885,7 @@ export default function App() {
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
       entries: showCurrent ? [...pastForPhone, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks) }] : pastForPhone,
-      live: showCurrent, generating, status, answerError, mode, coach: coach?.key ? { key: coach.key, points: coach.points, tip: coach.tip } : undefined, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
+      total: history.length + (showCurrent ? 1 : 0), live: showCurrent, generating, status, answerError, mode, coach: coach?.key ? { key: coach.key, points: coach.points, tip: coach.tip } : undefined, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
       heard: transcript.slice(-8).map(({ time, text, speaker }) => ({ time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
     });
   });
@@ -924,7 +953,7 @@ export default function App() {
             {coachMissing && <button className="live-coach-hint" onClick={() => setPanel('context')}>{coachMissing}</button>}
           </section>}
           {pinned && <div className="pinned-answer"><Pin size={13}/><span>{pinned.question}</span><button onClick={showPinned}>Show</button><button className="unpin" onClick={() => setPinned(null)} aria-label="Unpin answer" title="Unpin answer"><X size={13}/></button></div>}
-          <div className="answer-feed" ref={feed} onScroll={() => { followFeed.current = latestInView(); if (followFeed.current) setNewAnswer(false); }}>
+          <div className="answer-feed" ref={feed} onScroll={feedScrolled}>
             {showCurrent ? <article className="qa-entry current" data-entry={entryId} data-current="">
               <div className="qa-head"><EntryMeta live={liveAnswers && active ? generating ? 'updating' : 'on' : undefined} possible={lowConfidence} time={entryTime} tag={tag} mode={shownMode} kind={answerKind}/><span className="entry-tools"><button className={'icon-button small' + (editing?.id === entryId ? ' pinned' : '')} onClick={() => setEditing(editing?.id === entryId ? null : { id: entryId, text: question })} disabled={!question} title="Edit question" aria-label="Edit question" aria-pressed={editing?.id === entryId}><Pencil size={14}/></button><button className="icon-button small" onClick={readAloud} disabled={!speaking && (!answer.trim() || active)} title={speaking ? 'Stop reading' : active ? 'Stop listening first, so the microphone does not pick up the read-aloud audio' : 'Read aloud'} aria-label={speaking ? 'Stop reading' : 'Read aloud'}>{speaking ? <Square size={12}/> : <Volume2 size={14}/>}</button><button className={'icon-button small' + (currentPinned ? ' pinned' : '')} onClick={togglePin} disabled={!currentPinned && !canPin} title={currentPinned ? 'Unpin answer' : `Pin answer (${mod} P)`} aria-label={currentPinned ? 'Unpin answer' : 'Pin answer'} aria-pressed={currentPinned}><Pin size={14}/></button><button className="icon-button small" onClick={() => void copyText(answer)} disabled={!answer.trim()} title="Copy answer" aria-label="Copy answer"><Copy size={14}/></button></span></div>
               {editing?.id === entryId ? <><textarea className="question-edit" value={editing.text} rows={Math.min(4, Math.ceil(editing.text.length / 70) || 1)} aria-label="Question"

@@ -26,6 +26,10 @@ describe('saved sessions', () => {
 
   it('reads back only well-formed sessions from this version', () => {
     expect(readSession(session())).toEqual(session());
+    // Main questions come back when a session has them, without any that are damaged.
+    const topics = { list: [{ id: 1, title: 'Coffee chain profits', question: 'Why did profits fall 20%?', from: 3 }], current: 1 };
+    expect(readSession({ ...session(), topics })?.topics).toEqual(topics);
+    expect(readSession({ ...session(), topics: { list: [...topics.list, { id: 'x' }], current: 9 } })?.topics).toEqual({ list: topics.list, current: null });
     expect(readSession({ ...session(), version: 2 })).toBeNull();
     expect(readSession({ ...session(), transcript: 'oops' })).toBeNull();
     expect(readSession(null)).toBeNull();

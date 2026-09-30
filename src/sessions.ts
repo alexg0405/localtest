@@ -3,11 +3,14 @@
 // nothing is stored until you choose "Save this session".
 import type { Entry } from './AnswerCard';
 import type { SpokenLine } from './speakers';
+import { readTopics, type Topics } from './topics';
 
 export type SessionLine = SpokenLine & { time: string; at: number; confidence?: number };
 export type SavedSession = {
   version: 1; id: string; name: string; createdAt: number; updatedAt: number;
   transcript: SessionLine[]; history: Entry[]; current: Entry | null; pinned: Entry | null;
+  /** The interview's main questions (see topics.ts); missing in sessions saved before they were tracked. */
+  topics?: Topics;
 };
 export type SessionSummary = { id: string; name: string; createdAt: number; updatedAt: number; minutes: number; answers: number; lines: number };
 
@@ -23,7 +26,7 @@ export function readSession(value: any): SavedSession | null {
     version: 1, id: value.id, name: typeof value.name === 'string' && value.name.trim() ? value.name : 'Practice session',
     createdAt: Number(value.createdAt) || 0, updatedAt: Number(value.updatedAt) || 0,
     transcript: value.transcript.filter(isLine), history: value.history.filter(isEntry),
-    current: isEntry(value.current) ? value.current : null, pinned: isEntry(value.pinned) ? value.pinned : null,
+    current: isEntry(value.current) ? value.current : null, pinned: isEntry(value.pinned) ? value.pinned : null, ...(value.topics ? { topics: readTopics(value.topics) } : {}),
   };
 }
 

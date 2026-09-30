@@ -1,7 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, ListChecks, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
-import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, liveCoachInstructions, reviewInstructions, type LLMProvider, type Mode } from './providers';
+import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, liveCoachInstructions, reviewInstructions, topicsInstructions, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
 import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
 import { acceptedFiles, extractText } from './documents';
@@ -17,6 +17,7 @@ import { SessionMenu } from './SessionMenu';
 import { deleteSession, lastIds, listSessions, loadSession, newSessionId, storeSession, type SavedSession, type SessionLine, type SessionSummary } from './sessions';
 import { acknowledges, closes, liveCoachPrompt, liveSteps, parseLiveCoach, type LiveCoach, type LiveHeard, type LiveStep, type LiveTurn } from './live';
 import { coachPrompt, countFillers, parseCoaching, reviewSession } from './review';
+import { noTopics, parseTopics, topicsPrompt, type Topics } from './topics';
 import { ReviewPanel, type CoachingState } from './ReviewPanel';
 
 type Line = SessionLine;
@@ -56,7 +57,7 @@ type TranscriptLinesProps = { lines: Line[]; speakers: boolean; filter: 'all' | 
 /** The heard lines; memoized, so a streaming answer or live interim words do not re-render every line. ↵ answers a line
  * that was missed as a question, or run together with other words. */
 const TranscriptLines = memo(function TranscriptLines({ lines, speakers, filter, onFlip, onAnswer }: TranscriptLinesProps) {
-  return <>{lines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (filter === 'all' && index && lines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => onFlip(line.id)} title={line.by === 'answer' ? 'You, reading a suggested answer. Wrong person? Click to switch' : 'Wrong person? Click to switch'}>{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p><button className="answer-line" onClick={() => onAnswer(line.text)} title="Answer this line" aria-label="Answer this line"><CornerDownLeft size={14}/></button></div>)}
+  return <>{lines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id} data-line={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (filter === 'all' && index && lines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => onFlip(line.id)} title={line.by === 'answer' ? 'You, reading a suggested answer. Wrong person? Click to switch' : 'Wrong person? Click to switch'}>{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p><button className="answer-line" onClick={() => onAnswer(line.text)} title="Answer this line" aria-label="Answer this line"><CornerDownLeft size={14}/></button></div>)}
     {speakers && filter !== 'all' && !lines.length && <div className="filter-empty">No lines from {filter === 'interviewer' ? 'the interviewer' : 'you'} yet.</div>}</>;
 });
 
@@ -120,6 +121,11 @@ export default function App() {
   const [coach, setCoach] = useState<(LiveCoach & { busy: boolean; after: string; asked: string }) | null>(null);
   const coachRun = useRef<AbortController | null>(null); const coachAt = useRef(0); const coachWords = useRef(0); const coachTimer = useRef<number | null>(null); const turnAt = useRef(0);
   const coachNow = useRef<typeof coach>(null); // The notes on screen, for fresh ones to differ from.
+  // The interview's main questions (see topics.ts): reviewed from the transcript soon after a new question comes up, and
+  // otherwise at most every 30 s while people talk; pinned above the answers, and given to answers and the coach.
+  const [trackTopics, setTrackTopics] = useState(true); const topicsOn = useRef(true);
+  const [topics, setTopics] = useState<Topics>(noTopics); const topicsNow = useRef<Topics>(noTopics); const [topicsOpen, setTopicsOpen] = useState(false); const [topicsBusy, setTopicsBusy] = useState(false);
+  const topicsRun = useRef<AbortController | null>(null); const topicsAt = useRef(0); const topicsTimer = useRef<number | null>(null); const topicsSeen = useRef(0); const topicsWords = useRef(0); const topicsDue = useRef(false);
   // Coaching on the review of this session afterwards (see review.ts), from the last time you asked for it.
   const [coaching, setCoaching] = useState<CoachingState>({ state: 'idle' }); const reviewRun = useRef<AbortController | null>(null);
   const liveTurn = useRef<LiveTurn | null>(null); const livePartial = useRef(''); const liveHeard = useRef(''); const liveQueue = useRef<LiveUpdate | null>(null); const liveStarted = useRef(0); const liveTimer = useRef<number | null>(null);
@@ -154,7 +160,7 @@ export default function App() {
     // A coding answer always opens with the same headings, so it is only asked for a different example.
     const openings = questionKind(q) === 'CODING' ? '' : `They began ${earlier.map(entry => `"${entry.answer.trim().split(/\s+/).slice(0, 4).join(' ')}…"`).join(', ')}. Begin a new answer differently, and use`;
     // The interviewer inviting your questions, or going on with the coding problem on the card before.
-    const previous = display.current.question;
+    const previous = display.current.question; const mainQuestion = topicsNow.current.list.find(topic => topic.id === topicsNow.current.current);
     const notes = [
       /\bquestions? for (?:me|us)\b|\bany (?:other |more )?questions\b|anything you(?:'d| would) like to (?:ask|know)/i.test(q) && "The interviewer is inviting the candidate's questions: suggest two short questions they could ask about the team, the role, or the work, phrased to the interviewer, without describing the candidate's own past work as the interviewer's.",
       previous && questionKind(previous) === 'CODING' && questionKind(q) !== 'BEHAVIORAL' && compactText(previous) !== compactText(q) && (rewrite.test(q)
@@ -164,6 +170,7 @@ export default function App() {
     return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, memory && `Conversation so far (oldest first; from live speech recognition, so words may be misheard${speakers ? ', and the Interviewer and Candidate labels are automatic guesses' : ''}):\n${memory}`,
       suggested && `Answers already suggested in this interview, oldest first, with whether the candidate used each:\n${suggested}\n\n${openings || 'Use'} a different story, example, or detail from their background than they did (a new side of something already mentioned is fine; something made up is not). A follow-up on what was just discussed is different: continue the candidate's own account from the conversation, keeping to what they actually said, since a suggested answer they did not use is not part of it.`,
       notes,
+      mainQuestion && compactText(mainQuestion.question) !== compactText(q) && `The main question being worked on now (the overarching case or problem this part of the interview is about; the question above may be a part of it): ${mainQuestion.question}`,
       // Right above the question, so a follow-up ("And how did it end up?") goes on from your story, not a suggested one.
       before && `What the candidate said just before this question, answering "${before.asked.length > 200 ? `${before.asked.slice(0, 200)}…` : before.asked}": "${before.said.length > 1500 ? `…${before.said.slice(-1500)}` : before.said}"\nIf this question follows up on that, continue their account from exactly there, keeping to what they said.`].filter(Boolean).join('\n\n');
   }, [profile, speakers]);
@@ -249,6 +256,23 @@ export default function App() {
       () => { if (!run.signal.aborted) setCoach(value => value && { ...value, busy: false }); })
       .finally(() => { if (coachRun.current === run) coachRun.current = null; });
   }, [provider, context, role]);
+  const runTopics = useCallback(() => {
+    const model = provider(); clearTimer(topicsTimer); if (!model.complete || !topicsOn.current || !transcriptRef.current.length) return;
+    topicsRun.current?.abort(); const run = new AbortController(); topicsRun.current = run;
+    topicsAt.current = Date.now(); topicsWords.current = 0; topicsDue.current = false; setTopicsBusy(true);
+    const lines = transcriptRef.current.map(line => ({ id: line.id, text: line.text, speaker: speakers ? line.speaker : undefined }));
+    model.complete(topicsInstructions, topicsPrompt(lines, topicsNow.current), run.signal).then(
+      output => { if (run.signal.aborted) return; const next = parseTopics(output, topicsNow.current); topicsNow.current = next; setTopics(next); },
+      () => undefined)
+      .finally(() => { if (topicsRun.current === run) { topicsRun.current = null; setTopicsBusy(false); latest.current.scheduleTopics(); } });
+  }, [provider, speakers]);
+  // Soon after a new question comes up (once its line has settled), and otherwise once 80 more words have been said, at
+  // most every 15 s for a new question and every 30 s otherwise.
+  const scheduleTopics = useCallback(() => {
+    if (!topicsOn.current || topicsTimer.current || topicsRun.current || (!topicsDue.current && topicsWords.current < 80)) return;
+    const wait = Math.max(2500, (topicsDue.current ? 15_000 : 30_000) - (Date.now() - topicsAt.current));
+    topicsTimer.current = window.setTimeout(() => { topicsTimer.current = null; latest.current.runTopics(); }, wait);
+  }, []);
   const startCoach = useCallback((turn: LiveTurn) => { if (!coachOn.current) return; turnAt.current = Date.now(); runCoach(turn); }, [runCoach]);
   // The refresh button: fresh tips for the question now, without waiting out the 8 s.
   const refreshCoach = useCallback(() => { const turn = liveTurn.current; if (turn && coachOn.current) runCoach(turn, true); }, [runCoach]);
@@ -356,7 +380,8 @@ export default function App() {
   const resetConversation = useCallback(() => {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear(); nextVoice.current = 0;
     browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; lineVoice.current.reset(); interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
-    resetLive(null); rewritten.current = []; reviewRun.current?.abort(); reviewRun.current = null; setCoaching({ state: 'idle' }); speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
+    resetLive(null); rewritten.current = []; reviewRun.current?.abort(); reviewRun.current = null; setCoaching({ state: 'idle' });
+    topicsRun.current?.abort(); topicsRun.current = null; clearTimer(topicsTimer); topicsNow.current = noTopics; setTopics(noTopics); setTopicsOpen(false); setTopicsBusy(false); topicsSeen.current = 0; topicsWords.current = 0; topicsDue.current = false; speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
     transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); setPinned(null); setHistory([]); setEarlierOpen(false); setNewAnswer(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading, resetLive]);
   // Clearing starts a new session. A saved one keeps what it had: its latest changes are saved first.
@@ -378,10 +403,10 @@ export default function App() {
   const stop = useCallback(() => { sessionId.current++; endListening(clearOnStop); }, [clearOnStop, endListening]);
 
   // Speech callbacks outlive the render that started listening; read the latest mode, provider, and settings through this ref.
-  const latest = useRef({ generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach }); const coachShown = useRef(false);
+  const latest = useRef({ generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach, runTopics, scheduleTopics }); const coachShown = useRef(false);
   const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
   useLayoutEffect(() => {
-    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach }; liveOn.current = liveAnswers; coachOn.current = liveAnswers && liveCoach; coachShown.current = !!coach; coachNow.current = coach; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
+    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach, runTopics, scheduleTopics }; liveOn.current = liveAnswers; topicsOn.current = trackTopics; coachOn.current = liveAnswers && liveCoach; coachShown.current = !!coach; coachNow.current = coach; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
     readable.current = [...(pinned ? [pinned] : []), ...history.slice(-6), { question, answer }]; reading.current = [...rewritten.current, ...readable.current, ...(coach?.key ? [{ question, answer: [coach.key, ...coach.points].join('\n') }] : [])]; // Oldest first. You might read the coach's notes aloud too.
   });
 
@@ -642,6 +667,7 @@ export default function App() {
     resetConversation();
     const ids = lastIds(saved); lineId.current = ids.line; entryCounter.current = ids.entry; nextVoice.current = ids.voice + 1; samplePending.current = false;
     transcriptRef.current = saved.transcript; setTranscript(saved.transcript); setHistory(saved.history); setPinned(saved.pinned);
+    const restored = saved.topics ?? noTopics; topicsNow.current = restored; setTopics(restored); topicsSeen.current = saved.transcript.length;
     const current = saved.current;
     setEntryId(current?.id ?? 0); setEntryTime(current?.time ?? ''); setQuestion(current?.question ?? ''); setAnswer(current?.answer ?? ''); setShownMode(current?.mode ?? 'STANDARD'); setAnswerKind(current?.kind ?? 'answer'); setLowConfidence(!!current?.possible);
     setSession({ id: saved.id, name: saved.name, createdAt: saved.createdAt, saved: true }); setSessionNotice(''); setStatus(`Opened “${saved.name}”`);
@@ -770,7 +796,7 @@ export default function App() {
   }, [savedContext, addFiles]);
   // A DEEPGRAM_API_KEY in .env (see .env.example) fills in the key and switches transcription to Deepgram.
   useEffect(() => { void deepgramKeyFromEnv().then(key => { if (!key) return; setDeepgramKey(current => current || key); setKeyFromEnv(true); setSpeechEngine('deepgram'); }); }, []);
-  useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); clearTimer(liveTimer); clearTimer(coachTimer); coachRun.current?.abort(); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
+  useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); clearTimer(liveTimer); clearTimer(coachTimer); coachRun.current?.abort(); clearTimer(topicsTimer); topicsRun.current?.abort(); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
 
   // Your context changed while the coach is showing (you added the role, notes, or a file): coach the question again with
   // it, once you have stopped typing.
@@ -779,6 +805,18 @@ export default function App() {
     const timer = window.setTimeout(() => { if (liveTurn.current === turn) latest.current.runCoach(turn); }, 1500);
     return () => window.clearTimeout(timer);
   }, [profile.text]);
+
+  useEffect(() => {
+    const lines = transcriptRef.current; const fresh = lines.slice(topicsSeen.current); topicsSeen.current = lines.length;
+    for (const line of fresh) { topicsWords.current += wordCount(line.text); if (line.speaker !== 'candidate' && lastAsk(line.text, sessionLanguage.current)) topicsDue.current = true; }
+    if (fresh.length) scheduleTopics();
+  }, [transcript, scheduleTopics]);
+  // Jumps the transcript to where a main question was asked, showing every line.
+  const showLine = useCallback((id?: number) => {
+    if (!id) return; setTranscriptFilter('all'); followTranscript.current = false;
+    window.requestAnimationFrame(() => { const line = transcriptBody.current?.querySelector<HTMLElement>(`[data-line="${id}"]`); if (!line) return; line.scrollIntoView({ block: 'center', behavior: 'smooth' }); line.classList.add('flash'); window.setTimeout(() => line.classList.remove('flash'), 1600); });
+  }, []);
+  const currentTopic = topics.list.find(topic => topic.id === topics.current); const topicIndex = topics.list.findIndex(topic => topic.id === topics.current) + 1;
 
   const blocks = parseAnswer(answer);
   const heardMinutes = transcript.length ? Math.max(1, Math.round((transcript[transcript.length - 1].at - transcript[0].at) / 60_000)) : 0;
@@ -799,14 +837,14 @@ export default function App() {
       : !hasBackground ? 'Add your résumé or notes in Context so the coach can point to your own stories →' : '';
   useLayoutEffect(() => {
     sessionNow.current = session;
-    sessionSnapshot.current = () => ({ version: 1, id: session.id, name: session.name.trim() || sessionPlaceholder, createdAt: session.createdAt, updatedAt: Date.now(), transcript: transcriptRef.current, history, current: showCurrent ? { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind } : null, pinned });
+    sessionSnapshot.current = () => ({ version: 1, id: session.id, name: session.name.trim() || sessionPlaceholder, createdAt: session.createdAt, updatedAt: Date.now(), transcript: transcriptRef.current, history, topics, current: showCurrent ? { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind } : null, pinned });
   });
   // A saved session saves itself a moment after it changes (not on every streamed word), and when the page closes.
   useEffect(() => {
     if (!session.saved) return;
     const timer = window.setTimeout(() => { void storeSession(sessionSnapshot.current()).catch(() => setSessionNotice('This browser would not save the latest changes.')); }, 800);
     return () => window.clearTimeout(timer);
-  }, [session, transcript, history, question, answer, shownMode, answerKind, lowConfidence, pinned, entryId]);
+  }, [session, transcript, history, question, answer, shownMode, answerKind, lowConfidence, pinned, entryId, topics]);
   useEffect(() => {
     const flush = () => { if (sessionNow.current.saved) void storeSession(sessionSnapshot.current()).catch(() => undefined); };
     window.addEventListener('pagehide', flush); return () => window.removeEventListener('pagehide', flush);
@@ -818,7 +856,7 @@ export default function App() {
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
       entries: showCurrent ? [...pastForPhone, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks) }] : pastForPhone,
-      live: showCurrent, generating, status, answerError, mode, coach: coach?.key ? { key: coach.key, points: coach.points, tip: coach.tip } : undefined,
+      live: showCurrent, generating, status, answerError, mode, coach: coach?.key ? { key: coach.key, points: coach.points, tip: coach.tip } : undefined, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
       heard: transcript.slice(-8).map(({ time, text, speaker }) => ({ time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
     });
   });
@@ -874,6 +912,12 @@ export default function App() {
         </div>
         <div className="right-col">
           <div className="col-head"><h2>Answers</h2><button className="provider-chip" onClick={() => setPanel('settings')} aria-label={`Answers from ${providerDetails}. Change in Settings`} title={providerDetails}>{providerName}</button><div className="segmented" role="group" aria-label="Answer length">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => chooseMode(item)}>{item.toLowerCase()}</button>)}</div></div>
+          {trackTopics && (currentTopic || (active && topicsBusy && !topics.list.length)) && <section className="main-question" aria-label="Main question">
+            <div className="main-question-head"><b>Main question</b>{topics.list.length > 1 && <button className="main-question-count" onClick={() => setTopicsOpen(open => !open)} aria-expanded={topicsOpen} title="All the main questions so far">{topicIndex} of {topics.list.length}<ChevronDown size={12}/></button>}
+              <button className="live-coach-refresh" onClick={() => runTopics()} disabled={topicsBusy} title="Check the main question again" aria-label="Check the main question again"><RefreshCw size={12}/></button></div>
+            {currentTopic ? <><p className="main-question-title">{currentTopic.title}</p>{compactText(currentTopic.question) !== compactText(currentTopic.title) && <p className="main-question-text">{currentTopic.question}</p>}</> : <p className="main-question-text">Working out the main question…</p>}
+            {topicsOpen && topics.list.length > 1 && <ol className="main-question-list">{[...topics.list].reverse().map((topic, index) => <li key={topic.id} value={topics.list.length - index} className={topic.id === topics.current ? 'current' : ''}><button onClick={() => showLine(topic.from)} disabled={!topic.from} title={topic.from ? 'Show where it was asked' : topic.question}>{topic.title}</button></li>)}</ol>}
+          </section>}
           {liveCoach && liveAnswers && coach && <section className={'live-coach' + (coach.busy ? ' busy' : '')} aria-live="polite" aria-label="Live coach">
             <div className="live-coach-head"><b><i/>Coach</b><span>{coach.busy ? coach.key ? 'Updating…' : 'Reading the question…' : coach.after ? `after “${coach.after}”` : 'for this question'}</span><button className="live-coach-refresh" onClick={refreshCoach} disabled={coach.busy} title="Fresh tips for this question" aria-label="Get fresh coaching tips"><RefreshCw size={12}/></button></div>
             {coach.key ? <><p className="live-coach-key">{coach.key}</p>{coach.points.length > 0 && <ul>{coach.points.map(point => <li key={point}>{point}</li>)}</ul>}{coach.tip && <p className="live-coach-tip">{coach.tip}</p>}</> : <div className="typing" aria-hidden="true"><i/><i/><i/></div>}
@@ -911,6 +955,7 @@ export default function App() {
       {speakers && <div className="voice-row"><span className="settings-hint">{voiceSetup.state === 'recording' ? 'Read this aloud, as you would in the interview: "I am practicing for an interview today. I enjoy building reliable software and explaining how it works."' : voiceSetup.state === 'done' ? `Learned your voice from ${voiceSetup.seconds} s of speech. Lines that sound like you are labeled You right away.` : voiceSetup.state === 'error' ? voiceSetup.message : active ? 'Stop listening to teach Roomside your voice.' : 'Optional: read a sentence aloud for 8 seconds so your lines are labeled You from the start. Only a few numbers about your voice are kept, in this tab.'}</span>{voiceSetup.state === 'done' && <button className="text-button" onClick={() => { myVoice.current = []; setVoiceSetup({ state: 'idle' }); }}>Forget</button>}<button className="secondary" onClick={() => void teachVoice()} disabled={voiceSetup.state === 'recording' || active}>{voiceSetup.state === 'recording' ? 'Listening…' : voiceSetup.state === 'done' ? 'Learn again' : 'Learn my voice'}</button></div>}
       <div className="settings-section-title">Answers</div><label className="field-label">Answers from<select value={source} onChange={event => { sourceChosen.current = true; setSource(event.target.value as AnswerSource); setProviderCheck(''); }}><option value="claude">Claude, with your Claude subscription</option><option value="openai">OpenAI-compatible endpoint (API key)</option><option value="demo">Offline demo answers</option></select></label>
       <label className="toggle-row"><span><b>Live answer</b><small>Answers each question or problem once it sounds finished, then holds still while you read or talk. Asides and small talk leave it alone.{source === 'claude' ? ' Uses more of your Claude usage than answering questions only.' : source === 'openai' ? ' Sends more requests than answering questions only.' : ''}</small></span><input type="checkbox" checked={liveAnswers} onChange={event => { const on = event.target.checked; setLiveAnswers(on); liveOn.current = on; resetLive(null); clearTimer(partialTimer); }}/></label>
+      <label className="toggle-row"><span><b>Main questions</b><small>Keeps track of the main question or case you are working on after the introductions (and a list of them so far), pinned above the answers, with a quick check by {source === 'claude' ? 'Claude' : source === 'openai' ? 'your answer provider' : 'the offline demo'} soon after a new question and otherwise every half minute or so while you talk. Answers and the coach use it, so a sub-question is answered as part of the case.{source === 'claude' ? ' Uses a little of your Claude usage.' : ''}</small></span><input type="checkbox" checked={trackTopics} onChange={event => { const on = event.target.checked; setTrackTopics(on); topicsOn.current = on; if (!on) { topicsRun.current?.abort(); topicsRun.current = null; clearTimer(topicsTimer); setTopicsBusy(false); } else latest.current.scheduleTopics(); }}/></label>
       {liveAnswers && <label className="toggle-row"><span><b>Live coach</b><small>A separate check by {source === 'claude' ? 'Claude' : source === 'openai' ? 'your answer provider' : 'the offline demo'}, pinned above the answers: for each question, the key idea to land, the next points to make, and a tip on how you are coming across, following what you say (at most every 8 seconds).{source === 'claude' ? ' Uses a little more of your Claude usage.' : ''}</small></span><input type="checkbox" checked={liveCoach} onChange={event => { const on = event.target.checked; setLiveCoach(on); coachOn.current = on; if (on && liveTurn.current) startCoach(liveTurn.current); else dropCoach(); }}/></label>}
       {source === 'claude' && <><label className="field-label">Model<select value={claudeModel} onChange={event => { setClaudeModel(event.target.value as ClaudeModel); setProviderCheck(''); }}>{claudeModels.map(item => <option key={item.id} value={item.id}>{item.label} ({item.note})</option>)}</select></label><div className="settings-hint">Runs through Claude Code on this computer, signed in with your Claude account: no API key, and usage counts toward your plan. Works while Roomside runs from <code>npm start</code>.</div></>}
       {source === 'openai' && <><label className="field-label">Chat completions endpoint<input type="url" value={endpoint} onChange={event => { setEndpoint(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label className="field-label">Model<input value={model} onChange={event => { setModel(event.target.value); setProviderCheck(''); }} spellCheck={false}/></label><label className="field-label">API key<input type="password" value={apiKey} onChange={event => { setApiKey(event.target.value); setProviderCheck(''); }} placeholder="Held in memory for this session" autoComplete="off" spellCheck={false}/></label><div className="settings-hint">Sent only to the endpoint above. The browser may block cross-origin requests unless the endpoint allows them.</div></>}

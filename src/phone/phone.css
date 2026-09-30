@@ -30,6 +30,9 @@ button:disabled{opacity:.45;cursor:default}
 .tag{background:var(--mint);color:var(--mint-ink);border-radius:5px;padding:2px 6px}
 .question{font-size:18px;font-weight:600;line-height:1.35;margin:8px 0 0;overflow-wrap:anywhere}
 .answer{font-size:17px;line-height:1.5;margin-top:4px;overflow-wrap:anywhere}
+.topic{margin:0 0 10px;padding:0 0 10px;border-bottom:1px solid var(--line);font-size:15px;line-height:1.4}
+.topic .title{margin:3px 0 0;font-weight:650}
+.topic p{margin:3px 0 0;color:var(--muted)}
 .coach{margin:10px 0 2px;padding:9px 12px 10px;border-radius:12px;background:var(--mint);font-size:16px;line-height:1.45}
 .coach .eyebrow{color:var(--mint-ink)}
 .coach .key{margin:5px 0 0;font-weight:650}

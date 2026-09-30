@@ -10,6 +10,8 @@ export type MirrorState = {
   listening: 'off' | 'starting' | 'on' | 'voice'; micError: string; notice: string;
   /** The running list of answers, oldest first. With `live`, the last one is being answered now (see generating, status, answerError). */
   entries: MirrorEntry[]; live: boolean; generating: boolean; status: string; answerError: string; mode: Mode;
+  /** The main question being worked on now (see topics.ts). */
+  topic?: { title: string; question: string };
   /** The live coach's notes on the question being answered: the key idea to land, the next points, and a tip. */
   coach?: { key: string; points: string[]; tip: string };
   heard: { time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; interim: string; provider: string;

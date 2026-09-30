@@ -1,6 +1,6 @@
 // One question and its suggested answer in the running list of answers.
 import { memo, useMemo } from 'react';
-import { Clipboard, Pin, Sparkles } from 'lucide-react';
+import { Copy, Pin } from 'lucide-react';
 import type { Mode } from './providers';
 import { inlineSegments, parseAnswer, type AnswerBlock } from './text';
 
@@ -16,15 +16,20 @@ export const AnswerContent = ({ blocks }: { blocks: AnswerBlock[] }) => <>{block
     : block.type === 'code' ? <pre key={index}><code>{block.text}</code></pre>
       : block.type === 'label' ? <p key={index}><b>{block.label}:</b> {inline(block.text)}</p> : <p key={index}>{inline(block.text)}</p>)}</>;
 
-export const QuestionLabel = (entry: Pick<Entry, 'possible' | 'time' | 'tag'>) => <div className="question-label"><span className="question-mark">?</span>{entry.possible ? 'POSSIBLE QUESTION' : 'QUESTION'}{entry.time && <time>{entry.time}</time>}{entry.tag && <span className="tag">{entry.tag}</span>}</div>;
+/** When the question came, what kind it is, and the mode that produced the answer. */
+export const EntryMeta = (entry: Pick<Entry, 'possible' | 'time' | 'tag' | 'mode' | 'kind'>) => <div className="entry-meta">
+  {entry.time && <time>{entry.time}</time>}{entry.tag && <span className="tag">{entry.tag}</span>}
+  {entry.kind === 'followup' && <span className="kind">Likely follow-up</span>}<span className="mode">{entry.mode.toLowerCase()}</span>
+  {entry.possible && <span className="possible">Possible question</span>}
+</div>;
 
 type PastProps = { entry: Entry; pinned: boolean; onPin(entry: Entry): void; onCopy(text: string): void };
 /** An earlier answer; it only re-renders when it is pinned or unpinned, not while a new answer streams. */
 export const PastAnswer = memo(function PastAnswer({ entry, pinned, onPin, onCopy }: PastProps) {
   const blocks = useMemo(() => parseAnswer(entry.answer), [entry.answer]);
   return <article className="qa-entry past" data-entry={entry.id}>
-    <div className="question-card"><QuestionLabel possible={entry.possible} time={entry.time} tag={entry.tag}/><div className="question-text">{entry.question}</div></div>
-    <div className="response-card"><div className="response-top"><span><Sparkles size={14}/> {entry.kind === 'followup' ? 'LIKELY FOLLOW-UP' : 'RESPONSE'} · {entry.mode}</span><span className="entry-tools"><button className={'icon-button small' + (pinned ? ' pinned' : '')} onClick={() => onPin(entry)} title={pinned ? 'Unpin answer' : 'Pin answer'} aria-label={pinned ? 'Unpin answer' : 'Pin answer'} aria-pressed={pinned}><Pin size={14}/></button><button className="icon-button small" onClick={() => onCopy(entry.answer)} title="Copy answer" aria-label="Copy answer"><Clipboard size={14}/></button></span></div>
-      <div className="response-content"><AnswerContent blocks={blocks}/></div></div>
+    <div className="qa-head"><EntryMeta {...entry}/><span className="entry-tools"><button className={'icon-button small' + (pinned ? ' pinned' : '')} onClick={() => onPin(entry)} title={pinned ? 'Unpin answer' : 'Pin answer'} aria-label={pinned ? 'Unpin answer' : 'Pin answer'} aria-pressed={pinned}><Pin size={14}/></button><button className="icon-button small" onClick={() => onCopy(entry.answer)} title="Copy answer" aria-label="Copy answer"><Copy size={14}/></button></span></div>
+    <div className="question-text">{entry.question}</div>
+    <div className="response-content"><AnswerContent blocks={blocks}/></div>
   </article>;
 });

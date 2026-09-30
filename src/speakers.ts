@@ -43,6 +43,12 @@ const clarifyingAnywhere = new RegExp(`(?<![\\p{L}\\p{N}'])${clarifying}${wordEn
 const selfQuestion = /(?<![\p{L}\p{N}'])(?:do|does|did|should|shall|can|could|would|will|am|was|have|need|must)\s+i(?![\p{L}\p{N}'])/iu;
 const questionTag = /[\s,]*(?:right|correct|yeah|yes|no|okay|ok|you know|make sense|makes sense|isn't it|doesn't it|won't it|wouldn't it)\s*[?？]+["'”)\]]*$/iu;
 const nothingAsked = /^(?:what|huh|sorry|pardon|come again|excuse me|hm+|eh)[\s?？.!]*$/iu;
+// A question about the problem you are both working on is yours too ("so are we talking about internal systems, or
+// customers?", "…are we gonna have to count for concurrency?"), and so are your own words said like a question ("first
+// thing I see is that it's about VPNs?"), unless they ask them something ("you", but not a "you know," filler).
+const ourQuestion = /(?<![\p{L}\p{N}'])(?:are|were|do|did|should|shall|can|could|would|will|have)\s+we(?![\p{L}\p{N}'])/iu;
+const firstPerson = /(?<![\p{L}\p{N}'])(?:i|i'm|i've|i'd|i'll|me|my|we|we're|we've|we'd|our)(?![\p{L}\p{N}'])/iu;
+const addressed = /(?<![\p{L}\p{N}'])(?:you|your|yours|yourself)(?![\p{L}\p{N}'])(?!\s+know\s*(?:[,.?!…]|$))/iu;
 
 /** The interviewer's latest question or request in a line, with what led up to it: "Those arrays are sorted. What is the
  * complexity? O of one." gives its first two sentences, since lines often run on into the answer (or mix both people's
@@ -54,7 +60,8 @@ export function lastAsk(text: string, language = 'en-US'): string | undefined {
   const asks = (sentence: string) => {
     const value = sentence.trim().replace(/[‘’]/g, "'"); const core = value.replace(questionTag, '');
     if (!value || nothingAsked.test(value) || !likelyQuestion(value, language) || (core !== value && !likelyQuestion(core, language))) return false;
-    return !yours(value) && !clarifyingAnywhere.test(value) && !checkIn.test(value) && !selfQuestion.test(value);
+    const ours = !addressed.test(value) && (ourQuestion.test(value) || (firstPerson.test(value) && !likelyQuestion(value.replace(/[?？]+["'”)\]]*$/u, ''), language)));
+    return !ours && !yours(value) && !clarifyingAnywhere.test(value) && !checkIn.test(value) && !selfQuestion.test(value);
   };
   // What led up to it: back to their question before, if the line holds more than one, or before that for a short question
   // that goes on from it ("And when would you use one?").
@@ -135,7 +142,6 @@ export function readsAnswer(text: string, answers: readonly ReadableAnswer[], la
 
 // Asking yourself something while thinking aloud ("…and how do we handle collisions"), not the interviewer asking you.
 const selfTalk = /(?<![\p{L}\p{N}'])(?:(?:how|what|where|when|why|which|should|shall|do|does|did|can|could|would|will|if)\s+(?:i|we)|we|we're|we'd|we've|we'll|us|our|ours)(?![\p{L}\p{N}'])/iu;
-const firstPerson = /(?<![\p{L}\p{N}'])(?:i|i'm|i've|i'd|i'll|me|my|we|we're|we've|we'd|our)(?![\p{L}\p{N}'])/iu;
 // Interviewers often react before they ask ("Nice, I like that. So what was the hardest part?"); all of that is theirs.
 const reaction = new RegExp(`^(?:nice|great|cool|awesome|okay|ok|interesting|gotcha|got it|perfect|thanks|thank you|makes sense|i see|that's (?:great|cool|awesome|interesting|fair|good))${wordEnd}`, 'iu');
 // Someone cutting in tends to open with these; "so", "and", and "but" also start the candidate's own next thought.

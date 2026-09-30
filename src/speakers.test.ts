@@ -61,6 +61,26 @@ describe('lastAsk', () => {
     for (const text of ["So for each pair I swap them. You see what I'm saying, though?", "I'm not sure yet, would you like me to start with brute force?", 'I just use two pointers, if that makes sense?']) expect(lastAsk(text)).toBeUndefined();
   });
 
+  it('skips your questions about the problem you are both working on, and your own words said like a question', () => {
+    const setup = "Let's go ahead and do a problem right here. So, the main thing that we're gonna be looking at today is, at this case, study. So why don't you go ahead and just take a second to read the problem, and then we can get started.";
+    // With Deepgram, words still coming in start the live answer once they end in a question mark, which they can do
+    // before the line is final ("…networks." in the end).
+    const reading = "Okay. So first thing I see is that there's a case study question talking about how Capital One can integrate virtual private networks?";
+    for (const text of [
+      "So are we talking about connecting Capital One's internal systems, or is this more about like, customers, getting that, like, remote",
+      "like, the the, like, customers accessing services remotely. And once the scale, we're looking at, like, like, are we gonna have to count for concurrency or data centers, stuff like that?",
+      reading, 'I think for a VPN integration case study. I wanna try to get some clarification, I guess?',
+      'Can we assume the input fits in memory?', 'How do we handle the empty case?', "I think it's O of n?", 'So are we, you know, talking about internal systems or customers?',
+    ]) expect(lastAsk(text)).toBeUndefined();
+    // Their setup stays the latest ask while you read on after it.
+    expect(lastAsk(`${setup} ${reading}`)).toBe(setup);
+    // Their questions still count when they ask you something, with "we" or "I" in them or not.
+    expect(lastAsk('VPN. What would you think is the main problem with the virtual private network?')).toBe('VPN. What would you think is the main problem with the virtual private network?');
+    expect(lastAsk('I see you worked at Acme. What did you do there?')).toBe('I see you worked at Acme. What did you do there?');
+    expect(lastAsk("I'm curious what the hardest part was?")).toBe("I'm curious what the hardest part was?");
+    expect(lastAsk('Do you know if we need to handle concurrency?')).toBe('Do you know if we need to handle concurrency?');
+  });
+
   it('takes a problem to solve with the constraints that follow it', () => {
     expect(lastAsk('Sure. So, given a linked list, swap every two adjacent nodes and return its head. You must not modify the values. Okay.'))
       .toBe('Sure. So, given a linked list, swap every two adjacent nodes and return its head. You must not modify the values. Okay.');

@@ -67,6 +67,37 @@ describe('liveStep', () => {
     expect(last.ownWords).toBe(10 + 6 + 22 + 10); // Your own words, which the live coach follows.
   });
 
+  it('holds still through a case while you read it aloud and ask what it covers, whoever each line was heard from', () => {
+    // A practice case interview transcribed with Deepgram, labeled as it ended up: introductions, the case, you reading it
+    // aloud and asking what it covers, and their next question.
+    const lines: [string, LiveHeard['speaker']][] = [
+      ['Hey. My name is Alex.', 'candidate'],
+      ["Yeah. I'm a sophomore. No. And, I might be... I only weren't that too late. And, recently, I also worked at Berkeley Berkshire Gray.", 'candidate'],
+      ['Mhmm. Okay. Yeah. That that sounds good. So', 'interviewer'],
+      ["why don't we go ahead and get started then?", 'interviewer'],
+      ["Let's go ahead and do a problem right here. So, the main thing that we're gonna be looking at today is, at this case, study. So why don't you go ahead and just take a second to read the problem, and then we can get started.", 'interviewer'],
+      ["Okay. So first thing I see is that there's a case study question talking about how Capital One can integrate virtual private networks.", 'candidate'],
+      ['I think for a VPN integration case study. I wanna try to get some clarification, I guess.', 'interviewer'], // Probably you.
+      ["So are we talking about connecting Capital One's internal systems, or is this more about like, customers, getting that, like, remote", 'candidate'],
+      ["like, the the, like, customers accessing services remotely. And once the scale, we're looking at, like, like, are we gonna have to count for concurrency or data centers, stuff like that?", 'candidate'],
+      ["Anyways, yeah, I'm ready. Alright. Sounds good. So next question is a bit more about the", 'interviewer'],
+      ['VPN. What would you think is the main problem with the virtual private network?', 'interviewer'],
+    ];
+    const setup = lines[4][0]; const yours = [5, 6, 7, 8];
+    // Your lines after the setup could each have been You, Interviewer, or not labeled yet when they were committed, before
+    // the background check relabeled them.
+    const labelings = yours.reduce<LiveHeard['speaker'][][]>(all => all.flatMap(labels => (['candidate', 'interviewer', undefined] as const).map(speaker => [...labels, speaker])), [[]]);
+    for (const labels of labelings) {
+      const steps = replay(lines.map(([text, speaker], index) => heard(text, yours.includes(index) ? labels[yours.indexOf(index)] : speaker)));
+      const seen = `your lines labeled ${labels.map(label => label ?? 'nobody').join(', ')}`;
+      expect(steps.slice(4).map(step => step.action), seen).toEqual(['new', 'hold', 'hold', 'hold', 'hold', 'hold', 'new']);
+      expect(steps.slice(4, 10).map(step => step.turn?.asked), seen).toEqual(Array(6).fill(setup));
+      expect(steps[10].turn, seen).toEqual(turn('VPN. What would you think is the main problem with the virtual private network?'));
+    }
+    // As labeled in the end, your reading and your questions are what you said to the case, which the live coach follows.
+    expect(replay(lines.map(([text, speaker]) => heard(text, speaker)))[9].turn!.said).toEqual([lines[5][0], lines[7][0], lines[8][0]]);
+  });
+
   it('holds still while you read an answer, explain in your own words, check something, or ask them', () => {
     const asked = turn('What do you know about Capital One?');
     expect(liveStep(asked, heard('honestly mostly that you are big on cloud', 'candidate'))).toEqual({ action: 'hold', turn: turn(asked.asked, ['honestly mostly that you are big on cloud'], true, 8) });

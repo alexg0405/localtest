@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, speakerPrompt, voiceGuess, voiceRoles, voiceSamples, type SpokenLine, type VoiceSample } from './speakers';
+import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type SpokenLine, type VoiceSample } from './speakers';
 
 describe('guessSpeaker', () => {
   it('gives questions and prompts to the interviewer', () => {
@@ -31,6 +31,14 @@ describe('guessSpeaker', () => {
     expect(guessSpeaker('yeah that makes sense')).toBeUndefined();
     expect(guessSpeaker("Hi, I'm Priya and I lead the payments team")).toBeUndefined();
     expect(guessSpeaker('')).toBeUndefined();
+  });
+
+  it('gives check-ins after an answer to the candidate, and looks past "oh" and "wait"', () => {
+    expect(guessSpeaker('does that answer your question')).toBe('candidate');
+    expect(guessSpeaker('is that what you were looking for')).toBe('candidate');
+    expect(guessSpeaker('wait, can I assume the input is sorted')).toBe('candidate');
+    expect(guessSpeaker('oh wait, how long were you there')).toBe('interviewer');
+    expect(guessSpeaker('sorry, what was the last part')).toBe('interviewer');
   });
 });
 
@@ -67,6 +75,71 @@ describe('voiceRoles and awaitingCheck', () => {
     expect([...voiceRoles(lines)]).toEqual([[0, 'interviewer'], [1, 'candidate']]);
     expect(awaitingCheck(lines).map(line => line.id)).toEqual([4]);
   });
+
+  it('counts lines read from a suggested answer twice, and never sends them to the check', () => {
+    const lines: SpokenLine[] = [
+      { id: 1, text: 'a', speaker: 'interviewer', by: 'ai', voice: 0 },
+      { id: 2, text: 'b', speaker: 'candidate', by: 'answer', voice: 0 },
+    ];
+    expect([...voiceRoles(lines)]).toEqual([[0, 'candidate']]);
+    expect(awaitingCheck(lines)).toEqual([]);
+  });
+});
+
+describe('reading a suggested answer aloud', () => {
+  const about: ReadableAnswer = { question: 'Can you tell me a little bit more about yourself?', answer: "Yeah, so I'm Sam, a junior at Westbrook studying computer science and finance. I'm from Oregon originally, but I've been in Portland for school and it's been great.\n\nI've done a couple internships now — most recently at Acme working on platform engineering, where I got to lead some upgrades. Before that I was at Globex working on automation and telemetry stuff." };
+  const counts: ReadableAnswer = { question: 'How would you count how often each word appears?', answer: "MY THINKING\nMy first thought is brute force. Then I'd use a hash map to store counts so each lookup is O(1)." };
+  const answers = [about, counts];
+
+  it('recognizes you reading an answer, even loosely and with misheard words', () => {
+    expect(readsAnswer("Yeah. So I'm Sam. I'm a junior at Westbrook. I'm studying computer science and finance.", answers)).toBe(true);
+    expect(readsAnswer("I'm from Oregon originally, and I've been in school for a year now, and it's been great. I've done a couple internships now. Most recently at acne working on platform engineering.", answers)).toBe(true);
+    expect(readsAnswer('then I would use a hash map to store counts so each lookup is O of one', answers)).toBe(true);
+  });
+
+  it("does not take the interviewer's questions, or their echo of the answer's words, for a reading", () => {
+    expect(readsAnswer('Can you tell me a little bit more about yourself?', answers)).toBe(false);
+    expect(readsAnswer('Oh nice, so how was Acme?', answers)).toBe(false);
+    expect(readsAnswer('so you did platform engineering at Acme', answers)).toBe(false);
+    expect(readsAnswer('why would you use a hash map to store counts', answers)).toBe(false);
+    expect(readsAnswer('how would you count how often each word appears', [counts])).toBe(false); // Words from the question itself.
+    expect(readsAnswer('yeah', answers)).toBe(false);
+    expect(readsAnswer("I'm a junior at Westbrook", [])).toBe(false);
+  });
+
+  it('splits off the interviewer cutting in while you read, and your reply right after', () => {
+    expect(splitInterruption('and before that I was at Globex working on automation oh so how was that', answers))
+      .toEqual({ yours: 'and before that I was at Globex working on automation', theirs: 'oh so how was that', read: true });
+    expect(splitInterruption('Before that I was at Globex working on automation and telemetry stuff. Oh, so how was that?', answers))
+      .toMatchObject({ yours: 'Before that I was at Globex working on automation and telemetry stuff.', theirs: 'Oh, so how was that?', read: true });
+    expect(splitInterruption('most recently at Acme working on platform engineering, oh wait, how long were you there', answers)).toMatchObject({ theirs: 'oh wait, how long were you there', read: true });
+    expect(splitInterruption('before that I was at Globex working on automation oh so how was that yeah it was really great I learned a lot', answers))
+      .toEqual({ yours: 'before that I was at Globex working on automation', theirs: 'oh so how was that', reply: 'yeah it was really great I learned a lot', read: true });
+    expect(splitInterruption("I was at Globex working on automation okay great let's move on to the next question", answers)).toMatchObject({ theirs: "okay great let's move on to the next question" });
+    expect(splitInterruption('most recently at Acme working on platform engineering oh so you worked on platform engineering?', answers)).toMatchObject({ theirs: 'oh so you worked on platform engineering?' });
+  });
+
+  it('keeps a reading whole when what follows is still yours', () => {
+    expect(splitInterruption('most recently at Acme working on platform engineering. Does that answer your question?', answers)).toBeUndefined();
+    expect(readsAnswer('most recently at Acme working on platform engineering. Does that answer your question?', answers)).toBe(true);
+    expect(splitInterruption("I'd use a hash map to store counts and then how do we handle collisions", answers)).toBeUndefined();
+    // Reading questions that are in the answer itself.
+    const questions = [{ question: 'Tell me about a time you disagreed with a teammate.', answer: 'To make it specific: What was at stake? How did you communicate? What changed?' }];
+    expect(splitInterruption('to make it specific what was at stake how did you communicate what changed', questions)).toBeUndefined();
+    expect(readsAnswer('to make it specific what was at stake how did you communicate what changed', questions)).toBe(true);
+  });
+
+  it('splits you talking freely only when you were clearly cut off', () => {
+    expect(splitInterruption('I kept going back and forth on it for a while oh wait why did you pick Go', [])).toEqual({ yours: 'I kept going back and forth on it for a while', theirs: 'oh wait why did you pick Go', read: false });
+    expect(splitInterruption('and before that I was at so how was that', [])).toMatchObject({ yours: 'and before that I was at', theirs: 'so how was that' });
+    // The interviewer reacting, introducing something, or thinking aloud with you stays one line.
+    expect(splitInterruption('Nice, I like that. So what was the hardest part?', [])).toBeUndefined();
+    expect(splitInterruption("That's a really cool project, I love that kind of work. So what was the hardest part?", [])).toBeUndefined();
+    expect(splitInterruption('Okay cool, we use a lot of Go here, so how comfortable are you with it?', [])).toBeUndefined();
+    expect(splitInterruption('we shipped it to production last month and it went well so how was that', [])).toBeUndefined();
+    expect(splitInterruption("I'd store the counts in a hash map and then how do we handle collisions", [])).toBeUndefined();
+    expect(splitInterruption('I kept going back and forth on it for a while oh wait why did you pick Go', [], 'en-US', true)).toBeUndefined(); // Their voice is known.
+  });
 });
 
 describe('voiceGuess', () => {
@@ -98,14 +171,15 @@ describe('voiceGuess', () => {
     expect(voiceGuess(mine, { pitch: 19.5, tilt: 0.02, level: 27, seconds: 2 })).toBeUndefined();
   });
 
-  it('learns only from checked or corrected lines', () => {
+  it('learns only from checked, corrected, or read-aloud lines', () => {
     const lines: SpokenLine[] = [
       { id: 1, text: 'a', speaker: 'interviewer', by: 'ai', print: interviewer(10) },
       { id: 2, text: 'b', speaker: 'candidate', by: 'guess', print: candidate(22) },
       { id: 3, text: 'c', speaker: 'candidate', by: 'you', print: candidate(22) },
       { id: 4, text: 'd', speaker: 'interviewer', by: 'ai' },
+      { id: 5, text: 'e', speaker: 'candidate', by: 'answer', print: candidate(21) },
     ];
-    expect(voiceSamples(lines).map(sample => sample.speaker)).toEqual(['interviewer', 'candidate']);
+    expect(voiceSamples(lines).map(sample => sample.speaker)).toEqual(['interviewer', 'candidate', 'candidate']);
   });
 
   it('adds the voice hint to lines waiting for the check', () => {

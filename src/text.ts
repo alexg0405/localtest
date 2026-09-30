@@ -7,7 +7,7 @@ export const compactText = (value: string) => value.toLowerCase().replace(/[^\p{
 
 // `\b` is ASCII-only in JavaScript, so accented starters like "qué" need a Unicode-aware word end.
 const startsWith = (words: string) => new RegExp(`^(?:${words})(?![\\p{L}\\p{N}])`, 'iu');
-const fillers = /^(?:(?:hey|hi|hello|thanks|thank you|so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|oh|um+|uh+|hmm+|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
+const fillers = /^(?:(?:hey|hi|hello|thanks|thank you|so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|oh|wait|sorry|hold on|hang on|um+|uh+|hmm+|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
 const english = [
   startsWith('what|why|when|where|which|who|whom|whose|how|can|could|would|will|should|shall|may|do|does|did|is|are|was|were|have|has'),
   startsWith("tell me|tell us|share an example|share a time|give me an example|give an example|describe|explain|walk me through|walk us through|talk me through|talk us through|i'd like you to|i would like you to|i'd like to hear|i would like to hear|i want you to|i'm curious|i am curious|let's talk about|let's discuss|let me ask|(?:my |the |one |another |a )?(?:next |first |last |final |follow-up |followup )?question"),
@@ -24,6 +24,17 @@ const endsWithQuestion = (value: string) => {
   const match = trailingQuestion.exec(value);
   return !!match && !statementLead.test(value.slice(0, match.index));
 };
+// Words someone cutting in opens with ("oh, so how was that").
+const cutInLead = /(?:(?<![\p{L}\p{N}'])(?:oh|wait|sorry|okay|ok|so|and|but|hmm+|um+|uh+)(?![\p{L}\p{N}'])[\s,.!…-]*)+$/iu;
+/** Where the question that ends a longer utterance starts, with the words someone cutting in opens with ("…I was at oh so
+ * how was that" gives the index of "oh"), or -1 when the utterance does not end with one. */
+export function trailingQuestionStart(text: string) {
+  // Only trailing punctuation goes and apostrophes stay one character, so the index still points into `text`.
+  const value = text.replace(/[‘’]/g, "'").replace(/[\s?？.!…"'”)\]]+$/u, '');
+  const match = trailingQuestion.exec(value);
+  if (!match?.index || statementLead.test(value.slice(0, match.index))) return -1;
+  return cutInLead.exec(value.slice(0, match.index))?.index ?? match.index;
+}
 const firstPersonPlan = /(?<![\p{L}\p{N}'])(?:i|we)(?:'d|'ll|'m going to| would| will| am going to| are going to| think| guess)(?![\p{L}\p{N}])(?! like you| love you| want you)/iu;
 // Chrome's recognizer adds no punctuation, so each supported language needs its own question cues.
 const localized: Record<string, RegExp[]> = {

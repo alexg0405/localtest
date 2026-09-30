@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BookUser, ChevronDown, Copy, FileText, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2 } from 'lucide-react';
+import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
 import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
@@ -9,7 +9,7 @@ import { contextFilesFromEnv, deepgramKeyFromEnv } from './env';
 import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
-import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, speakerInstructions, speakerPrompt, voiceGuess, voiceRoles, voiceSamples, type Speaker, type SpeakerSource } from './speakers';
+import { awaitingCheck, guessSpeaker, isClarifyingQuestion, parseSpeakerLabels, readsAnswer, speakerInstructions, speakerPrompt, splitInterruption, voiceGuess, voiceRoles, voiceSamples, type ReadableAnswer, type Speaker, type SpeakerSource } from './speakers';
 import type { VoicePrint } from './voice';
 import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
 import { AnswerContent, EntryMeta, PastAnswer, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
@@ -33,10 +33,11 @@ const shortcuts: [string[], string][] = [[listenKeys, 'Start or stop listening']
 const clearTimer = (timer: { current: number | null }) => { if (timer.current) window.clearTimeout(timer.current); timer.current = null; };
 
 
-type TranscriptLinesProps = { lines: Line[]; speakers: boolean; filter: 'all' | Speaker; onFlip(id: number): void };
-/** The heard lines; memoized, so a streaming answer or live interim words do not re-render every line. */
-const TranscriptLines = memo(function TranscriptLines({ lines, speakers, filter, onFlip }: TranscriptLinesProps) {
-  return <>{lines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (filter === 'all' && index && lines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => onFlip(line.id)} title="Wrong person? Click to switch">{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p></div>)}
+type TranscriptLinesProps = { lines: Line[]; speakers: boolean; filter: 'all' | Speaker; onFlip(id: number): void; onAnswer(text: string): void };
+/** The heard lines; memoized, so a streaming answer or live interim words do not re-render every line. ↵ answers a line
+ * that was missed as a question, or run together with other words. */
+const TranscriptLines = memo(function TranscriptLines({ lines, speakers, filter, onFlip, onAnswer }: TranscriptLinesProps) {
+  return <>{lines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (filter === 'all' && index && lines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => onFlip(line.id)} title={line.by === 'answer' ? 'You, reading a suggested answer. Wrong person? Click to switch' : 'Wrong person? Click to switch'}>{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p><button className="answer-line" onClick={() => onAnswer(line.text)} title="Answer this line" aria-label="Answer this line"><CornerDownLeft size={14}/></button></div>)}
     {speakers && filter !== 'all' && !lines.length && <div className="filter-empty">No lines from {filter === 'interviewer' ? 'the interviewer' : 'you'} yet.</div>}</>;
 });
 
@@ -82,6 +83,8 @@ export default function App() {
   const transcriptBody = useRef<HTMLDivElement>(null); const followTranscript = useRef(true); const manualInput = useRef<HTMLInputElement>(null); const settingsPanel = useRef<HTMLElement>(null); const workspace = useRef<HTMLElement>(null);
   // The answer on screen as of the last render, so it can be kept in Recent when something replaces it.
   const display = useRef<Entry & { complete: boolean }>({ id: 0, time: '', tag: '', possible: false, question: '', answer: '', mode: 'STANDARD', kind: 'answer', complete: false });
+  // Suggested answers you might be reading aloud (the last several and the pinned one), with the question each answers.
+  const readable = useRef<ReadableAnswer[]>([]);
   // The card at the bottom of the running list (0 while the sample answer is shown), and whether you are reading it.
   const [entryId, setEntryId] = useState(0); const [entryTime, setEntryTime] = useState(''); const entryCounter = useRef(0);
   const feed = useRef<HTMLDivElement>(null); const followFeed = useRef(true); const [newBelow, setNewBelow] = useState(false);
@@ -151,22 +154,35 @@ export default function App() {
   }, []);
 
   const commitSpeech = useCallback((text: string, confidence?: number, deepgramVoice?: number) => {
-    const utterance = text.trim(); if (!utterance) return;
+    const said = text.trim(); if (!said) return;
+    const language = sessionLanguage.current;
     const voiceKey = `${sessionId.current}:${deepgramVoice}`;
     if (deepgramVoice !== undefined && !voiceIds.current.has(voiceKey)) voiceIds.current.set(voiceKey, nextVoice.current++);
-    const voice = deepgramVoice === undefined ? undefined : voiceIds.current.get(voiceKey);
+    const heardVoice = deepgramVoice === undefined ? undefined : voiceIds.current.get(voiceKey);
+    const heardPrint = heardVoice === undefined ? speech.current?.takePrint?.() : undefined;
+    const heardRole = heardVoice === undefined ? undefined : voiceRoles(transcriptRef.current).get(heardVoice);
+    // The interviewer cut in while you were talking or reading a suggested answer aloud ("…and before that I was at oh so how
+    // was that"): your words get their own line, and theirs are handled below like any utterance. Neither line keeps the
+    // voice heard for the whole utterance, since it mixes both people.
+    const cut = splitInterruption(said, readable.current, language, heardRole === 'interviewer');
+    if (cut) addLine({ text: cut.yours, time: stamp(), at: Date.now(), confidence, speaker: 'candidate', by: cut.read ? 'answer' : 'guess' });
+    const utterance = cut ? cut.theirs : said;
+    const voice = cut ? undefined : heardVoice; const print = cut ? undefined : heardPrint; const known = cut ? undefined : heardRole;
+    // You reading a suggested answer aloud: yours, whatever the voice or the wording suggests, and it needs no answer.
+    const read = !cut && readsAnswer(utterance, readable.current, language);
     // A Deepgram voice keeps the label it has had. Otherwise compare how the line sounded with each person's voice so far:
     // the words decide unless they say nothing or the voice clearly disagrees, and the background check has the last word.
-    const known = voice === undefined ? undefined : voiceRoles(transcriptRef.current).get(voice);
-    const print = voice === undefined ? speech.current?.takePrint?.() : undefined;
-    const sounds = known ? undefined : voiceGuess(voiceSamples(transcriptRef.current, myVoice.current), print);
-    const worded = guessSpeaker(utterance, sessionLanguage.current);
-    const speaker = known ?? (sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded);
-    addLine({ text: utterance, time: stamp(), at: Date.now(), confidence, voice, print, heard: sounds?.speaker, speaker, by: known || (sounds && speaker === sounds.speaker && speaker !== worded) ? 'voice' : 'guess' });
+    const sounds = known || read ? undefined : voiceGuess(voiceSamples(transcriptRef.current, myVoice.current), print);
+    const worded = guessSpeaker(utterance, language);
+    const speaker = read ? 'candidate' : known ?? (sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded);
+    addLine({ text: utterance, time: stamp(), at: Date.now(), confidence, voice, print, heard: sounds?.speaker, speaker, by: read ? 'answer' : known || (sounds && speaker === sounds.speaker && speaker !== worded) ? 'voice' : 'guess' });
     const uncertain = !!confidence && confidence < 0.45; const previous = lastQuestion.current;
-    // Your own questions need no suggested answer: clarifying ones ("can I assume…"), and anything from a Deepgram voice known to be yours.
-    const own = isClarifyingQuestion(utterance) || known === 'candidate';
-    if (likelyQuestion(utterance, sessionLanguage.current) && !own) {
+    // Your own questions need no suggested answer: clarifying ones ("can I assume…"), reading an answer aloud, and anything
+    // from a Deepgram voice known to be yours.
+    const own = read || isClarifyingQuestion(utterance) || known === 'candidate';
+    // With Deepgram, your reading can arrive just before the question that cut into it, whose draft is already running.
+    const draftStart = compactText(partialQuestion.current).split(' ').slice(0, 3).join(' ');
+    if (likelyQuestion(utterance, language) && !own) {
       lastQuestion.current = { text: utterance, at: Date.now() };
       // The draft answer started from interim words already matches the final wording, so keep it.
       if (partialAnswer.current && compactText(utterance) === compactText(partialQuestion.current)) { partialAnswer.current = false; partialQuestion.current = ''; setQuestion(utterance); setLowConfidence(uncertain); }
@@ -182,7 +198,9 @@ export default function App() {
     else if (!own && partialQuestion.current && compactText(partialQuestion.current).endsWith(compactText(utterance))) {
       lastQuestion.current = { text: partialQuestion.current, at: Date.now() }; partialAnswer.current = false; partialQuestion.current = ''; setLowConfidence(uncertain);
     }
-    else if (partialQuestion.current) { partialAnswer.current = false; partialQuestion.current = ''; abortAnswer(); setAnswer(''); setQuestion(''); setLowConfidence(false); setStatus('No question detected'); }
+    else if (partialQuestion.current && (!read || compactText(utterance).includes(draftStart))) { partialAnswer.current = false; partialQuestion.current = ''; abortAnswer(); setAnswer(''); setQuestion(''); setLowConfidence(false); setStatus('No question detected'); }
+    // You answering right away, when the recognizer ran it into their question.
+    if (cut?.reply) addLine({ text: cut.reply, time: stamp(), at: Date.now(), confidence, speaker: 'candidate', by: 'guess' });
   }, [addLine, generate, abortAnswer, question]);
 
   const resetConversation = useCallback(() => {
@@ -211,7 +229,10 @@ export default function App() {
   // Speech callbacks outlive the render that started listening; read the latest mode, provider, and settings through this ref.
   const latest = useRef({ generate, commitSpeech, endListening });
   const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
-  useLayoutEffect(() => { latest.current = { generate, commitSpeech, endListening }; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError }; });
+  useLayoutEffect(() => {
+    latest.current = { generate, commitSpeech, endListening }; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
+    readable.current = [...(pinned ? [pinned] : []), ...history.slice(-6), { question, answer }]; // Oldest first.
+  });
 
   const start = useCallback(() => {
     if (activeRef.current) return;
@@ -251,13 +272,16 @@ export default function App() {
         const pending = browserFinal.current;
         // Still talking after a pause: keep merging into the pending final (up to 4 s) so the question is not split.
         if (pending && text.trim() && Date.now() - browserFinalSince.current < 4000) scheduleBrowserCommit();
+        // A draft answers what someone cut in with, not your words before it, and never your reading of an answer.
+        const asked = (words: string) => splitInterruption(words, readable.current, lang)?.theirs ?? words;
+        const asking = asked(text);
         // While a browser final is pending, new interim words continue the utterance rather than replace the draft.
-        if (!pending && text.trim() && partialQuestion.current && compactText(text) !== compactText(partialQuestion.current)) {
-          partialAnswer.current = false; partialQuestion.current = text; abortAnswer(); setAnswer(''); setQuestion(text.trim()); setLowConfidence(true); setStatus('Question changed · updating…');
+        if (!pending && text.trim() && partialQuestion.current && compactText(asking) !== compactText(partialQuestion.current)) {
+          partialAnswer.current = false; partialQuestion.current = asking; abortAnswer(); setAnswer(''); setQuestion(asking.trim()); setLowConfidence(true); setStatus('Question changed · updating…');
         }
         clearTimer(partialTimer); draftText = '';
-        const spoken = [pending, text].filter(Boolean).join(' ');
-        if (text.trim() && draftReady(spoken, lang) && likelyQuestion(spoken, lang) && !isClarifyingQuestion(spoken)) { draftText = spoken; partialTimer.current = window.setTimeout(startDraft, 650); }
+        const spoken = asked([pending, text].filter(Boolean).join(' '));
+        if (text.trim() && draftReady(spoken, lang) && likelyQuestion(spoken, lang) && !isClarifyingQuestion(spoken) && !readsAnswer(spoken, readable.current, lang)) { draftText = spoken; partialTimer.current = window.setTimeout(startDraft, 650); }
       },
       onFinal: result => {
         if (!current()) return;
@@ -285,6 +309,8 @@ export default function App() {
     addLine({ text: q, time: stamp(), at: Date.now(), speaker: 'interviewer', by: 'typed' }); void generate(q);
   }, [addLine, generate]);
   const submitManual = useCallback(() => { const q = draft.trim(); if (!q) return; setDraft(''); ask(q); }, [draft, ask]);
+  // ↵ on a transcript line answers it as asked: a question the detection missed, or one run together with other words.
+  const answerLine = useCallback((text: string) => void latest.current.generate(text), []);
   const currentPinned = !!pinned && pinned.id === entryId && pinned.answer === answer;
   const canPin = !!answer.trim() && !generating;
   const togglePin = useCallback(() => { if (currentPinned) setPinned(null); else if (canPin) setPinned({ id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind }); }, [currentPinned, canPin, entryId, entryTime, tag, lowConfidence, question, answer, shownMode, answerKind]);
@@ -580,7 +606,7 @@ export default function App() {
           <div className="col-head"><h2>Transcript</h2>{speakers && <div className="segmented" role="group" aria-label="Show lines from">{(['all', 'interviewer', 'candidate'] as const).map(value => <button key={value} className={transcriptFilter === value ? 'active' : ''} aria-pressed={transcriptFilter === value} onClick={() => setTranscriptFilter(value)}>{value === 'all' ? 'All' : value === 'interviewer' ? 'Interviewer' : 'You'}</button>)}</div>}</div>
           {error && <div className="error" role="alert">{error}</div>}{micNotice && <div className="mic-notice">{micNotice}</div>}
           <div className="transcript-card">
-            <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><span>Your conversation will appear here.</span><small>Start listening once everyone has agreed to the practice session, or type a question below.</small></div> : <><TranscriptLines lines={shownLines} speakers={speakers} filter={transcriptFilter} onFlip={flipSpeaker}/>{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
+            <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><span>Your conversation will appear here.</span><small>Start listening once everyone has agreed to the practice session, or type a question below.</small></div> : <><TranscriptLines lines={shownLines} speakers={speakers} filter={transcriptFilter} onFlip={flipSpeaker} onAnswer={answerLine}/>{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
             <div className="manual-input"><input ref={manualInput} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submitManual(); } }} placeholder="Type a question…" aria-label="Question"/><button onClick={submitManual} disabled={!draft.trim()} title="Send question" aria-label="Send question"><Send size={15}/></button></div>
           </div>
         </div>

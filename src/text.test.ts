@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
+import { compactText, draftReady, endsMidPhrase, inlineSegments, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply, trailingQuestionStart } from './text';
 
 const expectEach = (values: string[], check: (value: string) => boolean, expected: boolean) => { for (const value of values) expect(check(value), value).toBe(expected); };
 
@@ -21,6 +21,20 @@ describe('likelyQuestion', () => {
   it('catches greetings and questions at the end of an utterance', () => {
     expectEach(['hey what\'s up', 'not much how are you doing', "I'm really doing good how are you", 'hi how are you', "thanks for having me how's your day going", "I'm good and you", 'that makes sense can you give an example', 'we covered hash maps what about collisions', 'Thank you, how was your weekend'], likelyQuestion, true);
     expectEach(['I know how it works', "I'm not sure what is best", 'that is it', 'we used Kafka because it is fast', "I think that's what we did", 'hello', 'not much', "I'm doing good", 'let me explain how it is built'], likelyQuestion, false);
+  });
+
+  it('looks past someone cutting in with "oh", "wait", or "sorry"', () => {
+    expectEach(['oh wait, how long were you there', 'Sorry, what was the last part', 'hold on, why did you pick Go'], likelyQuestion, true);
+    expectEach(['wait I think I got it', 'sorry I lost my train of thought'], likelyQuestion, false);
+  });
+
+  it('trailingQuestionStart finds where a question ending an utterance starts, with the words cutting in', () => {
+    expect(trailingQuestionStart('not much how are you doing')).toBe(9);
+    expect(trailingQuestionStart('and before that I was at oh so how was that')).toBe('and before that I was at '.length);
+    expect(trailingQuestionStart('It was a lot of telemetry work. Oh, so how was that?')).toBe('It was a lot of telemetry work. '.length);
+    expect(trailingQuestionStart('how was that')).toBe(-1); // The whole utterance is the question.
+    expect(trailingQuestionStart("I'm not sure what is best")).toBe(-1);
+    expect(trailingQuestionStart('we shipped it last month')).toBe(-1);
   });
 
   it('accepts question punctuation in any language', () => {

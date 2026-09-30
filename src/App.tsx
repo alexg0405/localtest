@@ -119,6 +119,7 @@ export default function App() {
   const [liveCoach, setLiveCoach] = useState(true); const coachOn = useRef(true);
   const [coach, setCoach] = useState<(LiveCoach & { busy: boolean; after: string; asked: string }) | null>(null);
   const coachRun = useRef<AbortController | null>(null); const coachAt = useRef(0); const coachWords = useRef(0); const coachTimer = useRef<number | null>(null); const turnAt = useRef(0);
+  const coachNow = useRef<typeof coach>(null); // The notes on screen, for fresh ones to differ from.
   // Coaching on the review of this session afterwards (see review.ts), from the last time you asked for it.
   const [coaching, setCoaching] = useState<CoachingState>({ state: 'idle' }); const reviewRun = useRef<AbortController | null>(null);
   const liveTurn = useRef<LiveTurn | null>(null); const livePartial = useRef(''); const liveHeard = useRef(''); const liveQueue = useRef<LiveUpdate | null>(null); const liveStarted = useRef(0); const liveTimer = useRef<number | null>(null);
@@ -234,17 +235,23 @@ export default function App() {
   // The live coach (see live.ts): starts on each new question with the key idea to land, then follows what is said about
   // it (your answer, their hints) at most every 8 s, once a dozen more words have been said. It never waits for the answer.
   const dropCoach = useCallback(() => { coachRun.current?.abort(); coachRun.current = null; clearTimer(coachTimer); coachWords.current = 0; setCoach(null); }, []);
-  const runCoach = useCallback((turn: LiveTurn) => {
+  const runCoach = useCallback((turn: LiveTurn, fresh = false) => {
     const model = provider(); if (!model.complete) return;
+    // Fresh tips on request: different from the ones on screen for this question.
+    const shown = coachNow.current; const seen = fresh && shown?.asked === turn.asked && shown.key ? shown : undefined;
     coachRun.current?.abort(); clearTimer(coachTimer); const run = new AbortController(); coachRun.current = run; coachAt.current = Date.now(); coachWords.current = 0;
-    const said = turn.said.join(' '); const after = said ? lastWords(said, 6) : ''; const fillers = countFillers(said).reduce((sum, item) => sum + item.count, 0);
+    // The words still coming in count too, so the coach (and a refresh mid-sentence) works from the conversation as it is now.
+    const said = turn.said.join(' '); const speaking = [browserFinal.current, interimRef.current].filter(Boolean).join(' ').trim();
+    const latestWords = [said, speaking].filter(Boolean).join(' '); const after = latestWords ? lastWords(latestWords, 6) : ''; const fillers = countFillers(said).reduce((sum, item) => sum + item.count, 0);
     setCoach(value => value?.asked === turn.asked ? { ...value, busy: true } : { key: '', points: [], tip: '', busy: true, after: '', asked: turn.asked });
-    model.complete(liveCoachInstructions, `${context(turn.asked)}\n\n${liveCoachPrompt(turn, (Date.now() - turnAt.current) / 1000, fillers, role)}`, run.signal).then(
+    model.complete(liveCoachInstructions, `${context(turn.asked)}\n\n${liveCoachPrompt(turn, (Date.now() - turnAt.current) / 1000, fillers, role, seen, speaking)}`, run.signal).then(
       output => { if (run.signal.aborted || liveTurn.current?.asked !== turn.asked) return; const next = parseLiveCoach(output); setCoach(value => next ? { ...next, busy: false, after, asked: turn.asked } : value && { ...value, busy: false }); },
       () => { if (!run.signal.aborted) setCoach(value => value && { ...value, busy: false }); })
       .finally(() => { if (coachRun.current === run) coachRun.current = null; });
   }, [provider, context, role]);
   const startCoach = useCallback((turn: LiveTurn) => { if (!coachOn.current) return; turnAt.current = Date.now(); runCoach(turn); }, [runCoach]);
+  // The refresh button: fresh tips for the question now, without waiting out the 8 s.
+  const refreshCoach = useCallback(() => { const turn = liveTurn.current; if (turn && coachOn.current) runCoach(turn, true); }, [runCoach]);
   const requestCoach = useCallback(() => {
     clearTimer(coachTimer); const turn = liveTurn.current;
     if (!turn || !coachOn.current || coachWords.current < 12) return;
@@ -374,7 +381,7 @@ export default function App() {
   const latest = useRef({ generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach }); const coachShown = useRef(false);
   const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
   useLayoutEffect(() => {
-    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach }; liveOn.current = liveAnswers; coachOn.current = liveAnswers && liveCoach; coachShown.current = !!coach; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
+    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach }; liveOn.current = liveAnswers; coachOn.current = liveAnswers && liveCoach; coachShown.current = !!coach; coachNow.current = coach; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
     readable.current = [...(pinned ? [pinned] : []), ...history.slice(-6), { question, answer }]; reading.current = [...rewritten.current, ...readable.current, ...(coach?.key ? [{ question, answer: [coach.key, ...coach.points].join('\n') }] : [])]; // Oldest first. You might read the coach's notes aloud too.
   });
 
@@ -868,7 +875,7 @@ export default function App() {
         <div className="right-col">
           <div className="col-head"><h2>Answers</h2><button className="provider-chip" onClick={() => setPanel('settings')} aria-label={`Answers from ${providerDetails}. Change in Settings`} title={providerDetails}>{providerName}</button><div className="segmented" role="group" aria-label="Answer length">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => chooseMode(item)}>{item.toLowerCase()}</button>)}</div></div>
           {liveCoach && liveAnswers && coach && <section className={'live-coach' + (coach.busy ? ' busy' : '')} aria-live="polite" aria-label="Live coach">
-            <div className="live-coach-head"><b><i/>Coach</b><span>{coach.busy ? coach.key ? 'Updating…' : 'Reading the question…' : coach.after ? `after “${coach.after}”` : 'for this question'}</span></div>
+            <div className="live-coach-head"><b><i/>Coach</b><span>{coach.busy ? coach.key ? 'Updating…' : 'Reading the question…' : coach.after ? `after “${coach.after}”` : 'for this question'}</span><button className="live-coach-refresh" onClick={refreshCoach} disabled={coach.busy} title="Fresh tips for this question" aria-label="Get fresh coaching tips"><RefreshCw size={12}/></button></div>
             {coach.key ? <><p className="live-coach-key">{coach.key}</p>{coach.points.length > 0 && <ul>{coach.points.map(point => <li key={point}>{point}</li>)}</ul>}{coach.tip && <p className="live-coach-tip">{coach.tip}</p>}</> : <div className="typing" aria-hidden="true"><i/><i/><i/></div>}
             {coachMissing && <button className="live-coach-hint" onClick={() => setPanel('context')}>{coachMissing}</button>}
           </section>}

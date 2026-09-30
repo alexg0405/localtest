@@ -82,11 +82,14 @@ export function liveSteps(turn: LiveTurn | null, heard: readonly LiveHeard[]): L
 
 /** What the live coach works from: the role (or that it is not given, so nothing about the company gets made up), the
  * question, the latest of what the candidate has said, and, once they have been at it a while, how long and how many
- * filler words (counted by the caller). */
-export function liveCoachPrompt({ asked, said }: LiveTurn, seconds: number, fillers = 0, role = '') {
+ * filler words (counted by the caller). `seen` are the notes on screen when they ask for fresh ones, and `speaking` the
+ * words still coming in, not yet a line of the transcript. */
+export function liveCoachPrompt({ asked, said }: LiveTurn, seconds: number, fillers = 0, role = '', seen?: LiveCoach, speaking = '') {
   const words = said.join(' '); const recent = words.length > 1200 ? `…${words.slice(-1200).replace(/^\S*\s/, '')}` : words;
   return [role.trim() ? `They are interviewing for: ${role.trim()}` : 'The role and company they are interviewing for are not given.', `Question: ${asked}`, `What the candidate has said so far, in their own words or reading from a suggested answer: ${recent ? `"${recent}"` : 'nothing yet'}`,
-    seconds >= 20 && `They have been answering for about ${Math.round(seconds)} seconds${fillers >= 3 ? `, with ${fillers} filler words` : ''}.`,
+    speaking.trim() && `Being said right now, not yet final, by either of them: "${speaking.trim().length > 600 ? `…${speaking.trim().slice(-600)}` : speaking.trim()}"`,
+    seconds >= 20 && (recent ? `They have been answering for about ${Math.round(seconds)} seconds${fillers >= 3 ? `, with ${fillers} filler words` : ''}.` : `It has been about ${Math.round(seconds)} seconds since the question, and they have not said anything yet.`),
+    seen && `They asked for fresh notes, so these on screen were not enough: KEY: ${seen.key}${seen.points.length ? `; points: ${seen.points.join('; ')}` : ''}${seen.tip ? `; tip: ${seen.tip}` : ''}. Keep the KEY only if it is still the right idea, but make every point and the tip new: other stories, details, or angles from their background than the ones above, not the same ones reworded.`,
     // Last, where it is followed best: specifics, not advice to go find them.
     `Coach this answer now. Name the specific project, job, or detail from their background above that fits${role.trim() ? `, and connect it to ${role.trim()}` : ''}; never tell them to research or pick one. The points are things to say, not questions for them to think about.`].filter(Boolean).join('\n\n');
 }
@@ -96,7 +99,7 @@ export type LiveCoach = { key: string; points: string[]; tip: string };
 export function parseLiveCoach(output: string): LiveCoach | null {
   let key = '', tip = ''; const points: string[] = [];
   for (const raw of output.split('\n')) {
-    const line = raw.trim().replace(/\*\*/g, ''); if (!line) continue;
+    const line = raw.trim().replace(/\*\*/g, '').replace(/(?<![\w*])[*_](\S(?:[^*_]*\S)?)[*_](?![\w*])/g, '$1'); if (!line) continue; // No Markdown emphasis.
     const labeled = line.match(/^(key|tip)\s*[:：-]\s*(.+)$/i);
     if (labeled) { if (labeled[1].toLowerCase() === 'key') key = labeled[2].trim(); else tip = labeled[2].trim(); continue; }
     const point = line.match(/^(?:[•\-*·]|\d+[.)])\s*(.+)$/); if (point) points.push(point[1].trim());

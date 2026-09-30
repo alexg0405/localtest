@@ -146,6 +146,12 @@ describe('liveCoachPrompt and parseLiveCoach', () => {
   it('gives the coach the question, the latest of what you said, and how long you have been at it', () => {
     expect(liveCoachPrompt(turn('Why this role?'), 3)).toBe('The role and company they are interviewing for are not given.\n\nQuestion: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: nothing yet\n\nCoach this answer now. Name the specific project, job, or detail from their background above that fits; never tell them to research or pick one. The points are things to say, not questions for them to think about.');
     expect(liveCoachPrompt(turn('Why this role?', ['mostly the scale', 'and the people']), 45, 4, ' Software Engineer Intern at Acme ')).toBe('They are interviewing for: Software Engineer Intern at Acme\n\nQuestion: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: "mostly the scale and the people"\n\nThey have been answering for about 45 seconds, with 4 filler words.\n\nCoach this answer now. Name the specific project, job, or detail from their background above that fits, and connect it to Software Engineer Intern at Acme; never tell them to research or pick one. The points are things to say, not questions for them to think about.');
+    expect(liveCoachPrompt(turn('Why this role?'), 25)).toContain('It has been about 25 seconds since the question, and they have not said anything yet.');
+    // Words still coming in go along too, so a refresh mid-sentence sees them.
+    expect(liveCoachPrompt(turn('Why this role?', ['mostly the scale']), 5, 0, '', undefined, ' and at Chewy I upgraded the ')).toContain('"mostly the scale"\n\nBeing said right now, not yet final, by either of them: "and at Chewy I upgraded the"\n\nCoach this answer now.');
+    // Asking for fresh notes shows the coach the ones on screen.
+    expect(liveCoachPrompt(turn('Why this role?'), 3, 0, 'Capital One Intern', { key: 'Scale of the data', points: ['Name the pipeline', 'Tie it to banking'], tip: 'Slow down' }))
+      .toContain('\n\nThey asked for fresh notes, so these on screen were not enough: KEY: Scale of the data; points: Name the pipeline; Tie it to banking; tip: Slow down. Keep the KEY only if it is still the right idea, but make every point and the tip new: other stories, details, or angles from their background than the ones above, not the same ones reworded.\n\nCoach this answer now.');
     const long = liveCoachPrompt(turn('Why this role?', Array.from({ length: 200 }, (_, index) => `point ${index}`)), 0);
     expect(long).toMatch(/answer: "…\S/); expect(long).toContain('point 199"'); expect(long).not.toContain('point 1 ');
   });
@@ -158,5 +164,6 @@ describe('liveCoachPrompt and parseLiveCoach', () => {
     expect(parseLiveCoach('KEY: Lead with the result\nTIP: none yet—take your time')?.tip).toBe('');
     expect(parseLiveCoach('KEY: Lead with the result\nTIP: Nothing to fix')?.tip).toBe('');
     expect(parseLiveCoach('KEY: Lead with the result\nTIP: Nonstop talking; pause')?.tip).toBe('Nonstop talking; pause');
+    expect(parseLiveCoach('KEY: Say *how* you learned it\n• Name the docs you used')).toEqual({ key: 'Say how you learned it', points: ['Name the docs you used'], tip: '' });
   });
 });

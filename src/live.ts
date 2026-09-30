@@ -19,8 +19,12 @@ export type LiveHeard = { text: string; speaker?: Speaker; read: boolean; clarif
 export type LiveStep = { action: 'hold'; turn: LiveTurn | null } | { action: 'new' | 'update'; turn: LiveTurn };
 
 // Listening noises, short reactions, and fillers with nothing else in them ("Mm-hmm." "Perfect, that works, thanks.").
-const acknowledgment = /^(?:(?:mm+[- ]?hm+|m+hm+|uh[- ]?huh|hm+|um+|uh+|er+|oh|ah|okay|ok|right|yeah|yes|yep|yup|sure|cool|nice|great|awesome|wow|interesting|gotcha|got it|i see|i mean|like|you know|alright|all right|perfect|makes sense|that makes sense|sounds good|sounds great|that works|works for me|that's fine|fine|no worries|no problem|all good|totally|exactly|for sure|definitely|of course|fair enough|true|good|very good|love it|thanks|thank you|take your time|no rush|go ahead|so|and|well|anyway)(?![\p{L}\p{N}'])[\s,.!?…-]*)+$/iu;
+const acknowledgment = /^(?:(?:mm+[- ]?hm+|m+hm+|uh[- ]?huh|hm+|um+|uh+|er+|oh|ah|okay|ok|right|yeah|yes|yep|yup|sure|cool|nice|great|awesome|wow|interesting|gotcha|got it|i see|i mean|like|you know|alright|all right|perfect|makes sense|that makes sense|sounds good|sounds great|that works|works for me|that's fine|fine|no worries|no problem|all good|totally|exactly|for sure|definitely|of course|fair enough|true|good|very good|love it|(?:great|good|interesting|fair) question|thanks|thank you|take your time|no rush|go ahead|so|and|well|anyway)(?![\p{L}\p{N}'])[\s,.!?…-]*)+$/iu;
 export const acknowledges = (text: string) => acknowledgment.test(text.trim().replace(/[‘’]/g, "'"));
+// Thanks and goodbyes that end a line ("…thanks so much for your time today!" "Thank you, this was great."), which need no
+// answer and no more key points.
+const closing = /(?<![\p{L}\p{N}'])(?:(?:thanks|thank you)(?: so much| again| a lot)? for (?:your time|the time|chatting|talking|today)|(?:this|that) was (?:great|fun|nice|really nice|awesome|a pleasure)|nice (?:talking|chatting|meeting) (?:to |with )?you|have a (?:great|good|nice) (?:day|one|weekend|evening)|take care|talk (?:to you )?soon|(?:good)?bye)(?:\s+(?:today|again|too))?[\s.!]*$/iu;
+export const closes = (text: string) => closing.test(text.replace(/[‘’]/g, "'"));
 
 const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 /** Keeps what the answer responds to short: the last sentences that fit, since the conversation goes with every answer anyway. */
@@ -51,6 +55,7 @@ export function liveStep(turn: LiveTurn | null, heard: LiveHeard): LiveStep {
     if (turn && !turn.said.length && (open(turn) || followsOn(ask))) return { action: 'update', turn: fresh(`${turn.asked} ${ask}`, true) };
     return { action: 'new', turn: fresh(ask, true) };
   }
+  if (closes(text)) return { action: 'hold', turn };
   // You, in your own words or asking them something: the answer holds still, and what you say moves the key points.
   // Someone unlabeled is you too once they have asked their question.
   if (heard.speaker === 'candidate' || (!heard.speaker && turn && (turn.said.length > 0 || !open(turn)))) {

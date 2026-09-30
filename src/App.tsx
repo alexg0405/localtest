@@ -1,7 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2 } from 'lucide-react';
+import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, ListChecks, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2 } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
-import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, pointsInstructions, type LLMProvider, type Mode } from './providers';
+import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, coachInstructions, describeProviderError, followUpPrompt, pointsInstructions, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
 import { buildProfile, contextBudget, forgetSavedContext, loadSavedContext, saveContext, type ContextFile } from './context';
 import { acceptedFiles, extractText } from './documents';
@@ -11,19 +11,31 @@ import { conversationMemory, heardCharacters, memoryBudget } from './memory';
 import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
 import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, lastAsk, nearestVoice, parseSpeakerLabels, readsAnswer, speakerInstructions, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type Speaker, type SpeakerSource } from './speakers';
 import type { VoicePrint } from './voice';
-import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, parseAnswer, questionKind, startsLikeReply } from './text';
+import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, opensProblem, parseAnswer, questionKind, startsLikeReply } from './text';
 import { AnswerContent, EntryMeta, PastAnswer, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
 import { SessionMenu } from './SessionMenu';
 import { deleteSession, lastIds, listSessions, loadSession, newSessionId, storeSession, type SavedSession, type SessionLine, type SessionSummary } from './sessions';
 import { liveSteps, pointsPrompt, type LiveHeard, type LiveStep, type LiveTurn } from './live';
+import { coachPrompt, parseCoaching, reviewSession } from './review';
+import { ReviewPanel, type CoachingState } from './ReviewPanel';
 
 type Line = SessionLine;
 type AudioInput = { deviceId: string; label: string };
-/** `replace` updates the current card instead of starting a new one (a question that continued after a pause), and `keep`
- * leaves the old answer up until the new one starts arriving. */
-type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean; replace?: boolean; keep?: boolean };
+/** `replace` updates the current card instead of starting a new one (a question that continued after a pause), `keep`
+ * leaves the old answer up until the new one starts arriving, and `before` is what the candidate said to the question
+ * before, for a follow-up to go on from. */
+type Before = { asked: string; said: string };
+type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean; replace?: boolean; keep?: boolean; before?: Before };
 /** `words` are what a preview heard (the open line and the words still coming). */
-type LiveUpdate = { step: Exclude<LiveStep, { action: 'hold' }>; partial: boolean; uncertain?: boolean; words?: string };
+type LiveUpdate = { step: Exclude<LiveStep, { action: 'hold' }>; partial: boolean; uncertain?: boolean; words?: string; before?: Before };
+const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+// A follow-up that asks for another version of the solution ("Could you also do it recursively?"), which needs code.
+const rewrite = /(?<![\p{L}\p{N}'])(?:(?:do|write|implement|code|solve|make|redo|rewrite)(?![\p{L}\p{N}'])[^?.!]*(?:recursive(?:ly)?|iterative(?:ly)?|in place|without|faster|better|constant space|less (?:space|memory)|another way|differently|in (?:java|python|c\+\+|c#|javascript|typescript|go|rust|kotlin|swift))|optimi[sz]e|code (?:it|that|this) up)(?![\p{L}\p{N}'])/iu;
+/** What you said to the last question, when a new one comes: enough of your own account for a follow-up to go on from. */
+const saidBefore = (step: LiveStep, prior: LiveTurn | null, extra = ''): Before | undefined => {
+  const said = [...(prior?.said ?? []), extra].filter(Boolean).join(' ');
+  return step.action === 'new' && prior && wordCount(said) >= 8 ? { asked: prior.asked, said } : undefined;
+};
 type AnswerSource = 'claude' | 'openai' | 'demo';
 const modes: Mode[] = ['SHORT', 'STANDARD', 'DETAILED', 'BULLETS'];
 const initialQuestion = 'What is the difference between a process and a thread?';
@@ -55,7 +67,7 @@ export default function App() {
   const [status, setStatus] = useState('Demo answer ready'); const [error, setError] = useState(''); const [answerError, setAnswerError] = useState(''); const [voiceDetected, setVoiceDetected] = useState(false);
   const [generating, setGenerating] = useState(false); const [speaking, setSpeaking] = useState(false); const utterance = useRef<SpeechSynthesisUtterance | null>(null);
   const [providerCheck, setProviderCheck] = useState(''); const [checkingProvider, setCheckingProvider] = useState(false);
-  const [pinned, setPinned] = useState<Entry | null>(null); const [history, setHistory] = useState<Entry[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | 'phone' | null>(null); const settings = panel === 'settings';
+  const [pinned, setPinned] = useState<Entry | null>(null); const [history, setHistory] = useState<Entry[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | 'phone' | 'review' | null>(null); const settings = panel === 'settings';
   const [source, setSource] = useState<AnswerSource>('demo'); const sourceChosen = useRef(false); const [claudeModel, setClaudeModel] = useState<ClaudeModel>('claude-haiku-4-5'); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
   const [apiKey, setApiKey] = useState(''); const [model, setModel] = useState('gpt-4o-mini');
   const [keyFromEnv, setKeyFromEnv] = useState(false);
@@ -104,6 +116,8 @@ export default function App() {
   // have said a dozen more words of your own, without touching the answer they sit above.
   const [points, setPoints] = useState<{ text: string; busy: boolean; after: string } | null>(null);
   const pointsRun = useRef<AbortController | null>(null); const pointsAt = useRef(0); const pointsWords = useRef(0); const pointsTimer = useRef<number | null>(null);
+  // Coaching on the review of this session (see review.ts), from the last time you asked for it.
+  const [coaching, setCoaching] = useState<CoachingState>({ state: 'idle' }); const coachRun = useRef<AbortController | null>(null);
   const liveTurn = useRef<LiveTurn | null>(null); const livePartial = useRef(''); const liveHeard = useRef(''); const liveQueue = useRef<LiveUpdate | null>(null); const liveStarted = useRef(0); const liveTimer = useRef<number | null>(null);
   // Live answers rewritten in place, which you may still be reading aloud; with `readable`, what reading is checked against.
   const rewritten = useRef<ReadableAnswer[]>([]); const reading = useRef<ReadableAnswer[]>([]);
@@ -121,19 +135,33 @@ export default function App() {
     } catch (reason: any) { setDeviceMessage(reason?.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow access in browser settings.' : reason?.message || 'Could not list microphones.'); }
   }, []);
   // Every answer sees the whole conversation (within memoryBudget), so later questions can refer back to anything said earlier.
-  const context = useCallback((q: string) => {
+  const context = useCallback((q: string, before?: Before) => {
     const lines = transcriptRef.current.slice();
     if (lines.length && compactText(lines[lines.length - 1].text) === compactText(q)) lines.pop(); // The question itself is sent separately.
     const named = (line: Line) => speakers && line.speaker ? `${line.speaker === 'interviewer' ? 'Interviewer' : 'Candidate'}: ${line.text}` : line.text;
     const memory = conversationMemory(lines.map(line => ({ at: line.at, text: named(line) }))).text;
-    // The last few suggested answers, so the next one does not repeat their stories or wording. Answers to this same
-    // question are left out, since Shorter, More detail, and Regenerate rework them.
+    // The last few suggested answers, so the next one does not repeat their stories or wording, each marked with whether
+    // you read it aloud (a follow-up goes on from what you actually said). Answers to this same question are left out,
+    // since Shorter, More detail, and Regenerate rework them.
     const earlier = [...new Map(readable.current.filter(entry => entry.answer.trim() && compactText(entry.question) !== compactText(q)).map(entry => [entry.answer, entry])).values()].slice(-3);
-    const suggested = earlier.map(entry => `Q: ${entry.question}\nA: ${entry.answer.length > 600 ? `${entry.answer.slice(0, 600)}…` : entry.answer}`).join('\n\n');
+    const readAloud = transcriptRef.current.filter(line => line.by === 'answer');
+    const used = (entry: ReadableAnswer) => readAloud.some(line => readsAnswer(line.text, [entry], sessionLanguage.current));
+    const suggested = earlier.map(entry => `Q: ${entry.question}\nA (${used(entry) ? 'the candidate read this aloud' : 'not used'}): ${entry.answer.length > 600 ? `${entry.answer.slice(0, 600)}…` : entry.answer}`).join('\n\n');
     // A coding answer always opens with the same headings, so it is only asked for a different example.
-    const openings = questionKind(q) === 'CODING' ? '' : `They began ${earlier.map(entry => `"${entry.answer.trim().split(/\s+/).slice(0, 4).join(' ')}…"`).join(', ')}. Begin this one differently, and use`;
+    const openings = questionKind(q) === 'CODING' ? '' : `They began ${earlier.map(entry => `"${entry.answer.trim().split(/\s+/).slice(0, 4).join(' ')}…"`).join(', ')}. Begin a new answer differently, and use`;
+    // The interviewer inviting your questions, or going on with the coding problem on the card before.
+    const previous = display.current.question;
+    const notes = [
+      /\bquestions? for (?:me|us)\b|\bany (?:other |more )?questions\b|anything you(?:'d| would) like to (?:ask|know)/i.test(q) && "The interviewer is inviting the candidate's questions: suggest two short questions they could ask about the team, the role, or the work, phrased to the interviewer, without describing the candidate's own past work as the interviewer's.",
+      previous && questionKind(previous) === 'CODING' && questionKind(q) !== 'BEHAVIORAL' && compactText(previous) !== compactText(q) && (rewrite.test(q)
+        ? `This asks for a new version of the solution to the coding problem just discussed ("${previous.length > 300 ? `${previous.slice(0, 300)}…` : previous}"): even though it is a follow-up, use the CODING shape, with the complete new code under CODE.`
+        : `This may go on from the coding problem just discussed ("${previous.length > 300 ? `${previous.slice(0, 300)}…` : previous}").`),
+    ].filter(Boolean).join(' ');
     return [profile.text && `Candidate background (their own notes and files):\n${profile.text}`, memory && `Conversation so far (oldest first; from live speech recognition, so words may be misheard${speakers ? ', and the Interviewer and Candidate labels are automatic guesses' : ''}):\n${memory}`,
-      suggested && `Answers already suggested in this interview, oldest first (the candidate may have said them):\n${suggested}\n\n${openings || 'Use'} a different story, example, or detail from their background than they did (a new side of something already mentioned is fine; something made up is not).`].filter(Boolean).join('\n\n');
+      suggested && `Answers already suggested in this interview, oldest first, with whether the candidate used each:\n${suggested}\n\n${openings || 'Use'} a different story, example, or detail from their background than they did (a new side of something already mentioned is fine; something made up is not). A follow-up on what was just discussed is different: continue the candidate's own account from the conversation, keeping to what they actually said, since a suggested answer they did not use is not part of it.`,
+      notes,
+      // Right above the question, so a follow-up ("And how did it end up?") goes on from your story, not a suggested one.
+      before && `What the candidate said just before this question, answering "${before.asked.length > 200 ? `${before.asked.slice(0, 200)}…` : before.asked}": "${before.said.length > 1500 ? `…${before.said.slice(-1500)}` : before.said}"\nIf this question follows up on that, continue their account from exactly there, keeping to what they said.`].filter(Boolean).join('\n\n');
   }, [profile, speakers]);
   const addFiles = useCallback((list: FileList | File[]) => {
     for (const file of Array.from(list)) {
@@ -169,7 +197,7 @@ export default function App() {
     dropPoints(); setQuestion(text); setLowConfidence(!!options.uncertain); setAnswerError(''); setShownMode(selectedMode); setAnswerKind(options.followUp ? 'followup' : 'answer'); setGenerating(true); setStatus(options.keep ? 'Updating…' : 'Preparing response…');
     let fresh = !!options.keep; // The first words replace the answer kept up meanwhile.
     try {
-      const result = await provider().answer(options.followUp ? followUpPrompt(text) : text, context(text), selectedMode, chunk => {
+      const result = await provider().answer(options.followUp ? followUpPrompt(text) : text, context(text, options.before), selectedMode, chunk => {
         if (!current.signal.aborted) { const first = fresh; fresh = false; setAnswer(value => first ? chunk : value + chunk); setStatus('Writing response…'); }
       }, current.signal);
       if (!current.signal.aborted) { setAnswer(result); setStatus(result.trim() ? 'Response ready' : 'The provider returned an empty response'); }
@@ -180,7 +208,7 @@ export default function App() {
 
   // Starts a live answer update now, cutting off one still running (it was about older words). An update, or a preview
   // being replaced, rewrites the card in place and keeps the old answer up until the new one starts arriving.
-  const runLive = useCallback(({ step, partial, uncertain, words }: LiveUpdate) => {
+  const runLive = useCallback(({ step, partial, uncertain, words, before }: LiveUpdate) => {
     clearTimer(liveTimer); liveQueue.current = null;
     const inPlace = step.action === 'update' || partialAnswer.current; const shown = display.current;
     // Words still coming start a new card or refine a preview, but never rewrite a finished answer in place: their line
@@ -189,7 +217,7 @@ export default function App() {
     liveStarted.current = Date.now();
     if (inPlace && shown.answer.trim()) rewritten.current = [...rewritten.current.filter(item => item.answer !== shown.answer), { question: shown.question, answer: shown.answer }].slice(-3);
     livePartial.current = partial ? step.turn.asked : ''; liveHeard.current = partial ? compactText(words ?? '') : '';
-    void generate(step.turn.asked, { replace: step.action === 'update', keep: inPlace, partial, uncertain });
+    void generate(step.turn.asked, { replace: step.action === 'update', keep: inPlace, partial, uncertain, before });
   }, [generate]);
   // Words still coming update the live answer at most every 2 s, and never cut off the update that is running; a finished
   // line updates it at once.
@@ -266,7 +294,8 @@ export default function App() {
       // A question in the line counts as theirs unless its words or its sound say it is yours; a Deepgram voice number alone
       // does not, since one number can end up covering both people.
       const mine = worded === 'candidate' || (!!sounds && sounds.speaker === 'candidate' && sounds.strength >= 5);
-      const step = liveSteps(liveTurn.current, [...(cut ? [heard(cut.yours, 'candidate', cut.read, true)] : []), heard(utterance, who, read, mine), ...(cut?.reply ? [heard(cut.reply, 'candidate', false, true)] : [])]);
+      const prior = liveTurn.current;
+      const step = liveSteps(prior, [...(cut ? [heard(cut.yours, 'candidate', cut.read, true)] : []), heard(utterance, who, read, mine), ...(cut?.reply ? [heard(cut.reply, 'candidate', false, true)] : [])]);
       const preview = partialAnswer.current ? livePartial.current : ''; const line = compactText(said); const ahead = liveHeard.current;
       liveTurn.current = step.turn; liveQueue.current = null; clearTimer(liveTimer);
       // The preview already heard past this line (with Deepgram, your words before someone cut in become a line just
@@ -277,7 +306,7 @@ export default function App() {
         // The answer started from these words while they were still coming already matches the line, so it stays. (One
         // for words that came to nothing stays until the next update replaces it in place.)
         if (step.action !== 'hold' && preview && compactText(step.turn.asked) === compactText(preview)) { partialAnswer.current = false; partialQuestion.current = ''; setQuestion(step.turn.asked); setLowConfidence(uncertain); }
-        else if (step.action !== 'hold') runLive({ step, partial: false, uncertain });
+        else if (step.action !== 'hold') runLive({ step, partial: false, uncertain, before: saidBefore(step, prior, cut?.yours) });
         else if (read) setStatus('Holding still while you read');
         else setStatus(value => value === 'Holding still while you read' ? 'Response ready' : value);
       }
@@ -307,7 +336,7 @@ export default function App() {
   const resetConversation = useCallback(() => {
     abortAnswer(); stopReading(); clearTimer(partialTimer); clearTimer(browserFinalTimer); const check = speakerCheck.current; speakerCheck.current = null; check?.abort(); voiceIds.current.clear(); nextVoice.current = 0;
     browserFinal.current = ''; browserConfidence.current = undefined; pendingVoice.current = undefined; lineVoice.current.reset(); interimRef.current = ''; partialAnswer.current = false; partialQuestion.current = ''; lastQuestion.current = null; followTranscript.current = true;
-    resetLive(null); rewritten.current = []; speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
+    resetLive(null); rewritten.current = []; coachRun.current?.abort(); coachRun.current = null; setCoaching({ state: 'idle' }); speech.current?.reset?.(); // Listening continues; only words already heard are dropped.
     transcriptRef.current = []; setTranscript([]); setDraft(''); setInterim(''); setQuestion(''); setAnswer(''); setAnswerError(''); dropPoints(); setPinned(null); setHistory([]); setEarlierOpen(false); setNewAnswer(false); followFeed.current = true; setLowConfidence(false); setError(''); setStatus('Conversation cleared');
   }, [abortAnswer, stopReading, resetLive, dropPoints]);
   // Clearing starts a new session. A saved one keeps what it had: its latest changes are saved first.
@@ -381,18 +410,22 @@ export default function App() {
     };
     const scheduleBrowserCommit = () => { clearTimer(browserFinalTimer); browserFinalTimer.current = window.setTimeout(commitBrowserFinal, 300); };
     const startDraft = () => { clearTimer(partialTimer); const text = draftText; draftText = ''; if (text && current() && activeRef.current) void latest.current.generate(text, { partial: true }); };
-    // The live answer starts on the interviewer's words before their line is finished and keeps up as they go on (at most
-    // every 2 s), including when they cut in on you. Words that may be yours wait for the line, so reading an answer aloud
-    // never changes it early.
-    const preview = (words: string) => {
+    // The live answer starts on the interviewer's question before their line is final, including when they cut in on you,
+    // once the question sounds finished: with Deepgram, when it ends in a question mark; with the browser's recognizer,
+    // which adds no punctuation, when they pause on a question that does not trail off. Anything less (and a problem to
+    // solve, which runs on) waits for the line, so the answer is written once rather than rewritten while they talk, and
+    // never from half a question. Words that may be yours wait too, so reading an answer aloud never changes it early.
+    const preview = (words: string, paused = false) => {
       const cut = splitInterruption(words, reading.current, lang); const spoken = cut?.theirs ?? words;
       if (!draftReady(spoken, lang) || readsAnswer(spoken, reading.current, lang)) return;
+      const ask = lastAsk(spoken, lang); if (!ask || ask.split(/(?<=[.?!…])\s+/).some(sentence => opensProblem(sentence))) return;
+      if (engine === 'deepgram' ? !/[?？]["'”)\]]*$/.test(ask) : !paused || endsMidPhrase(ask) || ask.split(/\s+/).length < 5) return;
       const sounds = cut ? undefined : voiceGuess(samples(), voices.words()); const worded = guessSpeaker(spoken, lang);
-      const who = sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded; const ask = lastAsk(spoken, lang);
-      if (ask ? who === 'candidate' : who !== 'interviewer') return; // Their words, or a question in them that does not sound like yours.
+      if ((sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded) === 'candidate') return;
       const heard = (text: string, speaker: Speaker, read = false, asked?: string): LiveHeard => ({ text, speaker, read, clarifying: isClarifyingQuestion(text), question: likelyQuestion(text, lang), ask: asked });
       const step = liveSteps(liveTurn.current, [...(cut ? [heard(cut.yours, 'candidate', cut.read)] : []), heard(spoken, 'interviewer', false, ask)]);
-      if (step.action !== 'hold') latest.current.requestLive({ step, partial: true, words });
+      // Once per question: the same words heard again start nothing new.
+      if (step.action !== 'hold' && compactText(step.turn.asked) !== compactText(livePartial.current) && compactText(step.turn.asked) !== compactText(liveQueue.current?.step.turn.asked ?? '')) latest.current.requestLive({ step, partial: true, words, before: saidBefore(step, liveTurn.current, cut?.yours) });
     };
     if (source === 'claude') ClaudeCodeProvider.warm(claudeModel); // Ready before the first question, however long the page has been open.
     void speech.current.start({
@@ -402,6 +435,7 @@ export default function App() {
       onVoiceActivity: detected => {
         if (!current()) return; setVoiceDetected(detected); silent = !detected; if (detected) return;
         quietSince = Date.now();
+        if (liveOn.current && engine !== 'deepgram' && interimRef.current.trim()) preview([browserFinal.current, interimRef.current].filter(Boolean).join(' '), true);
         if (browserFinal.current) commitBrowserFinal(); else if (draftText && !endsMidPhrase(draftText)) startDraft();
       },
       // Once a new stretch of speech is long enough to tell, compare it with the open line: someone new ends the line with
@@ -751,12 +785,23 @@ export default function App() {
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
       entries: showCurrent ? [...pastForPhone, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks) }] : pastForPhone,
-      live: showCurrent, generating, status, answerError, mode,
+      live: showCurrent, generating, status, answerError, mode, points: points?.text ? mirrorBlocks(parseAnswer(points.text)) : [],
       heard: transcript.slice(-8).map(({ time, text, speaker }) => ({ time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
     });
   });
   const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];
   const shownLines = useMemo(() => speakers && transcriptFilter !== 'all' ? transcript.filter(line => line.speaker === transcriptFilter) : transcript, [speakers, transcriptFilter, transcript]);
+  // Worked out while the Review panel is open, so it follows the conversation as it goes on.
+  const review = useMemo(() => panel === 'review' ? reviewSession(transcript, language) : null, [panel, transcript, language]);
+  const coach = useCallback(async () => {
+    const model = provider(); if (!review?.questions.length || !model.complete) return;
+    coachRun.current?.abort(); const run = new AbortController(); coachRun.current = run; setCoaching({ state: 'loading' });
+    try {
+      const result = parseCoaching(await model.complete(coachInstructions, coachPrompt(review, role), run.signal));
+      if (!run.signal.aborted) setCoaching(result ? { state: 'done', result, questions: review.questions.slice(-15).map(item => item.question) } : { state: 'error', message: 'The coaching came back in a form Roomside could not read. Try again.' });
+    } catch (reason: any) { if (!run.signal.aborted) setCoaching({ state: 'error', message: describeProviderError(reason) }); }
+    finally { if (coachRun.current === run) coachRun.current = null; }
+  }, [provider, review, role]);
   const earlier = useMemo(() => history.slice().reverse(), [history]); // Newest first, under the live answer.
   const readAloud = () => {
     if (speaking) { stopReading(); return; }
@@ -776,6 +821,7 @@ export default function App() {
           <div className="session-picker" ref={picker}><button className="session-title" onClick={() => setSessionMenu(open => !open)} aria-expanded={sessionMenu} aria-haspopup="dialog" title="Name, save, or open sessions"><span>{session.name.trim() || (session.saved ? sessionPlaceholder : 'Interview copilot')}</span><ChevronDown size={15}/></button>{sessionMenu && <SessionMenu name={session.name} placeholder={sessionPlaceholder} saved={session.saved} currentId={session.id} listening={active} sessions={savedSessions} notice={sessionNotice} onRename={name => setSession(current => ({ ...current, name }))} onSave={() => void saveThisSession()} onNew={newSession} onOpen={id => void openSession(id)} onDelete={item => void deleteSaved(item)}/>}</div>
           <span className={'save-state' + (session.saved ? ' saved' : '')} title={session.saved ? 'Saved on this computer; changes save as you go' : 'Nothing is saved unless you choose Save this session'}><i/>{session.saved ? 'Saved' : 'Memory only'}</span></div>
         <div className="top-actions">
+          <button className="ghost-button" onClick={() => setPanel('review')} aria-label="Review" title="How you answered each question, and what to work on"><ListChecks size={15}/><span>Review</span></button>
           <button className="ghost-button" onClick={() => setPanel('context')} aria-label="Your context" title="Your role, notes, and résumé"><BookUser size={15}/><span>Context</span></button>
           {mirror && <button className="ghost-button" onClick={() => setPanel('phone')} aria-label={'Phone mirror' + (mirrorShown ? mirror.phones ? ', phone connected' : ', waiting for phone' : '')} title="Phone mirror"><Smartphone size={15}/><span>{mirrorShown ? mirror.phones ? 'Phone connected' : 'Waiting for phone' : 'Phone'}</span>{mirrorShown && <i className={'phone-dot' + (mirror.phones ? ' live' : '')}/>}</button>}
           <button className="icon-button" onClick={() => setPanel('settings')} aria-label="Settings" title="Settings"><Settings2 size={17}/></button>
@@ -840,7 +886,7 @@ export default function App() {
     {panel === 'context' && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="context-title"><div className="modal-head"><h2 id="context-title">Your context</h2><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close context"><X size={18}/></button></div>
       <p className="context-intro">What your answers should know about you. Claude answers as you, with stories from your real projects; it may fill in believable details of a moment, but never new jobs, titles, or metrics.</p>
       <label className="field-label">Interviewing for<input value={role} onChange={event => setRole(event.target.value)} placeholder="e.g. Software Engineer Intern at Stripe"/></label>
-      <label className="field-label">About you<textarea value={about} onChange={event => setAbout(event.target.value)} placeholder="Experience, projects, skills, stories you want to use, things to emphasize…" rows={5}/></label>
+      <label className="field-label">About you<textarea value={about} onChange={event => setAbout(event.target.value)} placeholder="Experience, projects, skills, stories you want to use, and what you do for fun (hobbies, interests), which personal questions draw on…" rows={5}/></label>
       <div className="field-label">Files
         <div className={'drop-zone ' + (dragging ? 'dragging' : '')} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
           <Upload size={16}/><span>Drop your résumé, the job description, or notes here</span><label className="secondary file-picker">Choose files<input type="file" multiple accept={acceptedFiles} onChange={event => { if (event.target.files) addFiles(event.target.files); event.target.value = ''; }}/></label><small>PDF, Word (.docx), text, or Markdown · read on this computer, not uploaded</small>
@@ -852,6 +898,8 @@ export default function App() {
       <label className="toggle-row"><span><b>Keep on this computer</b><small>Saves this text in this browser only (never transcripts or keys). Turn it off to delete the saved copy.</small></span><input type="checkbox" checked={keepContext} onChange={event => setKeepContext(event.target.checked)}/></label>
       {contextNotice && <div className="provider-result">{contextNotice}</div>}
     </section></div>}
+    {panel === 'review' && review && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><ReviewPanel ref={settingsPanel} review={review} coaching={coaching} onCoach={() => void coach()} onClose={() => setPanel(null)}
+      coachNote={source === 'claude' ? 'One strength and one thing to practice for each question, from Claude (a little of your Claude usage).' : source === 'openai' ? 'One strength and one thing to practice for each question, from your answer provider.' : 'The offline demo gives sample coaching; choose Claude in Settings for real feedback.'}/></div>}
     {panel === 'phone' && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPanel(null); }}><section className="settings-modal" ref={settingsPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="phone-title"><div className="modal-head"><h2 id="phone-title">Phone mirror</h2><button className="icon-button" onClick={() => setPanel(null)} aria-label="Close phone mirror"><X size={18}/></button></div>
       <p className="context-intro">See each question and suggested answer on your phone, type questions there, and start or stop listening. Audio still comes only from this computer's microphone, so keep this page open; it can stay in the background.</p>
       {!mirror?.running ? <><button className="primary full" onClick={() => void toggleMirror(true)} disabled={mirrorBusy}>{mirrorBusy ? 'Starting…' : 'Start phone mirror'}</button><div className="settings-hint">Your phone needs to be on the same Wi-Fi network as this computer.</div></>

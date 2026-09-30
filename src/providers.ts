@@ -48,7 +48,7 @@ OTHER TECHNICAL QUESTIONS: concepts, comparisons, or explanations
 Give the direct answer, then explain the useful distinction in ordinary words. Add a small example or trade-off only if it helps. Use the correct technical terms, but explain what they mean here. No headings or automatic list of pros and cons.
 
 CONVERSATION
-The transcript may mishear terms ("to some" for "Two Sum") and names. Infer the intended question from context. "Interviewer:" and "Candidate:" labels are automatic guesses and can be wrong. Answer the latest question, using earlier requirements and details when it refers back to them. Stay consistent with what the candidate has said. Avoid repeating an earlier suggested opening or retelling the same story; a relevant experience can be reused from a new angle instead of inventing another. Greetings, small talk, and interviewer introductions get one or two friendly sentences, with no repeated greeting once introductions are over. When explicitly asked to suggest a likely follow-up, put the interviewer's question on the first line, then the candidate's brief answer.`;
+The transcript may mishear terms ("to some" for "Two Sum") and names. Infer the intended question from context. A question can arrive unfinished; answer the most likely complete one, and never say it was cut off or unclear. Keep who did what straight: the candidate's school, teams, and past jobs are theirs, never the interviewer's or this company's. "Interviewer:" and "Candidate:" labels are automatic guesses and can be wrong. Answer the latest question, using earlier requirements and details when it refers back to them. Stay consistent with what the candidate has said. Avoid repeating an earlier suggested opening or retelling the same story; a relevant experience can be reused from a new angle instead of inventing another. Greetings, small talk, and interviewer introductions get one or two friendly sentences, with no repeated greeting once introductions are over. When explicitly asked to suggest a likely follow-up, put the interviewer's question on the first line, then the candidate's brief answer.`;
 
 // Given with each question rather than in the system prompt; next to the question, the model keeps to the length and shape.
 const formats: Record<Mode, string> = {
@@ -71,7 +71,10 @@ const personNote = (question: string) => personal.test(question) ? ' This questi
 const userMessage = (context: string, question: string, mode: Mode) => `${context ? `${context}\n\n` : ''}Question: ${question}\n\nAnswer format: ${formats[mode]} ${smallTalk}${personNote(question)}`;
 
 /** For the key points to hit while the candidate answers in their own words (see live.ts); `complete` sends it. */
-export const pointsInstructions = `You help a job candidate during a live interview, where assistance is explicitly permitted. They are answering a question in their own words and glance at your notes while they talk. From their background, the conversation, the question, and what they have said so far, list the two to four most useful points they have not made yet, most important first: the next thing to say, a detail or example from their background that fits, an edge case or trade-off, or how to wrap up. Write each as a short phrase under 12 words, starting with "• ", one per line, in plain words they could say, with nothing else: no headings, no introduction. If they have covered the question well, give one point on how to finish.`;
+export const pointsInstructions = `You help a job candidate during a live interview, where assistance is explicitly permitted. They are answering a question in their own words and glance at your notes while they talk. From their background, the conversation, the question, and what they have said so far, list the two or three most useful points they have not made yet, most important first: the next thing to say, a detail or example from their background that fits, an edge case or trade-off, or how to wrap up. Write each as a phrase of at most ten words, not a sentence, starting with "• ", one per line, with nothing else: no headings, no introduction, no explanation after a dash. If they have covered the question well, or are wrapping up, give one point on how to finish.`;
+
+/** For the review of a practice session (see review.ts); `complete` sends it with the questions and what was said. */
+export const coachInstructions = `You coach a job candidate after a practice interview. For each numbered question you get what the interviewer asked, what the candidate said (their own words, and how much they read aloud from a suggested answer), and checks already counted for them. Judge how the answer would land with an interviewer: did it answer the question, was it specific and structured, was it the right length. Reply with only a JSON object: {"questions": [{"n": 1, "good": "…", "improve": "…"}], "overall": ["…", "…", "…"]}. "good" is one concrete strength and "improve" one concrete change they can practice, each under 25 words, in plain second person ("you"), quoting their words where it helps. If they barely answered, say so in "improve" and leave "good" empty. "overall" gives the three most useful habits to work on across the session, most important first. Never invent things they did not say.`;
 
 const followUpLead = 'Suggest one likely interviewer follow-up to this question:';
 /** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. */
@@ -188,9 +191,12 @@ export async function claudeCodeStatus(): Promise<ClaudeCodeStatus | null> {
 }
 
 export class LocalDemoProvider implements LLMProvider {
-  async complete(system: string, _prompt: string, signal?: AbortSignal) {
+  async complete(system: string, prompt: string, signal?: AbortSignal) {
     await new Promise(resolve => setTimeout(resolve, 200)); if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
-    return system === pointsInstructions ? '• Say the approach in one line first\n• Walk through one small example\n• Finish with the time and space cost' : '';
+    if (system === pointsInstructions) return '• Say the approach in one line first\n• Walk through one small example\n• Finish with the time and space cost';
+    if (system !== coachInstructions) return '';
+    const count = (prompt.match(/^Question \d+/gm) ?? []).length;
+    return JSON.stringify({ questions: Array.from({ length: count }, (_, index) => ({ n: index + 1, good: 'You answered the question directly.', improve: 'Add one specific detail or result from your own experience.' })), overall: ['Lead with the answer, then one example.', 'Name a concrete result or what you learned.', 'Pause instead of filler words.'] });
   }
   async answer(question: string, _context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) {
     const followUp = question.startsWith(followUpLead);

@@ -10,7 +10,7 @@ const startsWith = (words: string) => new RegExp(`^(?:${words})(?![\\p{L}\\p{N}]
 const fillers = /^(?:(?:hey|hi|hello|thanks|thank you|so|okay|ok|alright|all right|right|well|and|now|next|also|then|great|cool|nice|awesome|perfect|excellent|fantastic|amazing|sweet|gotcha|got it|oh|wait|sorry|hold on|hang on|um+|uh+|hmm+|mm+-?hm+|uh-?huh|bueno|entonces|vale|pues|y|alors|bon|et|donc|und|gut|então|bom|e)(?![\p{L}\p{N}'])[\s,.:;!…-]*)+/iu;
 const english = [
   startsWith('what|why|when|where|which|who|whom|whose|how|can|could|would|will|should|shall|may|do|does|did|is|are|was|were|have|has'),
-  startsWith("tell me|tell us|share an example|share a time|give me an example|give an example|describe|explain|walk me through|walk us through|talk me through|talk us through|i'd like you to|i would like you to|i'd like to hear|i would like to hear|i'd love to hear|i would love to hear|i want to hear|talk to me about|go ahead and|i want you to|i'm curious|i am curious|let's talk about|let's discuss|let me ask|(?:my |the |one |another |a )?(?:next |first |last |final |follow-up |followup )?question"),
+  startsWith("tell me|tell us|share an example|share a time|give me an example|give an example|describe|explain|walk me through|walk us through|talk me through|talk us through|i'd like you to|i would like you to|i'd like to hear|i would like to hear|i'd love to hear|i would love to hear|i want to hear|talk to me about|go ahead and|i want you to|i'm curious|i am curious|let's talk about|let's discuss|let me ask|(?:my |the )?(?:next |first |last |final |follow-up |followup |one more |another )question|(?:my|the|one) question (?:is|for you)|question\\s*:"),
 ];
 // Task openers are also how candidates think aloud ("…then return the result"), so they only count at the very start.
 const tasks = startsWith("given|implement|write|find|return|design|calculate|suppose|assume|imagine|compare|define|elaborate|talk about|you are given|you're given|let's say|say you|if you had to|if you were");
@@ -89,8 +89,8 @@ export const draftReady = (text: string, language = 'en-US') => text.trim().leng
 export function questionKind(question: string): QuestionKind | '' {
   if (!question.trim()) return '';
   if (/\b(how are you|how're you|how you doing|how's (it going|your|everything|things|life)|how (was|is) your (day|weekend|morning|week)|how have you been|how are things|what'?s up|nice to meet you|good (morning|afternoon|evening))\b/i.test(question)) return 'SMALL TALK';
-  if (/\b(tell (me|us) about|(a )?time (when )?you|disagree[ds]?|challenges?|conflicts?|failures?|leadership|strengths?|weakness(es)?|mistakes?)\b/i.test(question)) return 'BEHAVIORAL';
-  if (/\b(code|coding|implement|algorithms?|functions?|arrays?|linked lists?|trees?|sort(ing|ed)?(?! of\b)|reverse|complexity|big o|recursion|write an?|binary search)\b/i.test(question)) return 'CODING';
+  if (/\b(tell (me|us) (a (little )?bit |more )?about|about yourself|(a )?time (when )?you|disagree[ds]?|challenges?|conflicts?|failures?|leadership|strengths?|weakness(es)?|mistakes?)\b/i.test(question)) return 'BEHAVIORAL';
+  if (/\b(code|coding|implement|algorithms?|functions?|arrays?|linked lists?|trees?|sort(ing|ed)?(?! of\b)|reverse|complexity|big o|recursion|recursive(ly)?|iterative(ly)?|in place|write an?|binary search)\b/i.test(question)) return 'CODING';
   if (/\b(what|how|why|when|where|which|explain|describe|difference|compare)\b/i.test(question)) return 'TECHNICAL';
   return 'DISCUSSION';
 }

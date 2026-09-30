@@ -101,6 +101,16 @@ describe('liveStep', () => {
     expect(liveStep(replied, heard('Nice, I like that direction a lot.', 'interviewer'))).toEqual({ action: 'hold', turn: replied });
   });
 
+  it('lets the goodbyes at the end pass without asking for more key points', () => {
+    const asked = turn('Do you have any questions for me?', ['what does a typical day look like'], true, 7);
+    for (const [text, speaker] of [['Honestly the people. Alright, thanks so much for your time today!', 'interviewer'], ['Thank you, this was great.', 'candidate'], ['Great question.', 'interviewer'], ['Nice talking with you, take care!', 'candidate']] as const) {
+      expect(liveStep(asked, heard(text, speaker))).toEqual({ action: 'hold', turn: asked });
+    }
+    expect(liveStep(asked, heard('yeah it was great honestly, we shipped it on time', 'candidate')).turn!.ownWords).toBe(7 + 10);
+    // A question after the thanks still counts.
+    expect(liveStep(asked, heard('Thanks for your time. Do you have a minute for one more question about your resume?', 'interviewer')).action).toBe('new');
+  });
+
   it('answers the start of the conversation, whatever it is', () => {
     expect(liveStep(null, heard('hi thanks for having me', 'candidate'))).toEqual({ action: 'new', turn: turn('hi thanks for having me', [], false) });
     expect(liveStep(null, heard('Hey, how are you doing today?'))).toEqual({ action: 'new', turn: turn('Hey, how are you doing today?') });

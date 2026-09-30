@@ -43,7 +43,9 @@ function entryCard(entry: MirrorEntry, live: MirrorState | null) {
   if (live && !entry.blocks.length && !live.answerError) answer.append(make('p', 'muted', live.generating ? 'Preparing response…' : 'Your answer will appear here.'));
   if (live?.answerError) answer.append(make('div', 'error', live.answerError));
   answer.classList.toggle('writing', !!live?.generating && entry.blocks.length > 0);
-  card.append(head, make('p', 'question', entry.question || 'Waiting for a question…'), make('div', 'eyebrow answer-label', `${entry.kind === 'followup' ? 'Likely follow-up' : 'Response'} · ${entry.mode}`), answer);
+  card.append(head, make('p', 'question', entry.question || 'Waiting for a question…'));
+  if (live?.points?.length) { const points = make('div', 'points'); points.append(make('div', 'eyebrow', 'Key points to hit'), ...live.points.map(block)); card.append(points); }
+  card.append(make('div', 'eyebrow answer-label', `${entry.kind === 'followup' ? 'Likely follow-up' : 'Response'} · ${entry.mode}`), answer);
   if (live?.status) card.append(make('div', 'status', live.status));
   return card;
 }
@@ -75,7 +77,7 @@ function render() {
   const nodes: HTMLElement[] = []; const kept = new Set<number>();
   state.entries.forEach((entry, index) => {
     const live = state!.live && index === state!.entries.length - 1 ? state : null;
-    const key = JSON.stringify([entry, live && [live.generating, live.answerError, live.status]]);
+    const key = JSON.stringify([entry, live && [live.generating, live.answerError, live.status, live.points]]);
     let item = cards.get(entry.id); if (!item || item.key !== key) { item = { key, card: entryCard(entry, live) }; cards.set(entry.id, item); }
     kept.add(entry.id); nodes.push(item.card);
   });

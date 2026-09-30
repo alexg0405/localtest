@@ -10,6 +10,8 @@ export type MirrorState = {
   listening: 'off' | 'starting' | 'on' | 'voice'; micError: string; notice: string;
   /** The running list of answers, oldest first. With `live`, the last one is being answered now (see generating, status, answerError). */
   entries: MirrorEntry[]; live: boolean; generating: boolean; status: string; answerError: string; mode: Mode;
+  /** Key points to hit on the live answer while you answer in your own words (empty otherwise). */
+  points?: MirrorBlock[];
   heard: { time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; interim: string; provider: string;
 };
 export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' } | { type: 'ask'; text: string } | { type: 'mode'; mode: Mode };

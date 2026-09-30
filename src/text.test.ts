@@ -18,7 +18,8 @@ describe('likelyQuestion', () => {
 
   it('looks past spoken lead-ins', () => {
     expectEach(['So what is a hash map', 'Okay, so how would you scale this', 'Alright tell me about yourself', 'So, tell me about yourself', 'Um, can you explain closures', 'Next question: how do you handle conflict', "I'd like you to design a URL shortener", "Let's talk about your experience with Kubernetes", 'And why is that', 'I’m curious how you’d approach caching', 'Nice. So tell me about a time you had to work through a disagreement', 'Got it, and how did the team take it', 'Mm-hmm. Nice. So tell me about a time you failed', "I'd love to hear about your time at Acme", "I'd like to hear how you handled it", 'Go ahead and code it up'], likelyQuestion, true);
-    expectEach(['Some people prefer tabs', 'Android development is fun', 'Nowadays I mostly write Go', 'Questions are welcome at the end', 'Okay', 'So yeah', 'Nice, that sounds like a fun project', 'Perfect'], likelyQuestion, false);
+    expectEach(['Some people prefer tabs', 'Android development is fun', 'Nowadays I mostly write Go', 'Questions are welcome at the end', 'Okay', 'So yeah', 'Nice, that sounds like a fun project', 'Perfect', 'Great question.', "Great question. Usually you'd start with standup"], likelyQuestion, false);
+    expectEach(['My next question is about scale', 'One more question, how do you test it', 'Question: what is a mutex'], likelyQuestion, true);
   });
 
   it('ignores the candidate thinking aloud', () => {
@@ -71,6 +72,8 @@ describe('question helpers', () => {
   it('questionKind tags the question type', () => {
     expect(questionKind('')).toBe('');
     expect(questionKind('Tell me about a time you disagreed')).toBe('BEHAVIORAL');
+    expect(questionKind("Why don't you tell me a little bit about yourself?")).toBe('BEHAVIORAL');
+    expect(questionKind('Great. Could you also do it recursively?')).toBe('CODING');
     expect(questionKind('Describe a time when you had to lead')).toBe('BEHAVIORAL');
     expect(questionKind('Reverse a linked list')).toBe('CODING');
     expect(questionKind('How would you sort a million integers')).toBe('CODING');

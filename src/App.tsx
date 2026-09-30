@@ -46,6 +46,8 @@ const mod = isMac ? '⌘' : 'Ctrl';
 // ⌘ + Space opens Spotlight on macOS, so advertise ⌘ + Shift + Space there (both combinations work).
 const listenKeys = isMac ? ['⌘', '⇧', 'space'] : ['Ctrl', 'space'];
 const shortcuts: [string[], string][] = [[listenKeys, 'Start or stop listening'], [['esc'], 'Stop listening'], [[mod, '↵'], 'Send the typed question'], [[mod, '1'], 'Shorter answer'], [[mod, '2'], 'More detail'], [[mod, 'P'], 'Pin or unpin the latest answer']];
+// The role Roomside starts with when none is set, as an example to practice against (change it in Context).
+const defaultRole = 'Capital One Intern';
 const clearTimer = (timer: { current: number | null }) => { if (timer.current) window.clearTimeout(timer.current); timer.current = null; };
 const lastWords = (text: string, count = 8) => { const words = text.trim().split(/\s+/); return words.length > count ? `…${words.slice(-count).join(' ')}` : words.join(' '); };
 
@@ -86,7 +88,7 @@ export default function App() {
   const myVoice = useRef<VoicePrint[]>([]); const [voiceSetup, setVoiceSetup] = useState<{ state: 'idle' | 'recording' | 'done' | 'error'; seconds?: number; message?: string }>({ state: 'idle' });
   const [boostVocabulary, setBoostVocabulary] = useState(false); const [onDevice, setOnDevice] = useState<OnDeviceStatus | 'checking' | 'installing' | null>(null); const [micNotice, setMicNotice] = useState('');
   const [savedContext] = useState(loadSavedContext); const [keepContext, setKeepContext] = useState(!!savedContext);
-  const [role, setRole] = useState(savedContext?.role ?? ''); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
+  const [role, setRole] = useState(savedContext?.role.trim() || defaultRole); const [about, setAbout] = useState(savedContext?.about ?? ''); const [files, setFiles] = useState<ContextFile[]>(savedContext?.files ?? []);
   const [defaultFiles, setDefaultFiles] = useState<string[]>([]); const defaultsRequested = useRef(false);
   const [dragging, setDragging] = useState(false); const [preview, setPreview] = useState<string | null>(null); const [contextNotice, setContextNotice] = useState('');
   const [mirror, setMirror] = useState<MirrorStatus | null>(null); const [mirrorBusy, setMirrorBusy] = useState(false); const [mirrorMessage, setMirrorMessage] = useState(''); const [mirrorLink, setMirrorLink] = useState(0);
@@ -237,11 +239,11 @@ export default function App() {
     coachRun.current?.abort(); clearTimer(coachTimer); const run = new AbortController(); coachRun.current = run; coachAt.current = Date.now(); coachWords.current = 0;
     const said = turn.said.join(' '); const after = said ? lastWords(said, 6) : ''; const fillers = countFillers(said).reduce((sum, item) => sum + item.count, 0);
     setCoach(value => value?.asked === turn.asked ? { ...value, busy: true } : { key: '', points: [], tip: '', busy: true, after: '', asked: turn.asked });
-    model.complete(liveCoachInstructions, `${context(turn.asked)}\n\n${liveCoachPrompt(turn, (Date.now() - turnAt.current) / 1000, fillers)}`, run.signal).then(
+    model.complete(liveCoachInstructions, `${context(turn.asked)}\n\n${liveCoachPrompt(turn, (Date.now() - turnAt.current) / 1000, fillers, role)}`, run.signal).then(
       output => { if (run.signal.aborted || liveTurn.current?.asked !== turn.asked) return; const next = parseLiveCoach(output); setCoach(value => next ? { ...next, busy: false, after, asked: turn.asked } : value && { ...value, busy: false }); },
       () => { if (!run.signal.aborted) setCoach(value => value && { ...value, busy: false }); })
       .finally(() => { if (coachRun.current === run) coachRun.current = null; });
-  }, [provider, context]);
+  }, [provider, context, role]);
   const startCoach = useCallback((turn: LiveTurn) => { if (!coachOn.current) return; turnAt.current = Date.now(); runCoach(turn); }, [runCoach]);
   const requestCoach = useCallback(() => {
     clearTimer(coachTimer); const turn = liveTurn.current;
@@ -369,10 +371,10 @@ export default function App() {
   const stop = useCallback(() => { sessionId.current++; endListening(clearOnStop); }, [clearOnStop, endListening]);
 
   // Speech callbacks outlive the render that started listening; read the latest mode, provider, and settings through this ref.
-  const latest = useRef({ generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach });
+  const latest = useRef({ generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach }); const coachShown = useRef(false);
   const tag = isFollowUp(question, transcript.length > 1 ? transcript[transcript.length - 2].text : '') ? 'FOLLOW-UP' : questionKind(question);
   useLayoutEffect(() => {
-    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach }; liveOn.current = liveAnswers; coachOn.current = liveAnswers && liveCoach; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
+    latest.current = { generate, commitSpeech, endListening, requestLive, pumpLive, requestCoach, runCoach }; liveOn.current = liveAnswers; coachOn.current = liveAnswers && liveCoach; coachShown.current = !!coach; display.current = { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind, complete: !!answer.trim() && !generating && !answerError };
     readable.current = [...(pinned ? [pinned] : []), ...history.slice(-6), { question, answer }]; reading.current = [...rewritten.current, ...readable.current, ...(coach?.key ? [{ question, answer: [coach.key, ...coach.points].join('\n') }] : [])]; // Oldest first. You might read the coach's notes aloud too.
   });
 
@@ -763,6 +765,14 @@ export default function App() {
   useEffect(() => { void deepgramKeyFromEnv().then(key => { if (!key) return; setDeepgramKey(current => current || key); setKeyFromEnv(true); setSpeechEngine('deepgram'); }); }, []);
   useEffect(() => () => { sessionId.current++; activeRef.current = false; speech.current?.stop(); clearTimer(partialTimer); clearTimer(browserFinalTimer); clearTimer(liveTimer); clearTimer(coachTimer); coachRun.current?.abort(); controller.current?.abort(); if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }, []);
 
+  // Your context changed while the coach is showing (you added the role, notes, or a file): coach the question again with
+  // it, once you have stopped typing.
+  useEffect(() => {
+    const turn = liveTurn.current; if (!turn || !coachOn.current || !coachShown.current) return;
+    const timer = window.setTimeout(() => { if (liveTurn.current === turn) latest.current.runCoach(turn); }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [profile.text]);
+
   const blocks = parseAnswer(answer);
   const heardMinutes = transcript.length ? Math.max(1, Math.round((transcript[transcript.length - 1].at - transcript[0].at) / 60_000)) : 0;
   const overBudget = useMemo(() => heardCharacters(transcript) > memoryBudget, [transcript]);
@@ -775,6 +785,11 @@ export default function App() {
   // The current card is shown once something is asked; before that, the list shows how answers will appear.
   const showCurrent = !!(question || answer || generating || answerError);
   const sessionPlaceholder = role.trim() || 'Practice session';
+  // What the coach would need from your context to be specific about you and the role.
+  const hasBackground = !!about.trim() || files.some(file => file.status === 'ready' && file.text.trim());
+  const coachMissing = !role.trim() && !hasBackground ? 'Add the role and your résumé in Context so the coach can be specific →'
+    : !role.trim() ? 'Add the role you are interviewing for in Context for points about the company →'
+      : !hasBackground ? 'Add your résumé or notes in Context so the coach can point to your own stories →' : '';
   useLayoutEffect(() => {
     sessionNow.current = session;
     sessionSnapshot.current = () => ({ version: 1, id: session.id, name: session.name.trim() || sessionPlaceholder, createdAt: session.createdAt, updatedAt: Date.now(), transcript: transcriptRef.current, history, current: showCurrent ? { id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind } : null, pinned });
@@ -855,6 +870,7 @@ export default function App() {
           {liveCoach && liveAnswers && coach && <section className={'live-coach' + (coach.busy ? ' busy' : '')} aria-live="polite" aria-label="Live coach">
             <div className="live-coach-head"><b><i/>Coach</b><span>{coach.busy ? coach.key ? 'Updating…' : 'Reading the question…' : coach.after ? `after “${coach.after}”` : 'for this question'}</span></div>
             {coach.key ? <><p className="live-coach-key">{coach.key}</p>{coach.points.length > 0 && <ul>{coach.points.map(point => <li key={point}>{point}</li>)}</ul>}{coach.tip && <p className="live-coach-tip">{coach.tip}</p>}</> : <div className="typing" aria-hidden="true"><i/><i/><i/></div>}
+            {coachMissing && <button className="live-coach-hint" onClick={() => setPanel('context')}>{coachMissing}</button>}
           </section>}
           {pinned && <div className="pinned-answer"><Pin size={13}/><span>{pinned.question}</span><button onClick={showPinned}>Show</button><button className="unpin" onClick={() => setPinned(null)} aria-label="Unpin answer" title="Unpin answer"><X size={13}/></button></div>}
           <div className="answer-feed" ref={feed} onScroll={() => { followFeed.current = latestInView(); if (followFeed.current) setNewAnswer(false); }}>

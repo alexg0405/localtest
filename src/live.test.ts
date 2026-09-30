@@ -144,8 +144,8 @@ describe('liveSteps', () => {
 
 describe('liveCoachPrompt and parseLiveCoach', () => {
   it('gives the coach the question, the latest of what you said, and how long you have been at it', () => {
-    expect(liveCoachPrompt(turn('Why this role?'), 3)).toBe('Question: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: nothing yet');
-    expect(liveCoachPrompt(turn('Why this role?', ['mostly the scale', 'and the people']), 45, 4)).toBe('Question: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: "mostly the scale and the people"\n\nThey have been answering for about 45 seconds, with 4 filler words.');
+    expect(liveCoachPrompt(turn('Why this role?'), 3)).toBe('The role and company they are interviewing for are not given.\n\nQuestion: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: nothing yet\n\nCoach this answer now. Name the specific project, job, or detail from their background above that fits; never tell them to research or pick one. The points are things to say, not questions for them to think about.');
+    expect(liveCoachPrompt(turn('Why this role?', ['mostly the scale', 'and the people']), 45, 4, ' Software Engineer Intern at Acme ')).toBe('They are interviewing for: Software Engineer Intern at Acme\n\nQuestion: Why this role?\n\nWhat the candidate has said so far, in their own words or reading from a suggested answer: "mostly the scale and the people"\n\nThey have been answering for about 45 seconds, with 4 filler words.\n\nCoach this answer now. Name the specific project, job, or detail from their background above that fits, and connect it to Software Engineer Intern at Acme; never tell them to research or pick one. The points are things to say, not questions for them to think about.');
     const long = liveCoachPrompt(turn('Why this role?', Array.from({ length: 200 }, (_, index) => `point ${index}`)), 0);
     expect(long).toMatch(/answer: "…\S/); expect(long).toContain('point 199"'); expect(long).not.toContain('point 1 ');
   });

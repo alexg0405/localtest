@@ -80,12 +80,15 @@ export function liveSteps(turn: LiveTurn | null, heard: readonly LiveHeard[]): L
   return action === 'hold' || !turn ? { action: 'hold', turn } : { action, turn };
 }
 
-/** What the live coach works from: the question, the latest of what the candidate has said, and, once they have been at it
- * a while, how long and how many filler words (counted by the caller). */
-export function liveCoachPrompt({ asked, said }: LiveTurn, seconds: number, fillers = 0) {
+/** What the live coach works from: the role (or that it is not given, so nothing about the company gets made up), the
+ * question, the latest of what the candidate has said, and, once they have been at it a while, how long and how many
+ * filler words (counted by the caller). */
+export function liveCoachPrompt({ asked, said }: LiveTurn, seconds: number, fillers = 0, role = '') {
   const words = said.join(' '); const recent = words.length > 1200 ? `…${words.slice(-1200).replace(/^\S*\s/, '')}` : words;
-  return [`Question: ${asked}`, `What the candidate has said so far, in their own words or reading from a suggested answer: ${recent ? `"${recent}"` : 'nothing yet'}`,
-    seconds >= 20 && `They have been answering for about ${Math.round(seconds)} seconds${fillers >= 3 ? `, with ${fillers} filler words` : ''}.`].filter(Boolean).join('\n\n');
+  return [role.trim() ? `They are interviewing for: ${role.trim()}` : 'The role and company they are interviewing for are not given.', `Question: ${asked}`, `What the candidate has said so far, in their own words or reading from a suggested answer: ${recent ? `"${recent}"` : 'nothing yet'}`,
+    seconds >= 20 && `They have been answering for about ${Math.round(seconds)} seconds${fillers >= 3 ? `, with ${fillers} filler words` : ''}.`,
+    // Last, where it is followed best: specifics, not advice to go find them.
+    `Coach this answer now. Name the specific project, job, or detail from their background above that fits${role.trim() ? `, and connect it to ${role.trim()}` : ''}; never tell them to research or pick one. The points are things to say, not questions for them to think about.`].filter(Boolean).join('\n\n');
 }
 
 export type LiveCoach = { key: string; points: string[]; tip: string };

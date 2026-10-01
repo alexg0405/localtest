@@ -14,13 +14,19 @@ export type BridgeEvent = { text: string } | { error: string } | { done: true };
 const isExecutable = (path: string) => { try { accessSync(path, constants.X_OK); return statSync(path).isFile(); } catch { return false; } };
 const newestFirst = (a: string, b: string) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const difference = (y[i] ?? 0) - (x[i] ?? 0); if (difference) return difference; } return 0; };
 
+// The folders in a version's folder: newer desktop apps keep Claude Code a level down (<version>/<build>/claude.app).
+const builds = (folder: string) => { try { return readdirSync(folder, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name !== 'claude.app').map(entry => join(folder, entry.name)); } catch { return []; } };
+
 /** Finds Claude Code: $CLAUDE_BIN, then `claude` on PATH, then the newest copy bundled with the Claude desktop app. */
 export function findClaudeBinary(env: NodeJS.ProcessEnv = process.env, home = homedir()): string | null {
   if (env.CLAUDE_BIN) return isExecutable(env.CLAUDE_BIN) ? env.CLAUDE_BIN : null;
   for (const directory of (env.PATH ?? '').split(delimiter)) if (directory && isExecutable(join(directory, 'claude'))) return join(directory, 'claude');
   const bundled = join(home, 'Library', 'Application Support', 'Claude', 'claude-code');
   const versions = existsSync(bundled) ? readdirSync(bundled).filter(name => /^\d+(\.\d+)*$/.test(name)).sort(newestFirst) : [];
-  for (const version of versions) { const candidate = join(bundled, version, 'claude.app', 'Contents', 'MacOS', 'claude'); if (isExecutable(candidate)) return candidate; }
+  for (const version of versions) {
+    const folder = join(bundled, version);
+    for (const base of [folder, ...builds(folder)]) { const candidate = join(base, 'claude.app', 'Contents', 'MacOS', 'claude'); if (isExecutable(candidate)) return candidate; }
+  }
   return null;
 }
 

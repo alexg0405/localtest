@@ -73,6 +73,15 @@ describe('findClaudeBinary', () => {
     expect(findClaudeBinary({ PATH: bin, CLAUDE_BIN: newest }, home)).toBe(newest);
     expect(findClaudeBinary({ PATH: '/nonexistent' }, workDir('empty-home'))).toBeNull();
   });
+
+  it("finds the desktop app's copy a level down in a build folder, where newer versions keep it", () => {
+    const home = workDir('home-builds'); const versions = join(home, 'Library', 'Application Support', 'Claude', 'claude-code');
+    const copy = (version: string, build: string) => { const dir = join(versions, version, build, 'claude.app', 'Contents', 'MacOS'); mkdirSync(dir, { recursive: true }); const path = join(dir, 'claude'); writeFileSync(path, '#!/bin/sh\n'); chmodSync(path, 0o755); return path; };
+    copy('2.1.281', '01c192d55a6f'); const newest = copy('2.1.286', 'f2326db61802');
+    expect(findClaudeBinary({ PATH: '/nonexistent' }, home)).toBe(newest);
+    mkdirSync(join(versions, '2.1.290', 'a1b2c3d4e5f6'), { recursive: true }); // A newer version still being installed, with no copy yet.
+    expect(findClaudeBinary({ PATH: '/nonexistent' }, home)).toBe(newest);
+  });
 });
 
 describe('streamAnswer', () => {

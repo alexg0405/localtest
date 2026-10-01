@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, ListChecks, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2 } from 'lucide-react';
+import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, ListChecks, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2, Zap } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
 import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, liveCoachInstructions, reviewInstructions, topicsInstructions, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
@@ -15,7 +15,7 @@ import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, ope
 import { AnswerContent, EntryMeta, PastAnswer, type AnswerKind, type Entry, type Snapshot } from './AnswerCard';
 import { SessionMenu } from './SessionMenu';
 import { deleteSession, lastIds, listSessions, loadSession, newSessionId, storeSession, type SavedSession, type SessionLine, type SessionSummary } from './sessions';
-import { acknowledges, closes, liveCoachPrompt, liveSteps, parseLiveCoach, type LiveCoach, type LiveHeard, type LiveStep, type LiveTurn } from './live';
+import { acknowledges, closes, justSaid, liveCoachPrompt, liveSteps, parseLiveCoach, type LiveCoach, type LiveHeard, type LiveStep, type LiveTurn } from './live';
 import { coachPrompt, countFillers, parseCoaching, reviewSession } from './review';
 import { noTopics, parseTopics, topicsPrompt, type Topics } from './topics';
 import { ReviewPanel, type CoachingState } from './ReviewPanel';
@@ -46,7 +46,7 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const mod = isMac ? '⌘' : 'Ctrl';
 // ⌘ + Space opens Spotlight on macOS, so advertise ⌘ + Shift + Space there (both combinations work).
 const listenKeys = isMac ? ['⌘', '⇧', 'space'] : ['Ctrl', 'space'];
-const shortcuts: [string[], string][] = [[listenKeys, 'Start or stop listening'], [['esc'], 'Stop listening'], [[mod, '↵'], 'Send the typed question'], [[mod, '1'], 'Shorter answer'], [[mod, '2'], 'More detail'], [[mod, 'P'], 'Pin or unpin the latest answer']];
+const shortcuts: [string[], string][] = [[listenKeys, 'Start or stop listening'], [['esc'], 'Stop listening'], [[mod, '↵'], 'Send the typed question, or with none, answer what was just said'], [[mod, '1'], 'Shorter answer'], [[mod, '2'], 'More detail'], [[mod, 'P'], 'Pin or unpin the latest answer']];
 // The role Roomside starts with when none is set, as an example to practice against (change it in Context).
 const defaultRole = 'Capital One Intern';
 const clearTimer = (timer: { current: number | null }) => { if (timer.current) window.clearTimeout(timer.current); timer.current = null; };
@@ -561,9 +561,12 @@ export default function App() {
     const q = text.trim(); if (!q) return;
     addLine({ text: q, time: stamp(), at: Date.now(), speaker: 'interviewer', by: 'typed' }); resetLive({ asked: q, said: [], question: true, ownWords: 0 }); void generate(q);
   }, [addLine, generate, resetLive]);
-  const submitManual = useCallback(() => { const q = draft.trim(); if (!q) return; setDraft(''); ask(q); }, [draft, ask]);
+  // With nothing typed, `orAnswerNow` (the shortcut) answers what was just said instead.
+  const submitManual = useCallback((orAnswerNow = false) => { const q = draft.trim(); if (!q) { if (orAnswerNow) answerNow(); return; } setDraft(''); ask(q); }, [draft, ask]);
   // ↵ on a transcript line answers it as asked: a question the detection missed, or one run together with other words.
   const answerLine = useCallback((text: string) => { resetLive({ asked: text, said: [], question: true, ownWords: 0 }); void latest.current.generate(text); }, [resetLive]);
+  // Answer now: what was just said (see justSaid in live.ts), in case a question was missed or taken for your own words.
+  const answerNow = () => { const text = justSaid(transcriptRef.current, [browserFinal.current, interimRef.current].filter(Boolean).join(' '), sessionLanguage.current, liveTurn.current?.asked || display.current.question); if (text) answerLine(text); };
   const currentPinned = !!pinned && pinned.id === entryId && pinned.answer === answer;
   const canPin = !!answer.trim() && !generating;
   const togglePin = useCallback(() => { if (currentPinned) setPinned(null); else if (canPin) setPinned({ id: entryId, time: entryTime, tag, possible: lowConfidence, question, answer, mode: shownMode, kind: answerKind }); }, [currentPinned, canPin, entryId, entryTime, tag, lowConfidence, question, answer, shownMode, answerKind]);
@@ -678,6 +681,7 @@ export default function App() {
       else if (command.type === 'mode') chooseMode(command.mode);
       else if (command.type === 'coach') refreshCoach();
       else if (command.type === 'topics') runTopics();
+      else if (command.type === 'now') answerNow();
       else ({ shorter, detailed, followup: followUp, regenerate })[command.type]();
     };
   });
@@ -749,7 +753,7 @@ export default function App() {
       if (sessionMenu) { if (event.key === 'Escape') { event.preventDefault(); setSessionMenu(false); } return; }
       if (panel) { if (event.key === 'Escape') { event.preventDefault(); setPanel(null); } return; }
       const command = event.metaKey || event.ctrlKey; const once = !event.repeat;
-      if (command && event.key === 'Enter') { event.preventDefault(); submitManual(); }
+      if (command && event.key === 'Enter') { event.preventDefault(); submitManual(true); }
       else if (command && event.code === 'Space') { event.preventDefault(); if (once) { if (activeRef.current) stop(); else start(); } }
       else if (command && (event.key === '1' || event.code === 'Digit1')) { event.preventDefault(); if (once) shorter(); }
       else if (command && (event.key === '2' || event.code === 'Digit2')) { event.preventDefault(); if (once) detailed(); }
@@ -952,11 +956,11 @@ export default function App() {
           {error && <div className="error" role="alert">{error}</div>}{micNotice && <div className="mic-notice">{micNotice}</div>}
           <div className="transcript-card">
             <div className="transcript-body" ref={transcriptBody} onScroll={event => { const body = event.currentTarget; followTranscript.current = body.scrollHeight - body.scrollTop - body.clientHeight < 32; }}>{transcript.length === 0 && !interim ? <div className="empty-transcript"><span>Your conversation will appear here.</span><small>Start listening once everyone has agreed to the practice session, or type a question below.</small></div> : <><TranscriptLines lines={shownLines} speakers={speakers} filter={transcriptFilter} onFlip={flipSpeaker} onAnswer={answerLine}/>{interim && <div className="transcript-line interim"><time>live</time><p>{interim}<span className="cursor"/></p></div>}</>}</div>
-            <div className="manual-input"><input ref={manualInput} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submitManual(); } }} placeholder="Type a question…" aria-label="Question"/><button onClick={submitManual} disabled={!draft.trim()} title="Send question" aria-label="Send question"><Send size={15}/></button></div>
+            <div className="manual-input"><input ref={manualInput} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submitManual(); } }} placeholder="Type a question…" aria-label="Question"/><button onClick={() => submitManual()} disabled={!draft.trim()} title="Send question" aria-label="Send question"><Send size={15}/></button></div>
           </div>
         </div>
         <div className="right-col">
-          <div className="col-head"><h2>Answers</h2><button className="provider-chip" onClick={() => setPanel('settings')} aria-label={`Answers from ${providerDetails}. Change in Settings`} title={providerDetails}>{providerName}</button><div className="segmented" role="group" aria-label="Answer length">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => chooseMode(item)}>{item.toLowerCase()}</button>)}</div></div>
+          <div className="col-head"><h2>Answers</h2><button className="provider-chip" onClick={() => setPanel('settings')} aria-label={`Answers from ${providerDetails}. Change in Settings`} title={providerDetails}>{providerName}</button><button className="answer-now" onClick={answerNow} disabled={!transcript.length && !interim} title={`Answer what was just said, in case a question was missed (${mod} ↵ with nothing typed)`}><Zap size={12}/>Answer now</button><div className="segmented" role="group" aria-label="Answer length">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => chooseMode(item)}>{item.toLowerCase()}</button>)}</div></div>
           {trackTopics && (currentTopic || (active && topicsBusy && !topics.list.length)) && <section className="main-question" aria-label="Main question">
             <div className="main-question-head"><b>Main question</b>{topics.list.length > 1 && <button className="main-question-count" onClick={() => setTopicsOpen(open => !open)} aria-expanded={topicsOpen} title="All the main questions so far">{topicIndex} of {topics.list.length}<ChevronDown size={12}/></button>}
               <button className="live-coach-refresh" onClick={() => runTopics()} disabled={topicsBusy} title="Check the main question again" aria-label="Check the main question again"><RefreshCw size={12}/></button></div>

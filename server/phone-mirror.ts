@@ -14,7 +14,7 @@ import { isLocalRequest, readBody } from './http';
 
 type Laptop = { id: string; tab: string; res: ServerResponse };
 
-const simpleCommands = ['listen', 'stop', 'shorter', 'detailed', 'followup', 'regenerate', 'coach', 'topics'];
+const simpleCommands = ['listen', 'stop', 'shorter', 'detailed', 'followup', 'regenerate', 'coach', 'topics', 'now'];
 const modes = ['SHORT', 'STANDARD', 'DETAILED', 'BULLETS'];
 const question = (value: unknown) => typeof value === 'string' && value.trim() && value.length <= 2000 ? value.trim() : '';
 

@@ -12,7 +12,7 @@ const ui = {
   heardLine: byId('heard-line'), micMessage: byId('mic-message'), feed: byId('feed'), jump: byId<HTMLButtonElement>('jump'), modes: byId('modes'), actions: byId('actions'),
   transcript: byId('transcript'), provider: byId('provider'), ask: byId<HTMLFormElement>('ask'), askInput: byId<HTMLInputElement>('ask-input'), askSend: byId<HTMLButtonElement>('ask-send'),
   top: document.querySelector<HTMLElement>('.top')!, spacer: byId('spacer'), dock: byId('dock'), steps: byId('steps'), previous: byId<HTMLButtonElement>('previous'), next: byId<HTMLButtonElement>('next'), position: byId('position'),
-  pinned: byId('pinned'), pinJump: byId<HTMLButtonElement>('pin-jump'),
+  pinned: byId('pinned'), pinJump: byId<HTMLButtonElement>('pin-jump'), now: byId<HTMLButtonElement>('now'),
 };
 
 let state: MirrorState | null = null;
@@ -214,7 +214,7 @@ function render() {
     : ended ? 'Phone mirroring was turned off on your laptop. Turn it on again there and scan the new code.'
       : !connected ? 'Cannot reach your laptop. Keep both on the same Wi-Fi; this page keeps trying.'
         : !laptop ? 'Roomside is not open on your laptop. This page reconnects when you open it there.' : flash);
-  ui.askSend.disabled = !live;
+  ui.askSend.disabled = !live; ui.now.disabled = !live || !(state?.heard.length || state?.interim);
   for (const button of ui.modes.querySelectorAll('button')) { button.disabled = !live; button.classList.toggle('active', button.dataset.mode === state?.mode); button.setAttribute('aria-pressed', String(button.dataset.mode === state?.mode)); }
   const current = state?.live ? state.entries[state.entries.length - 1] : undefined;
   for (const button of ui.actions.querySelectorAll('button')) button.disabled = !live || !current?.question;
@@ -367,6 +367,12 @@ ui.ask.addEventListener('submit', async event => {
   event.preventDefault();
   const text = ui.askInput.value.trim(); if (!text) return;
   if (await send({ type: 'ask', text })) { ui.askInput.value = ''; ui.askInput.blur(); }
+});
+// Answer now: the laptop answers what was just said, in case a question was missed or taken for yours; then up to it.
+ui.now.addEventListener('click', async () => {
+  ui.now.disabled = true;
+  if (await send({ type: 'now' })) jumpToNewest();
+  render();
 });
 
 // EventSource reconnects on its own after brief drops, but gives up after a refused request or when a locked phone suspends

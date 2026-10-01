@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acknowledges, bounded, liveCoachPrompt, liveStep, liveSteps, parseLiveCoach, type LiveHeard, type LiveStep, type LiveTurn } from './live';
+import { acknowledges, bounded, justSaid, liveCoachPrompt, liveStep, liveSteps, parseLiveCoach, type LiveHeard, type LiveStep, type LiveTurn } from './live';
 import { lastAsk } from './speakers';
 import { likelyQuestion } from './text';
 
@@ -180,6 +180,35 @@ describe('liveSteps', () => {
       .toEqual({ action: 'new', turn: turn('wait, which team?') });
     expect(liveSteps(asked, [heard('I started out on the data team', 'candidate', { read: true })])).toEqual({ action: 'hold', turn: turn(asked.asked, ['I started out on the data team']) });
     expect(liveSteps(null, [heard('Mm-hmm.', 'interviewer')])).toEqual({ action: 'hold', turn: null });
+  });
+});
+
+describe('justSaid', () => {
+  it('takes what was just said for Answer now, back to their latest line or question whoever it was taken for', () => {
+    const lines = [
+      { text: 'Tell me about yourself.', speaker: 'interviewer' as const },
+      { text: "Sure, I'm a junior studying computer science.", speaker: 'candidate' as const },
+      { text: 'What was the hardest part of your internship at Chewy?', speaker: 'candidate' as const }, // Missed: taken for yours.
+      { text: 'Um, so', speaker: 'candidate' as const },
+    ];
+    expect(justSaid(lines)).toBe('What was the hardest part of your internship at Chewy? Um, so');
+    expect(justSaid(lines, ' honestly the on-call ')).toBe('What was the hardest part of your internship at Chewy? Um, so honestly the on-call'); // And the words still coming.
+    // Their line, even unlabeled, with the line before it; or with only your own statements lately, the last two lines.
+    expect(justSaid([{ text: 'Thanks.', speaker: 'candidate' }, { text: 'So how did you test it', speaker: undefined }])).toBe('Thanks. So how did you test it');
+    expect(justSaid(['I led the migration.', 'It took a month.', 'We shipped it in May.'].map(text => ({ text, speaker: 'candidate' as const })))).toBe('It took a month. We shipped it in May.');
+    expect(justSaid([])).toBe('');
+    expect(justSaid([], 'what about caching')).toBe('what about caching');
+    // Not back to a question the live answer already answers: what was said after it.
+    const after = [{ text: 'How would you design a URL shortener?', speaker: 'interviewer' as const }, { text: "I'd hash the long URL into a short key.", speaker: 'candidate' as const }, { text: 'I wonder how you would handle collisions at scale.', speaker: 'candidate' as const }];
+    expect(justSaid(after, '', 'en-US', 'How would you design a URL shortener?')).toBe("I'd hash the long URL into a short key. I wonder how you would handle collisions at scale.");
+    expect(justSaid(after)).toBe("How would you design a URL shortener? I'd hash the long URL into a short key. I wonder how you would handle collisions at scale.");
+    // Pressed again after another miss: from the line it answered last time, labeled yours or not.
+    expect(justSaid([...after, { text: 'I wonder what you would put in the cache first.', speaker: 'candidate' }], '', 'en-US', "I'd hash the long URL into a short key. I wonder how you would handle collisions at scale."))
+      .toBe('I wonder how you would handle collisions at scale. I wonder what you would put in the cache first.');
+    // Short like the rest of the live answer: the question it goes back to, then the latest of what you said after it.
+    const long = justSaid([{ text: 'How did the migration go?', speaker: 'interviewer' }, ...Array.from({ length: 5 }, (_, index) => ({ text: `Part ${index + 1} of my answer goes on about the ledger, the payments stack, and the team.`, speaker: 'candidate' as const }))]);
+    expect(long.length).toBeLessThanOrEqual(400); expect(long.startsWith('How did the migration go? … Part')).toBe(true);
+    expect(long.endsWith('Part 5 of my answer goes on about the ledger, the payments stack, and the team.')).toBe(true);
   });
 });
 

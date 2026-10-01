@@ -86,6 +86,7 @@ button:disabled{opacity:.45;cursor:default}
 .ask{display:flex;gap:8px;padding-top:10px}
 .ask input{flex:1;min-width:0;font:16px system-ui,sans-serif;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--card);color:var(--ink);outline-color:var(--live)}
 .ask button{flex:0 0 50px;border:0;border-radius:14px;background:var(--green);color:#fff;display:grid;place-items:center}
+.ask .now{flex:none;display:flex;align-items:center;gap:6px;padding:0 13px;background:var(--mint);color:var(--mint-ink);font-size:14px;font-weight:700;white-space:nowrap}
 .transcript .who{display:inline-block;font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.6px;text-transform:uppercase;border-radius:4px;padding:2px 5px;margin-right:7px;vertical-align:1px;background:var(--code);color:var(--muted)}
 .transcript .candidate .who{background:var(--mint);color:var(--mint-ink)}
 .entry .eyebrow time{opacity:.75}

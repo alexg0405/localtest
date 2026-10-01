@@ -4,7 +4,7 @@
 // coach instead of rewriting the answer. Who said a line is only ever a guess, and lines often run one person's words
 // into the other's, so the question in a line decides more than its label.
 import type { Speaker } from './speakers';
-import { endsMidPhrase } from './text';
+import { compactText, endsMidPhrase, likelyQuestion } from './text';
 
 /** What the live answer responds to: what the interviewer asked (or said, if it was not a question), whether it asks
  * something yet, everything the candidate has said since (read aloud or their own), and how many of those words were
@@ -87,6 +87,25 @@ export function liveSteps(turn: LiveTurn | null, heard: readonly LiveHeard[]): L
     if (step.action === 'new' || (step.action === 'update' && action === 'hold')) action = step.action;
   }
   return action === 'hold' || !turn ? { action: 'hold', turn } : { action, turn };
+}
+
+/** What Answer now responds to when something was missed: what was just said, back to the latest of the last few lines
+ * that is the interviewer's or sounds like a question (whoever it was taken for, since a missed question is often one
+ * labeled yours or taken for your reading), with at least the last two lines and the words still coming in. A line the
+ * live answer already answers (`answered`) is where it stops, not where it starts. */
+export function justSaid(lines: readonly { text: string; speaker?: Speaker }[], speaking = '', language = 'en-US', answered = '') {
+  const recent = lines.slice(-6); let from = Math.max(0, recent.length - 2); const done = compactText(answered);
+  for (let index = recent.length - 1; index >= 0; index--) {
+    // A line the live answer already answers (whoever it was taken for; a few words at least, so "okay" is not one).
+    const line = compactText(recent[index].text);
+    if (done && line.split(' ').length >= 3 && done.includes(line)) { from = Math.min(from, index + 1); break; }
+    if (recent[index].speaker === 'candidate' && !likelyQuestion(recent[index].text, language)) continue;
+    from = Math.min(from, index); break;
+  }
+  const parts = [...recent.slice(from).map(line => line.text), speaking].map(text => text.trim()).filter(Boolean); const all = parts.join(' ');
+  if (all.length <= 400 || parts.length < 2) return bounded(all);
+  // Too long for what an answer responds to: the line it goes back to (likely the question), then the latest after it.
+  const head = bounded(parts[0], 200); return `${head} … ${bounded(parts.slice(1).join(' '), 400 - head.length - 3)}`;
 }
 
 /** What the live coach works from: the role (or that it is not given, so nothing about the company gets made up), the

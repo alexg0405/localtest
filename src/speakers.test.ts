@@ -167,6 +167,21 @@ describe('reading a suggested answer aloud', () => {
     expect(splitInterruption('most recently at Acme working on platform engineering oh so you worked on platform engineering?', answers)).toMatchObject({ theirs: 'oh so you worked on platform engineering?' });
   });
 
+  it('never takes a question read from an answer for theirs, even run together with what they said', () => {
+    const plan: ReadableAnswer = { question: "Why don't you read it right here?", answer: "Okay, I see what we're working with. Before I dive in, do you want me to think through this out loud as I go? Also, is there a specific part you want me to focus on, like the architecture or the data flow?" };
+    // With Deepgram, words still coming in run both people's words together until a pause splits them by speaker, and
+    // theirs leave too little of it read to count as a reading.
+    const run = 'Alright, sounds good. Also, is there a specific part you want me to focus on?';
+    expect(readsAnswer(run, [plan])).toBe(false);
+    expect(lastAsk(run, 'en-US', [plan])).toBeUndefined();
+    expect(lastAsk(run)).toBe(run); // Without the answers to compare with, it reads as their question.
+    // What you say before a line you read is not words of your own that make it their echo of the answer.
+    expect(readsAnswer('Okay so, is there a specific part you want me to focus on, like the architecture?', [plan])).toBe(true);
+    // Their own questions still count: before your reading, or asking about what the answer said.
+    expect(lastAsk('What would you focus on first? Also, is there a specific part you want me to focus on?', 'en-US', [plan])).toBe('What would you focus on first?');
+    expect(lastAsk('So why would you use a hash map to store counts?', 'en-US', answers)).toBe('So why would you use a hash map to store counts?');
+  });
+
   it('keeps a reading whole when what follows is still yours', () => {
     expect(splitInterruption('most recently at Acme working on platform engineering. Does that answer your question?', answers)).toBeUndefined();
     expect(readsAnswer('most recently at Acme working on platform engineering. Does that answer your question?', answers)).toBe(true);

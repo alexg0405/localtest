@@ -125,6 +125,16 @@ describe('liveStep', () => {
     expect(liveStep(setup, heard('mostly the checkout side of things'))).toEqual({ action: 'update', turn: turn(`${setup.asked} mostly the checkout side of things`, [], false) });
   });
 
+  it('leaves the answer alone when the question it answers is said again', () => {
+    const asked = turn('How would you scale remote access for millions of customers?', ['I would start with the load'], true, 6);
+    // You reading it back, word for word or nearly, or them repeating it.
+    for (const [text, speaker] of [['How would you scale remote access for millions of customers?', 'candidate'], ['So how would you scale remote access for millions of customers?', 'candidate'], ['How would you scale remote access for millions of customers?', 'interviewer']] as const) {
+      expect(liveStep(asked, heard(text, speaker))).toEqual({ action: 'hold', turn: asked });
+    }
+    // A different question that shares some of its words is a new one.
+    expect(liveStep(asked, heard('How would you scale it for a billion customers instead?', 'interviewer')).action).toBe('new');
+  });
+
   it('leaves the answer alone for what they say about it once they have asked', () => {
     const asked = turn('How would you design a rate limiter?');
     expect(liveStep(asked, heard('Just a high level sketch is fine for now.', 'interviewer'))).toEqual({ action: 'hold', turn: asked });

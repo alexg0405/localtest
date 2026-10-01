@@ -53,15 +53,17 @@ const addressed = /(?<![\p{L}\p{N}'])(?:you|your|yours|yourself)(?![\p{L}\p{N}']
 /** The interviewer's latest question or request in a line, with what led up to it: "Those arrays are sorted. What is the
  * complexity? O of one." gives its first two sentences, since lines often run on into the answer (or mix both people's
  * words). A problem to solve keeps the constraints that follow it. Questions a candidate asks, and anything said after a
- * question, do not count. */
-export function lastAsk(text: string, language = 'en-US'): string | undefined {
+ * question, do not count; nor does a sentence read from one of `answers`, however the recognizer ran it together with the
+ * interviewer's words ("…tell me what you think. Also, is there a part you want me to focus on?"). */
+export function lastAsk(text: string, language = 'en-US', answers: readonly ReadableAnswer[] = []): string | undefined {
   const sentences = text.match(/[^.?!？。！…]+(?:[.?!？。！…]+["'”’)\]]*|$)/gu) ?? [];
   const yours = (sentence: string) => guessSpeaker(sentence, language) === 'candidate';
+  const read = (sentence: string) => answers.length > 0 && readsAnswer(sentence, answers, language);
   const asks = (sentence: string) => {
     const value = sentence.trim().replace(/[‘’]/g, "'"); const core = value.replace(questionTag, '');
     if (!value || nothingAsked.test(value) || !likelyQuestion(value, language) || (core !== value && !likelyQuestion(core, language))) return false;
     const ours = !addressed.test(value) && (ourQuestion.test(value) || (firstPerson.test(value) && !likelyQuestion(value.replace(/[?？]+["'”)\]]*$/u, ''), language)));
-    return !ours && !yours(value) && !clarifyingAnywhere.test(value) && !checkIn.test(value) && !selfQuestion.test(value);
+    return !ours && !yours(value) && !clarifyingAnywhere.test(value) && !checkIn.test(value) && !selfQuestion.test(value) && !read(value);
   };
   // What led up to it: back to their question before, if the line holds more than one, or before that for a short question
   // that goes on from it ("And when would you use one?").
@@ -71,7 +73,7 @@ export function lastAsk(text: string, language = 'en-US'): string | undefined {
     return goesOn && start > 0 ? leadIn(start - 1) : start;
   };
   for (let index = sentences.length - 1; index >= 0; index--) {
-    if (opensProblem(sentences[index])) {
+    if (opensProblem(sentences[index]) && !read(sentences[index])) {
       let end = index + 1; while (end < sentences.length && !yours(sentences[end])) end++;
       return sentences.slice(leadIn(index), end).join('').trim();
     }
@@ -131,12 +133,17 @@ function readWords(said: readonly Word[], answers: readonly ReadableAnswer[]) {
   return { answerOnly, read: answerOnly.filter(Boolean).length >= 4 ? echoed : answerOnly };
 }
 
+// What people say before reading a line out ("okay so, is there a part…"), which the answer itself may not have.
+const opener = /^(?:(?:so|oh|okay|ok|um+|uh+|and|also|but|yeah|yes|well|right|alright|all right|now|then|like|basically|actually)[\s,.]+)+/iu;
+
 /** Whether an utterance is you reading a suggested answer aloud: most of its words repeat one. A short question that opens
  * with words of its own and then uses the answer's ("why would you use a hash map to store counts?") has to match almost
- * word for word; a reading that ends with your own check-in ("…Does that answer your question?") does not. */
+ * word for word, though "okay, so" before a line you read is not words of its own; a reading that ends with your own
+ * check-in ("…Does that answer your question?") does not. */
 export function readsAnswer(text: string, answers: readonly ReadableAnswer[], language = 'en-US') {
   const said = wordsOf(text); const { read } = readWords(said, answers); const count = read.filter(Boolean).length;
-  const asked = said.length <= 20 && !read[0] && guessSpeaker(text, language) === 'interviewer';
+  const opening = opener.exec(text.replace(/[‘’]/g, "'"))?.[0].length ?? 0; const first = Math.max(0, said.findIndex(word => word.start >= opening));
+  const asked = said.length <= 20 && !read[first] && guessSpeaker(text, language) === 'interviewer';
   return count >= 4 && count >= said.length * (asked ? 0.9 : 0.6);
 }
 

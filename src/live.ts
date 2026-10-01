@@ -39,6 +39,14 @@ const fresh = (asked: string, question: boolean): LiveTurn => ({ asked: bounded(
 const open = (turn: LiveTurn) => !turn.question || endsMidPhrase(turn.asked);
 // A short question that goes on from their last one ("And why?").
 const followsOn = (ask: string) => /^(?:and|or|but|also|plus)(?![\p{L}\p{N}'])/iu.test(ask) && wordCount(ask) <= 8;
+const words = (text: string) => text.toLowerCase().replace(/[‘’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
+const runs = (list: string[]) => list.slice(2).map((word, index) => `${list[index]} ${list[index + 1]} ${word}`);
+// The question already being answered, said again: you reading it back, or them repeating it. Most of its three-word runs
+// are in what the turn asked, so a different question that shares a few words ("…for a billion users?") is not.
+function repeats(ask: string, asked: string) {
+  const own = runs(words(ask)); if (!own.length) return words(ask).join(' ') === words(asked).join(' ');
+  const known = new Set(runs(words(asked))); return own.filter(run => known.has(run)).length >= own.length * 0.8;
+}
 
 /** What a new line (or words still coming) means for the live answer. */
 export function liveStep(turn: LiveTurn | null, heard: LiveHeard): LiveStep {
@@ -52,6 +60,7 @@ export function liveStep(turn: LiveTurn | null, heard: LiveHeard): LiveStep {
   // last question, before you replied.
   if (heard.ask) {
     const ask = heard.ask.trim();
+    if (turn?.question && repeats(ask, turn.asked)) return { action: 'hold', turn }; // Its answer already stands.
     if (turn && !turn.said.length && (open(turn) || followsOn(ask))) return { action: 'update', turn: fresh(`${turn.asked} ${ask}`, true) };
     return { action: 'new', turn: fresh(ask, true) };
   }

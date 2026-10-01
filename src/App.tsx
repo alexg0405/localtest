@@ -337,7 +337,7 @@ export default function App() {
     if (liveOn.current) {
       // The live answer responds to every line, not only questions (see live.ts): your words before the interviewer cut
       // in, theirs, and your reply, as one step.
-      const heard = (words: string, who: Speaker | undefined, isRead: boolean, yours = false): LiveHeard => ({ text: words, speaker: who, read: isRead, clarifying: isClarifyingQuestion(words), question: likelyQuestion(words, language), ask: yours ? undefined : lastAsk(words, language) });
+      const heard = (words: string, who: Speaker | undefined, isRead: boolean, yours = false): LiveHeard => ({ text: words, speaker: who, read: isRead, clarifying: isClarifyingQuestion(words), question: likelyQuestion(words, language), ask: yours ? undefined : lastAsk(words, language, reading.current) });
       // A line neither the words nor the voices learned so far could place goes by who it sounds like lately.
       const who = speaker ?? nearestVoice(earlier, print, voiceSamples(earlier, myVoice.current));
       // A question in the line counts as theirs unless its words or its sound say it is yours; a Deepgram voice number alone
@@ -469,7 +469,8 @@ export default function App() {
     const preview = (words: string, paused = false) => {
       const cut = splitInterruption(words, reading.current, lang); const spoken = cut?.theirs ?? words;
       if (!draftReady(spoken, lang) || readsAnswer(spoken, reading.current, lang)) return;
-      const ask = lastAsk(spoken, lang); if (!ask || ask.split(/(?<=[.?!…])\s+/).some(sentence => opensProblem(sentence))) return;
+      // A question read from a suggested answer is not theirs, even before a pause splits your words from what they said.
+      const ask = lastAsk(spoken, lang, reading.current); if (!ask || ask.split(/(?<=[.?!…])\s+/).some(sentence => opensProblem(sentence))) return;
       if (engine === 'deepgram' ? !/[?？]["'”)\]]*$/.test(ask) : !paused || endsMidPhrase(ask) || ask.split(/\s+/).length < 5) return;
       const sounds = cut ? undefined : voiceGuess(samples(), voices.words()); const worded = guessSpeaker(spoken, lang);
       if ((sounds && (!worded || sounds.strength >= 5) ? sounds.speaker : worded) === 'candidate') return;

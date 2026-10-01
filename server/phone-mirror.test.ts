@@ -91,9 +91,13 @@ describe('PhoneMirror', () => {
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'ask', text: 'How does Kafka keep ordering?' } });
     expect((await command(url, { type: 'listen' })).status).toBe(202);
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'listen' } });
-    // Tapping a transcript line, and the coach's refresh.
+    // Tapping a transcript line or its label, pinning an answer, and the coach's refresh.
     expect((await command(url, { type: 'answer', line: 12 })).status).toBe(202);
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'answer', line: 12 } });
+    expect((await command(url, { type: 'label', line: 12, speaker: 'candidate' })).status).toBe(202);
+    expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'label', line: 12, speaker: 'candidate' } });
+    expect((await command(url, { type: 'pin', entry: 3, on: true })).status).toBe(202);
+    expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'pin', entry: 3, on: true } });
     expect((await command(url, { type: 'coach' })).status).toBe(202);
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'coach' } });
     expect((await command(url, { type: 'mode', mode: 'LOUD' })).status).toBe(400);
@@ -176,6 +180,14 @@ describe('parseCommand', () => {
     // A transcript line goes by its id, so the phone can only ask for lines the laptop has.
     expect(parseCommand({ type: 'answer', line: 7, text: 'ignored' })).toEqual({ type: 'answer', line: 7 });
     for (const line of [0, -3, 2.5, '7', null, undefined, Number.MAX_SAFE_INTEGER + 1]) expect(parseCommand({ type: 'answer', line })).toBeNull();
+    // Labels and pins say what to change them to.
+    expect(parseCommand({ type: 'label', line: 7, speaker: 'interviewer' })).toEqual({ type: 'label', line: 7, speaker: 'interviewer' });
+    for (const speaker of ['candidate', 'interviewer']) expect(parseCommand({ type: 'label', line: 0, speaker })).toBeNull();
+    for (const speaker of ['you', 'Interviewer', undefined]) expect(parseCommand({ type: 'label', line: 7, speaker })).toBeNull();
+    expect(parseCommand({ type: 'pin', entry: 0, on: true })).toEqual({ type: 'pin', entry: 0, on: true }); // The sample answer.
+    expect(parseCommand({ type: 'pin', entry: 4, on: false })).toEqual({ type: 'pin', entry: 4, on: false });
+    for (const value of [{ entry: 4 }, { entry: 4, on: 'true' }, { entry: -1, on: true }, { entry: 1.5, on: false }]) expect(parseCommand({ type: 'pin', ...value })).toBeNull();
+    expect(parseCommand({ type: 'flip', line: 7 })).toBeNull();
     expect(parseCommand({ type: 'clear' })).toBeNull();
     expect(parseCommand(null)).toBeNull();
   });

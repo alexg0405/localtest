@@ -8,7 +8,7 @@ import { acceptedFiles, extractText } from './documents';
 import { contextFilesFromEnv, deepgramKeyFromEnv } from './env';
 import { keytermsFor } from './vocabulary';
 import { conversationMemory, heardCharacters, memoryBudget } from './memory';
-import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorStatus } from './mirror';
+import { MirrorConnection, mirrorBlocks, mirrorStatus, startMirror, stopMirror, type MirrorCommand, type MirrorEntry, type MirrorStatus } from './mirror';
 import { LineVoice, awaitingCheck, cutsIn, guessSpeaker, isClarifyingQuestion, lastAsk, nearestVoice, parseSpeakerLabels, readsAnswer, speakerInstructions, speakerPrompt, splitInterruption, voiceGuess, voiceMatch, voiceRoles, voiceSamples, voicesDistinct, type ReadableAnswer, type Speaker, type SpeakerSource } from './speakers';
 import type { VoicePrint } from './voice';
 import { compactText, draftReady, endsMidPhrase, isFollowUp, likelyQuestion, opensProblem, parseAnswer, questionKind, startsLikeReply } from './text';
@@ -51,6 +51,8 @@ const shortcuts: [string[], string][] = [[listenKeys, 'Start or stop listening']
 const defaultRole = 'Capital One Intern';
 const clearTimer = (timer: { current: number | null }) => { if (timer.current) window.clearTimeout(timer.current); timer.current = null; };
 const lastWords = (text: string, count = 8) => { const words = text.trim().split(/\s+/); return words.length > count ? `…${words.slice(-count).join(' ')}` : words.join(' '); };
+/** A finished answer as the phone mirror shows it. */
+const forPhone = (entry: Entry): MirrorEntry => ({ id: entry.id, question: entry.question, tag: entry.tag, possible: entry.possible, kind: entry.kind, mode: entry.mode, time: entry.time, blocks: mirrorBlocks(parseAnswer(entry.answer)) });
 
 
 type TranscriptLinesProps = { lines: Line[]; speakers: boolean; filter: 'all' | Speaker; onFlip(id: number): void; onAnswer(text: string): void };
@@ -667,6 +669,10 @@ export default function App() {
       else if (command.type === 'stop') { if (activeRef.current) stop(); }
       else if (command.type === 'ask') ask(command.text);
       else if (command.type === 'answer') { const line = transcriptRef.current.find(item => item.id === command.line); if (line) answerLine(line.text); }
+      else if (command.type === 'label') { const next = transcriptRef.current.map(line => line.id === command.line ? { ...line, speaker: command.speaker, by: 'you' as const } : line); transcriptRef.current = next; setTranscript(next); } // As a click on its label here does.
+      // Pinning the current answer works as its pin does here: not while it is still being written.
+      else if (command.type === 'pin' && !command.on) setPinned(current => current?.id === command.entry ? null : current);
+      else if (command.type === 'pin') { if (command.entry === entryId && showCurrent) { if (!currentPinned && canPin) togglePin(); } else { const entry = history.find(item => item.id === command.entry); if (entry) setPinned(entry); } }
       else if (command.type === 'mode') chooseMode(command.mode);
       else if (command.type === 'coach') refreshCoach();
       else ({ shorter, detailed, followup: followUp, regenerate })[command.type]();
@@ -881,16 +887,19 @@ export default function App() {
     window.addEventListener('pagehide', flush); return () => window.removeEventListener('pagehide', flush);
   }, []);
   // Earlier answers for the phone, converted when the list changes rather than on every streamed word.
-  const pastForPhone = useMemo(() => history.slice(-11).map(entry => ({ id: entry.id, question: entry.question, tag: entry.tag, possible: entry.possible, kind: entry.kind, mode: entry.mode, time: entry.time, blocks: mirrorBlocks(parseAnswer(entry.answer)) })), [history]);
+  const pastForPhone = useMemo(() => history.slice(-11).map(forPhone), [history]);
   // Sends what the phone shows after every render; the connection skips renders that changed nothing it shows.
   useEffect(() => {
+    // Pinned as it shows here: an earlier answer by its id, the current one while it is still the version pinned.
+    const past = pinned ? pastForPhone.map(entry => entry.id === pinned.id ? { ...entry, pinned: true } : entry) : pastForPhone;
+    const entries = showCurrent ? [...past, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks), ...(currentPinned ? { pinned: true } : {}) }] : past;
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
-      entries: showCurrent ? [...pastForPhone, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks) }] : pastForPhone,
-      total: history.length + (showCurrent ? 1 : 0), live: showCurrent, generating, status, answerError, mode, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
+      entries, total: history.length + (showCurrent ? 1 : 0), live: showCurrent, generating, status, answerError, mode, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
+      pinned: pinned ? { id: pinned.id, question: pinned.question, ...(entries.some(entry => entry.pinned) ? {} : { entry: forPhone(pinned) }) } : undefined,
       // The coach as it shows here, working or not; the phone has no Context panel to link to.
       coach: liveCoach && liveAnswers && coach ? { key: coach.key, points: coach.points, tip: coach.tip, busy: coach.busy, after: coach.after || undefined, missing: coachMissing.replace(/\s*→$/, '') || undefined } : undefined,
-      heard: transcript.slice(-30).map(({ id, time, text, speaker }) => ({ id, time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
+      heard: transcript.slice(-30).map(({ id, time, text, speaker }) => ({ id, time, text, ...(speakers && speaker ? { speaker } : {}) })), labels: speakers, interim, provider: providerLabel,
     });
   });
   const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];

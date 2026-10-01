@@ -4,7 +4,8 @@ import type { Mode } from './providers';
 import { inlineSegments, type AnswerBlock, type InlineSegment } from './text';
 
 export type MirrorBlock = { type: 'heading' | 'bullet' | 'paragraph'; segments: InlineSegment[] } | { type: 'label'; label: string; segments: InlineSegment[] } | { type: 'code'; text: string };
-export type MirrorEntry = { id: number; question: string; tag: string; possible: boolean; kind: 'answer' | 'followup'; mode: Mode; time: string; blocks: MirrorBlock[] };
+/** `pinned` when it is the answer pinned on the laptop. */
+export type MirrorEntry = { id: number; question: string; tag: string; possible: boolean; kind: 'answer' | 'followup'; mode: Mode; time: string; blocks: MirrorBlock[]; pinned?: boolean };
 /** What the phone shows. The laptop sends it whenever it changes. */
 export type MirrorState = {
   listening: 'off' | 'starting' | 'on' | 'voice'; micError: string; notice: string;
@@ -17,11 +18,17 @@ export type MirrorState = {
   /** The live coach's notes on the question being answered: the key idea to land, the next points, and a tip; `busy` while
    * it works on them, `after` the last words it coached on, and `missing` what to add in Context for notes about you. */
   coach?: { key: string; points: string[]; tip: string; busy?: boolean; after?: string; missing?: string };
-  /** The latest transcript lines, with their ids so a tap on one can ask for it to be answered. */
-  heard: { id?: number; time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; interim: string; provider: string;
+  /** The pinned answer's question, and the answer itself when none of `entries` is it (it is older, or was rewritten since). */
+  pinned?: { id: number; question: string; entry?: MirrorEntry };
+  /** The latest transcript lines, with their ids so a tap on one can ask for it to be answered; `labels` when lines are
+   * labeled Interviewer or You, so an unlabeled one can be labeled too. */
+  heard: { id?: number; time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; labels?: boolean; interim: string; provider: string;
 };
-/** `coach` asks the live coach for fresh notes (its refresh button), and `answer` answers a transcript line (its ↵). */
-export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' | 'coach' } | { type: 'ask'; text: string } | { type: 'answer'; line: number } | { type: 'mode'; mode: Mode };
+/** `coach` asks the live coach for fresh notes (its refresh button), `answer` answers a transcript line (its ↵), `label`
+ * corrects who said a line (a tap on its label), and `pin` pins or unpins an answer. Labels and pins say what to change
+ * them to, so a repeated tap, or one on a label that has just changed, cannot undo it. */
+export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' | 'coach' } | { type: 'ask'; text: string }
+  | { type: 'answer'; line: number } | { type: 'label'; line: number; speaker: 'interviewer' | 'candidate' } | { type: 'pin'; entry: number; on: boolean } | { type: 'mode'; mode: Mode };
 export type MirrorLink = { url: string; qr: string };
 /** `owner` says which tab the phone mirrors: this one, another Roomside tab, or none yet. */
 export type MirrorStatus = { running: boolean; owner: 'this' | 'other' | 'none'; phones: number; links: MirrorLink[] };

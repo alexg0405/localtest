@@ -12,6 +12,7 @@ const ui = {
   heardLine: byId('heard-line'), micMessage: byId('mic-message'), feed: byId('feed'), jump: byId<HTMLButtonElement>('jump'), modes: byId('modes'), actions: byId('actions'),
   transcript: byId('transcript'), provider: byId('provider'), ask: byId<HTMLFormElement>('ask'), askInput: byId<HTMLInputElement>('ask-input'), askSend: byId<HTMLButtonElement>('ask-send'),
   top: document.querySelector<HTMLElement>('.top')!, spacer: byId('spacer'), dock: byId('dock'), steps: byId('steps'), previous: byId<HTMLButtonElement>('previous'), next: byId<HTMLButtonElement>('next'), position: byId('position'),
+  pinned: byId('pinned'), pinJump: byId<HTMLButtonElement>('pin-jump'),
 };
 
 let state: MirrorState | null = null;
@@ -25,10 +26,13 @@ const cards = new Map<number, { key: string; card: HTMLElement }>(); let newestI
 let stepping: { index: number; until: number } | null = null;
 // The scroll position the page was last moved to for keeping your place, so that move is not taken for your scrolling.
 let adjusted = -1;
+// The pinned answer above the list, open when the list does not have its card; and what it last showed.
+let pinnedId = -1; let pinnedOpen = false; let shownPinned = '';
 
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') => { const node = document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; return node; };
 const show = (node: HTMLElement, text: string) => { node.textContent = text; node.hidden = !text; };
 const emptyFeed = make('p', 'empty-feed', 'Answers will appear here, newest at the bottom, as questions come in.');
+const pinIcon = () => ui.pinJump.querySelector('svg')!.cloneNode(true) as SVGElement; // The laptop's pin, drawn once in phone.html.
 function inline(parent: HTMLElement, segments: InlineSegment[]) {
   for (const segment of segments) parent.append(segment.bold || segment.code ? make(segment.bold ? 'b' : 'code', '', segment.text) : segment.text);
   return parent;
@@ -46,6 +50,11 @@ function entryCard(entry: MirrorEntry, live: MirrorState | null) {
   const head = make('div', 'eyebrow'); head.append(make('span', '', entry.possible ? 'Possible question' : 'Question'));
   if (entry.time) head.append(make('time', '', entry.time));
   if (entry.tag) head.append(make('span', 'tag', entry.tag));
+  // Pins or unpins it, as its pin on the laptop does: the live answer once it is written, and unpinning any time.
+  const pin = make('button', entry.pinned ? 'pin-toggle on' : 'pin-toggle'); pin.type = 'button'; pin.append(pinIcon());
+  pin.dataset.pin = String(entry.id); pin.dataset.on = String(!entry.pinned); pin.dataset.ready = String(!!entry.pinned || !live || (!live.generating && entry.blocks.length > 0));
+  pin.setAttribute('aria-pressed', String(!!entry.pinned)); pin.setAttribute('aria-label', entry.pinned ? 'Unpin answer' : 'Pin answer'); head.append(pin);
+  if (entry.pinned) card.dataset.pinned = '';
   const answer = make('div', 'answer'); answer.append(...entry.blocks.map(block));
   if (live && !entry.blocks.length && !live.answerError) answer.append(make('p', 'muted', live.generating ? 'Preparing response…' : 'Your answer will appear here.'));
   if (live?.answerError) answer.append(make('div', 'error', live.answerError));
@@ -136,6 +145,28 @@ function fitSpacer() {
   ui.spacer.style.height = `${Math.max(0, Math.floor(window.innerHeight - kept - below))}px`;
 }
 
+/** The pinned answer above the list, as on the laptop: its question, Show, and unpin. When the list does not have its card
+ * (it is older, or was rewritten since), Show opens the answer right here. */
+function renderPinned(live: boolean) {
+  const pinned = state?.pinned; if ((pinned?.id ?? -1) !== pinnedId) { pinnedId = pinned?.id ?? -1; pinnedOpen = false; }
+  const key = JSON.stringify([pinned, pinnedOpen, live]); if (key === shownPinned) return; shownPinned = key;
+  ui.pinned.hidden = !pinned; ui.pinJump.hidden = !pinned; if (!pinned) { ui.pinned.replaceChildren(); return; }
+  const head = make('div', 'pinned-head'); const toggle = make('button', 'pinned-show', pinned.entry && pinnedOpen ? 'Hide' : 'Show'); toggle.type = 'button';
+  const unpin = make('button', 'pinned-unpin', '✕'); unpin.type = 'button'; unpin.disabled = !live; unpin.setAttribute('aria-label', 'Unpin answer');
+  head.append(pinIcon(), make('p', '', pinned.question), toggle, unpin); ui.pinned.replaceChildren(head);
+  if (pinned.entry && pinnedOpen) { const answer = make('div', 'answer'); answer.append(...pinned.entry.blocks.map(block)); ui.pinned.append(answer); }
+}
+/** To the pinned answer's card, or, without one, open (or with `toggle`, close) it above the list. */
+function showPinned(toggle = false) {
+  const list = shownCards(); const index = list.findIndex(card => card.dataset.pinned !== undefined);
+  if (index >= 0) {
+    stepping = { index, until: Date.now() + 900 }; following = index === list.length - 1; if (following) ui.jump.hidden = true;
+    list[index].scrollIntoView({ behavior: 'smooth', block: 'start' }); showSteps(list); return;
+  }
+  pinnedOpen = toggle ? !pinnedOpen : true; render();
+  if (pinnedOpen) { following = false; ui.pinned.scrollIntoView({ behavior: 'smooth', block: 'start' }); } // A new answer does not pull you away from it.
+}
+
 function render() {
   // What you are reading stays where it is on screen while things above it change size (the line just heard, a notice,
   // the coach over the answer) and new answers arrive.
@@ -174,16 +205,25 @@ function render() {
   shown.forEach((node, index) => { if (ui.feed.children[index] !== node) ui.feed.insertBefore(node, ui.feed.children[index] ?? null); });
   document.body.classList.toggle('stepping', nodes.length > 1);
   for (const button of ui.feed.querySelectorAll<HTMLButtonElement>('.coach-refresh')) button.disabled = !live || !!state.coach?.busy;
+  for (const button of ui.feed.querySelectorAll<HTMLButtonElement>('.pin-toggle')) button.disabled = !live || button.dataset.ready !== 'true';
+  renderPinned(live);
 
-  const transcript = JSON.stringify([state.heard, state.interim]);
+  const transcript = JSON.stringify([state.heard, state.labels, state.interim]);
   if (transcript !== shownTranscript) {
     shownTranscript = transcript;
     const lines = state.heard.map(line => {
-      // A tap on a line answers it, like ↵ beside it on the laptop.
-      const row = make(line.id ? 'button' : 'div', `line ${line.speaker ?? ''}`); const words = make('span');
-      if (row instanceof HTMLButtonElement) { row.type = 'button'; row.dataset.line = String(line.id); row.title = 'Answer this line'; }
-      if (line.speaker) words.append(make('b', 'who', line.speaker === 'interviewer' ? 'Interviewer' : 'You'));
-      words.append(line.text); row.append(make('time', '', line.time), words); return row;
+      const row = make('div', `line ${line.speaker ?? ''}`); const words = make('span');
+      if (line.speaker || (state!.labels && line.id)) {
+        // A tap on the label switches it, as a click on it does on the laptop (unlabeled lines become the interviewer's).
+        const label = line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'; const other = line.speaker === 'interviewer' ? 'candidate' : 'interviewer';
+        const who = make(line.id ? 'button' : 'b', 'who', label);
+        if (who instanceof HTMLButtonElement) { who.type = 'button'; who.dataset.line = String(line.id); who.dataset.speaker = other; who.setAttribute('aria-label', `${label}: switch to ${other === 'candidate' ? 'You' : 'Interviewer'}`); }
+        words.append(who);
+      }
+      words.append(line.text); row.append(make('time', '', line.time), words);
+      // A tap anywhere else on the line answers it, like ↵ beside it on the laptop.
+      if (line.id) { row.dataset.line = String(line.id); const answer = make('button', 'answer-line', '↵'); answer.type = 'button'; answer.setAttribute('aria-label', 'Answer this line'); row.append(answer); }
+      return row;
     });
     if (state.interim) { const row = make('div', 'line interim'); row.append(make('time', '', 'live'), make('span', '', state.interim)); lines.push(row); }
     ui.transcript.replaceChildren(...(lines.length ? lines : [make('p', 'empty', 'Nothing heard yet.')]));
@@ -231,13 +271,26 @@ window.addEventListener('touchstart', event => { if (!ui.dock.contains(event.tar
 window.addEventListener('resize', () => { fitSpacer(); showSteps(); });
 ui.transcript.closest('details')?.addEventListener('toggle', fitSpacer);
 for (const button of ui.actions.querySelectorAll('button')) button.addEventListener('click', () => void send({ type: button.dataset.command } as MirrorCommand));
-// The coach's refresh is rebuilt with its card, so it is handled here; the next state shows the coach at work.
+// The coach's refresh and the pins are rebuilt with their cards, so they are handled here. The next state shows the coach
+// at work; if none comes (nothing changed), the refresh comes back after a few seconds.
 ui.feed.addEventListener('click', event => {
-  const button = (event.target as Element).closest<HTMLButtonElement>('.coach-refresh'); if (!button || button.disabled) return;
-  button.disabled = true; void send({ type: 'coach' });
+  const target = event.target as Element;
+  const refresh = target.closest<HTMLButtonElement>('.coach-refresh');
+  if (refresh && !refresh.disabled) { refresh.disabled = true; void send({ type: 'coach' }); window.setTimeout(render, 4000); return; }
+  const pin = target.closest<HTMLButtonElement>('.pin-toggle');
+  if (pin && !pin.disabled) void send({ type: 'pin', entry: Number(pin.dataset.pin), on: pin.dataset.on === 'true' });
 });
+ui.pinned.addEventListener('click', event => {
+  const target = event.target as Element;
+  if (target.closest('.pinned-show')) showPinned(true);
+  else if (target.closest('.pinned-unpin') && state?.pinned) void send({ type: 'pin', entry: state.pinned.id, on: false });
+});
+ui.pinJump.addEventListener('click', () => showPinned());
 ui.transcript.addEventListener('click', async event => {
-  const row = (event.target as Element).closest<HTMLButtonElement>('button[data-line]'); if (!row) return;
+  const target = event.target as Element;
+  const label = target.closest<HTMLButtonElement>('button.who');
+  if (label) { void send({ type: 'label', line: Number(label.dataset.line), speaker: label.dataset.speaker === 'candidate' ? 'candidate' : 'interviewer' }); return; }
+  const row = target.closest<HTMLElement>('.line[data-line]'); if (!row) return;
   row.classList.add('sent'); window.setTimeout(() => row.classList.remove('sent'), 1500);
   // Up to the live answer, which then follows the line being answered.
   if (await send({ type: 'answer', line: Number(row.dataset.line) })) jumpToNewest();

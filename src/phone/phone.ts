@@ -21,18 +21,20 @@ let flash = ''; let flashTimer = 0; let pending = false;
 let shownTranscript = '';
 // The running list: each card is rebuilt only when its content changes, and the others stay in the page, so reading or
 // selecting an earlier answer is not disturbed.
-const cards = new Map<number, { key: string; card: HTMLElement }>(); let newestId = -1; let following = true;
+const cards = new Map<number, { key: string; card: HTMLElement; fixing: boolean }>(); let newestId = -1; let following = true;
 // The answer a tap on Previous, Next, or New answer is scrolling to, until the scroll has had time to get there.
 let stepping: { index: number; until: number } | null = null;
 // The scroll position the page was last moved to for keeping your place, so that move is not taken for your scrolling.
 let adjusted = -1;
 // The pinned answer above the list, open when the list does not have its card; and what it last showed.
 let pinnedId = -1; let pinnedOpen = false; let shownPinned = '';
+// The live answer whose question is being fixed (its card is not rebuilt meanwhile), and whether the main questions are listed.
+let editing: { id: number } | null = null; let topicsOpen = false;
 
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') => { const node = document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; return node; };
 const show = (node: HTMLElement, text: string) => { node.textContent = text; node.hidden = !text; };
 const emptyFeed = make('p', 'empty-feed', 'Answers will appear here, newest at the bottom, as questions come in.');
-const pinIcon = () => ui.pinJump.querySelector('svg')!.cloneNode(true) as SVGElement; // The laptop's pin, drawn once in phone.html.
+const icon = (name: 'pin' | 'pencil') => byId<HTMLTemplateElement>('icons').content.querySelector(`[data-icon="${name}"]`)!.cloneNode(true) as SVGElement; // The laptop's, in phone.html.
 function inline(parent: HTMLElement, segments: InlineSegment[]) {
   for (const segment of segments) parent.append(segment.bold || segment.code ? make(segment.bold ? 'b' : 'code', '', segment.text) : segment.text);
   return parent;
@@ -50,17 +52,47 @@ function entryCard(entry: MirrorEntry, live: MirrorState | null) {
   const head = make('div', 'eyebrow'); head.append(make('span', '', entry.possible ? 'Possible question' : 'Question'));
   if (entry.time) head.append(make('time', '', entry.time));
   if (entry.tag) head.append(make('span', 'tag', entry.tag));
+  const tools = make('span', 'tools'); head.append(tools);
+  // On the live answer, the pencil fixes a misheard question right there, as it does on the laptop.
+  if (live) { const pencil = make('button', 'edit-toggle'); pencil.type = 'button'; pencil.append(icon('pencil')); pencil.dataset.ready = String(!!entry.question && editing?.id !== entry.id); pencil.setAttribute('aria-label', 'Fix the question'); tools.append(pencil); }
   // Pins or unpins it, as its pin on the laptop does: the live answer once it is written, and unpinning any time.
-  const pin = make('button', entry.pinned ? 'pin-toggle on' : 'pin-toggle'); pin.type = 'button'; pin.append(pinIcon());
+  const pin = make('button', entry.pinned ? 'pin-toggle on' : 'pin-toggle'); pin.type = 'button'; pin.append(icon('pin'));
   pin.dataset.pin = String(entry.id); pin.dataset.on = String(!entry.pinned); pin.dataset.ready = String(!!entry.pinned || !live || (!live.generating && entry.blocks.length > 0));
-  pin.setAttribute('aria-pressed', String(!!entry.pinned)); pin.setAttribute('aria-label', entry.pinned ? 'Unpin answer' : 'Pin answer'); head.append(pin);
+  pin.setAttribute('aria-pressed', String(!!entry.pinned)); pin.setAttribute('aria-label', entry.pinned ? 'Unpin answer' : 'Pin answer'); tools.append(pin);
   if (entry.pinned) card.dataset.pinned = '';
   const answer = make('div', 'answer'); answer.append(...entry.blocks.map(block));
   if (live && !entry.blocks.length && !live.answerError) answer.append(make('p', 'muted', live.generating ? 'Preparing response…' : 'Your answer will appear here.'));
   if (live?.answerError) answer.append(make('div', 'error', live.answerError));
   answer.classList.toggle('writing', !!live?.generating && entry.blocks.length > 0);
-  card.append(head, make('p', 'question', entry.question || 'Waiting for a question…'));
-  if (live?.topic) { const topic = make('div', 'topic'); topic.append(make('div', 'eyebrow', 'Main question'), make('p', 'title', live.topic.title)); if (live.topic.question !== live.topic.title) topic.append(make('p', '', live.topic.question)); card.prepend(topic); }
+  if (editing?.id === entry.id) {
+    // Enter (or the button) answers the corrected question instead, in place, and fixes its transcript line on the laptop.
+    const box = make('textarea', 'question-edit'); box.value = entry.question; box.maxLength = 2000; box.rows = Math.min(5, Math.ceil(entry.question.length / 30) || 1);
+    box.setAttribute('enterkeyhint', 'send'); box.setAttribute('aria-label', 'Question');
+    const actions = make('div', 'edit-actions'); const cancel = make('button', 'edit-cancel', 'Cancel'); const save = make('button', 'edit-save', 'Answer this instead');
+    cancel.type = save.type = 'button'; actions.append(cancel, save); card.append(head, box, actions);
+  } else card.append(head, make('p', 'question', entry.question || 'Waiting for a question…'));
+  const topics = live?.topics; const current = topics?.list.find(topic => topic.id === topics.current);
+  if (topics && (current || (topics.busy && !topics.list.length && live!.listening !== 'off'))) {
+    const block = make('div', 'topic'); const top = make('div', 'topic-head'); top.append(make('div', 'eyebrow', 'Main question'));
+    // All of them so far are a tap away, as on the laptop, and ↻ checks for a new one now.
+    if (topics.list.length > 1) { const count = make('button', 'topic-count', `${topics.list.indexOf(current!) + 1} of ${topics.list.length} ${topicsOpen ? '▴' : '▾'}`); count.type = 'button'; count.setAttribute('aria-expanded', String(topicsOpen)); top.append(count); }
+    const refresh = make('button', 'topic-refresh', '↻'); refresh.type = 'button'; refresh.dataset.ready = String(!topics.busy); refresh.setAttribute('aria-label', 'Check the main question again'); top.append(refresh);
+    block.append(top);
+    if (current) { block.append(make('p', 'title', current.title)); if (current.question !== current.title) block.append(make('p', '', current.question)); }
+    else block.append(make('p', '', 'Working out the main question…'));
+    if (topicsOpen && topics.list.length > 1) {
+      // Newest first, numbered from the first; a tap shows where it was asked when the phone still has that line.
+      const list = make('ol', 'topic-list');
+      [...topics.list].reverse().forEach((topic, index) => {
+        const item = make('li', topic.id === topics.current ? 'current' : ''); item.value = topics.list.length - index;
+        const label = make(topic.from ? 'button' : 'div', 'topic-item'); if (label instanceof HTMLButtonElement) { label.type = 'button'; label.dataset.from = String(topic.from); }
+        label.append(make('b', '', topic.title)); if (topic.question !== topic.title) label.append(make('span', '', topic.question));
+        item.append(label); list.append(item);
+      });
+      block.append(list);
+    }
+    card.prepend(block);
+  }
   if (live?.coach) {
     const { key, points, tip, busy, after, missing } = live.coach;
     const coach = make('div', busy ? 'coach busy' : 'coach'); const head = make('div', 'coach-head');
@@ -153,7 +185,7 @@ function renderPinned(live: boolean) {
   ui.pinned.hidden = !pinned; ui.pinJump.hidden = !pinned; if (!pinned) { ui.pinned.replaceChildren(); return; }
   const head = make('div', 'pinned-head'); const toggle = make('button', 'pinned-show', pinned.entry && pinnedOpen ? 'Hide' : 'Show'); toggle.type = 'button';
   const unpin = make('button', 'pinned-unpin', '✕'); unpin.type = 'button'; unpin.disabled = !live; unpin.setAttribute('aria-label', 'Unpin answer');
-  head.append(pinIcon(), make('p', '', pinned.question), toggle, unpin); ui.pinned.replaceChildren(head);
+  head.append(icon('pin'), make('p', '', pinned.question), toggle, unpin); ui.pinned.replaceChildren(head);
   if (pinned.entry && pinnedOpen) { const answer = make('div', 'answer'); answer.append(...pinned.entry.blocks.map(block)); ui.pinned.append(answer); }
 }
 /** To the pinned answer's card, or, without one, open (or with `toggle`, close) it above the list. */
@@ -172,6 +204,10 @@ function render() {
   // the coach over the answer) and new answers arrive.
   const place = readingPlace();
   const live = !!state && laptop && connected && !ended;
+  // A fix in progress ends once its answer is no longer the live one (a new question came in), as on the laptop.
+  if (editing && !(state?.live && state.entries[state.entries.length - 1]?.id === editing.id)) {
+    editing = null; flash = 'A new question came in, so the one you were fixing has moved on.'; window.clearTimeout(flashTimer); flashTimer = window.setTimeout(() => { flash = ''; render(); }, 5000);
+  }
   ui.connection.textContent = ended === 'expired' ? 'Link expired' : ended ? 'Mirror off' : !connected ? 'Reconnecting…' : laptop ? 'Connected' : 'Laptop closed';
   ui.connection.className = `connection ${live ? 'live' : ended || !connected || !laptop ? 'problem' : ''}`;
   show(ui.banner, ended === 'expired' ? "This link has expired. Open the Phone panel in Roomside on your laptop and scan the new code."
@@ -194,8 +230,10 @@ function render() {
   const nodes: HTMLElement[] = []; const kept = new Set<number>();
   state.entries.forEach((entry, index) => {
     const live = state!.live && index === state!.entries.length - 1 ? state : null;
-    const key = JSON.stringify([entry, live && [live.generating, live.answerError, live.status, live.coach, live.topic]]);
-    let item = cards.get(entry.id); if (!item || item.key !== key) { item = { key, card: entryCard(entry, live) }; cards.set(entry.id, item); }
+    const fixing = editing?.id === entry.id;
+    const key = JSON.stringify([entry, live && [live.generating, live.answerError, live.status, live.coach, live.topics, live.listening, topicsOpen], fixing]);
+    // The card being fixed is built once for it and then left alone, so what you type survives the answer streaming on.
+    let item = cards.get(entry.id); if (!item || (item.key !== key && !(fixing && item.fixing))) { item = { key, card: entryCard(entry, live), fixing }; cards.set(entry.id, item); }
     kept.add(entry.id); nodes.push(item.card);
   });
   for (const id of cards.keys()) if (!kept.has(id)) cards.delete(id);
@@ -205,7 +243,7 @@ function render() {
   shown.forEach((node, index) => { if (ui.feed.children[index] !== node) ui.feed.insertBefore(node, ui.feed.children[index] ?? null); });
   document.body.classList.toggle('stepping', nodes.length > 1);
   for (const button of ui.feed.querySelectorAll<HTMLButtonElement>('.coach-refresh')) button.disabled = !live || !!state.coach?.busy;
-  for (const button of ui.feed.querySelectorAll<HTMLButtonElement>('.pin-toggle')) button.disabled = !live || button.dataset.ready !== 'true';
+  for (const button of ui.feed.querySelectorAll<HTMLButtonElement>('.pin-toggle, .edit-toggle, .topic-refresh')) button.disabled = !live || button.dataset.ready !== 'true';
   renderPinned(live);
 
   const transcript = JSON.stringify([state.heard, state.labels, state.interim]);
@@ -271,21 +309,51 @@ window.addEventListener('touchstart', event => { if (!ui.dock.contains(event.tar
 window.addEventListener('resize', () => { fitSpacer(); showSteps(); });
 ui.transcript.closest('details')?.addEventListener('toggle', fitSpacer);
 for (const button of ui.actions.querySelectorAll('button')) button.addEventListener('click', () => void send({ type: button.dataset.command } as MirrorCommand));
-// The coach's refresh and the pins are rebuilt with their cards, so they are handled here. The next state shows the coach
-// at work; if none comes (nothing changed), the refresh comes back after a few seconds.
+function startFix(id: number) {
+  editing = { id }; render();
+  const box = ui.feed.querySelector<HTMLTextAreaElement>('.question-edit'); if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+}
+const stopFix = () => { editing = null; render(); };
+/** Sends the corrected question; the laptop answers it in place, and the editor closes once it has taken it. */
+async function saveFix() {
+  const id = editing?.id; const text = ui.feed.querySelector<HTMLTextAreaElement>('.question-edit')?.value.trim();
+  if (id !== undefined && text && await send({ type: 'fix', entry: id, text }) && editing?.id === id) stopFix();
+}
+/** Opens the transcript at a line, as the laptop shows where a main question was asked, when the phone still has it. */
+function showLine(id: number) {
+  const row = ui.transcript.querySelector<HTMLElement>(`.line[data-line="${id}"]`);
+  if (!row) { notify('That was asked before the 30 lines the phone shows. The transcript on your laptop has it.'); return; }
+  const details = ui.transcript.closest('details'); if (details) details.open = true;
+  following = false; row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.add('flash'); window.setTimeout(() => row.classList.remove('flash'), 1600);
+}
+// The controls on the cards are rebuilt with them, so they are handled here. The next state shows the coach or the main
+// questions at work; if none comes (nothing changed), their refresh comes back after a few seconds.
 ui.feed.addEventListener('click', event => {
   const target = event.target as Element;
-  const refresh = target.closest<HTMLButtonElement>('.coach-refresh');
-  if (refresh && !refresh.disabled) { refresh.disabled = true; void send({ type: 'coach' }); window.setTimeout(render, 4000); return; }
+  const refresh = target.closest<HTMLButtonElement>('.coach-refresh, .topic-refresh');
+  if (refresh && !refresh.disabled) { refresh.disabled = true; void send({ type: refresh.matches('.coach-refresh') ? 'coach' : 'topics' }); window.setTimeout(render, 4000); return; }
   const pin = target.closest<HTMLButtonElement>('.pin-toggle');
-  if (pin && !pin.disabled) void send({ type: 'pin', entry: Number(pin.dataset.pin), on: pin.dataset.on === 'true' });
+  if (pin && !pin.disabled) { void send({ type: 'pin', entry: Number(pin.dataset.pin), on: pin.dataset.on === 'true' }); return; }
+  const pencil = target.closest<HTMLButtonElement>('.edit-toggle');
+  if (pencil && !pencil.disabled) { startFix(Number(pencil.closest<HTMLElement>('.entry')!.dataset.entry)); return; }
+  if (target.closest('.edit-cancel')) stopFix();
+  else if (target.closest('.edit-save')) void saveFix();
+  else if (target.closest('.topic-count')) { topicsOpen = !topicsOpen; render(); }
+  else { const asked = target.closest<HTMLElement>('.topic-item[data-from]'); if (asked) showLine(Number(asked.dataset.from)); }
+});
+// Enter answers the corrected question, as on the laptop (a question is one line), and Escape cancels.
+ui.feed.addEventListener('keydown', event => {
+  if (!(event.target as Element).matches('.question-edit') || event.isComposing) return;
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void saveFix(); }
+  else if (event.key === 'Escape') { event.preventDefault(); stopFix(); }
 });
 ui.pinned.addEventListener('click', event => {
   const target = event.target as Element;
   if (target.closest('.pinned-show')) showPinned(true);
   else if (target.closest('.pinned-unpin') && state?.pinned) void send({ type: 'pin', entry: state.pinned.id, on: false });
 });
-ui.pinJump.addEventListener('click', () => showPinned());
+ui.pinJump.append(icon('pin')); ui.pinJump.addEventListener('click', () => showPinned());
 ui.transcript.addEventListener('click', async event => {
   const target = event.target as Element;
   const label = target.closest<HTMLButtonElement>('button.who');

@@ -98,6 +98,11 @@ describe('PhoneMirror', () => {
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'label', line: 12, speaker: 'candidate' } });
     expect((await command(url, { type: 'pin', entry: 3, on: true })).status).toBe(202);
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'pin', entry: 3, on: true } });
+    // Fixing a misheard question, and checking the main questions again.
+    expect((await command(url, { type: 'fix', entry: 3, text: ' How would you design a URL shortener? ' })).status).toBe(202);
+    expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'fix', entry: 3, text: 'How would you design a URL shortener?' } });
+    expect((await command(url, { type: 'topics' })).status).toBe(202);
+    expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'topics' } });
     expect((await command(url, { type: 'coach' })).status).toBe(202);
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'coach' } });
     expect((await command(url, { type: 'mode', mode: 'LOUD' })).status).toBe(400);
@@ -188,6 +193,10 @@ describe('parseCommand', () => {
     expect(parseCommand({ type: 'pin', entry: 4, on: false })).toEqual({ type: 'pin', entry: 4, on: false });
     for (const value of [{ entry: 4 }, { entry: 4, on: 'true' }, { entry: -1, on: true }, { entry: 1.5, on: false }]) expect(parseCommand({ type: 'pin', ...value })).toBeNull();
     expect(parseCommand({ type: 'flip', line: 7 })).toBeNull();
+    // A fix names its answer and takes a question as typed ones do.
+    expect(parseCommand({ type: 'fix', entry: 2, text: '  What is a VPN?  ' })).toEqual({ type: 'fix', entry: 2, text: 'What is a VPN?' });
+    for (const value of [{ entry: 2, text: ' ' }, { entry: 2, text: 'x'.repeat(2001) }, { entry: 2 }, { entry: -1, text: 'What is a VPN?' }, { entry: '2', text: 'What is a VPN?' }]) expect(parseCommand({ type: 'fix', ...value })).toBeNull();
+    expect(parseCommand({ type: 'topics', list: [] })).toEqual({ type: 'topics' });
     expect(parseCommand({ type: 'clear' })).toBeNull();
     expect(parseCommand(null)).toBeNull();
   });

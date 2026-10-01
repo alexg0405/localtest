@@ -14,14 +14,16 @@ import { isLocalRequest, readBody } from './http';
 
 type Laptop = { id: string; tab: string; res: ServerResponse };
 
-const simpleCommands = ['listen', 'stop', 'shorter', 'detailed', 'followup', 'regenerate', 'coach'];
+const simpleCommands = ['listen', 'stop', 'shorter', 'detailed', 'followup', 'regenerate', 'coach', 'topics'];
 const modes = ['SHORT', 'STANDARD', 'DETAILED', 'BULLETS'];
+const question = (value: unknown) => typeof value === 'string' && value.trim() && value.length <= 2000 ? value.trim() : '';
 
 /** Accepts only the commands the laptop page knows how to carry out. */
 export function parseCommand(value: any): MirrorCommand | null {
   if (!value || typeof value !== 'object') return null;
   if (simpleCommands.includes(value.type)) return { type: value.type };
-  if (value.type === 'ask' && typeof value.text === 'string' && value.text.trim() && value.text.length <= 2000) return { type: 'ask', text: value.text.trim() };
+  if (value.type === 'ask' && question(value.text)) return { type: 'ask', text: question(value.text) };
+  if (value.type === 'fix' && Number.isSafeInteger(value.entry) && value.entry >= 0 && question(value.text)) return { type: 'fix', entry: value.entry, text: question(value.text) };
   if (value.type === 'answer' && Number.isSafeInteger(value.line) && value.line > 0) return { type: 'answer', line: value.line };
   if (value.type === 'label' && Number.isSafeInteger(value.line) && value.line > 0 && (value.speaker === 'interviewer' || value.speaker === 'candidate')) return { type: 'label', line: value.line, speaker: value.speaker };
   // Answers are numbered from 0, the sample answer shown before anything is asked.

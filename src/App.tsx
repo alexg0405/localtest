@@ -651,9 +651,9 @@ export default function App() {
   const followUp = useCallback(() => rework({ mode: 'SHORT', followUp: true }), [rework]);
   const regenerate = useCallback(() => rework({ mode: shownMode, followUp: answerKind === 'followup' }), [rework, shownMode, answerKind]);
   // A corrected question is answered in place on its card, and fixes the transcript line it came from, so later answers
-  // remember the right words too.
-  const saveEdit = useCallback(() => {
-    const text = editing?.text.trim(); setEditing(null);
+  // remember the right words too. `fixed` is a correction made on the phone mirror instead of here.
+  const saveEdit = useCallback((fixed?: string) => {
+    const text = (fixed ?? editing?.text)?.trim(); setEditing(null);
     if (!text || text === question.trim()) return;
     const heard = compactText(question); const lines = transcriptRef.current;
     for (let index = lines.length - 1; index >= 0; index--) {
@@ -673,8 +673,10 @@ export default function App() {
       // Pinning the current answer works as its pin does here: not while it is still being written.
       else if (command.type === 'pin' && !command.on) setPinned(current => current?.id === command.entry ? null : current);
       else if (command.type === 'pin') { if (command.entry === entryId && showCurrent) { if (!currentPinned && canPin) togglePin(); } else { const entry = history.find(item => item.id === command.entry); if (entry) setPinned(entry); } }
+      else if (command.type === 'fix') { if (command.entry === entryId && showCurrent) saveEdit(command.text); } // Only the latest answer, as its pencil here.
       else if (command.type === 'mode') chooseMode(command.mode);
       else if (command.type === 'coach') refreshCoach();
+      else if (command.type === 'topics') runTopics();
       else ({ shorter, detailed, followup: followUp, regenerate })[command.type]();
     };
   });
@@ -895,7 +897,7 @@ export default function App() {
     const entries = showCurrent ? [...past, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks), ...(currentPinned ? { pinned: true } : {}) }] : past;
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
-      entries, total: history.length + (showCurrent ? 1 : 0), live: showCurrent, generating, status, answerError, mode, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
+      entries, total: history.length + (showCurrent ? 1 : 0), live: showCurrent, generating, status, answerError, mode, topics: trackTopics && (topics.list.length || topicsBusy) ? { ...topics, busy: topicsBusy } : undefined,
       pinned: pinned ? { id: pinned.id, question: pinned.question, ...(entries.some(entry => entry.pinned) ? {} : { entry: forPhone(pinned) }) } : undefined,
       // The coach as it shows here, working or not; the phone has no Context panel to link to.
       coach: liveCoach && liveAnswers && coach ? { key: coach.key, points: coach.points, tip: coach.tip, busy: coach.busy, after: coach.after || undefined, missing: coachMissing.replace(/\s*→$/, '') || undefined } : undefined,

@@ -43,7 +43,7 @@
 <div class="dock" id="dock">
   <button class="jump" id="jump" type="button" hidden>New answer ↓</button>
   <nav class="steps" id="steps" aria-label="Questions" hidden>
-    <button class="pin-jump" id="pin-jump" type="button" aria-label="Show the pinned answer" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg></button>
+    <button class="pin-jump" id="pin-jump" type="button" aria-label="Show the pinned answer" hidden></button>
     <button id="previous" type="button">↑ Previous</button>
     <span id="position"></span>
     <button id="next" type="button">Next ↓</button>
@@ -53,5 +53,9 @@
     <button id="ask-send" type="submit" aria-label="Send question" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
   </form>
 </div>
+<template id="icons"><!-- The laptop's pin and pencil (Lucide's), for phone.ts to copy. -->
+  <svg data-icon="pin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+  <svg data-icon="pencil" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+</template>
 </body>
 </html>

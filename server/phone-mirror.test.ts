@@ -105,6 +105,8 @@ describe('PhoneMirror', () => {
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'topics' } });
     expect((await command(url, { type: 'now' })).status).toBe(202); // Answer now.
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'now' } });
+    expect((await command(url, { type: 'probe' })).status).toBe(202); // Follow-up on my answer.
+    expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'probe' } });
     expect((await command(url, { type: 'coach' })).status).toBe(202);
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'coach' } });
     expect((await command(url, { type: 'mode', mode: 'LOUD' })).status).toBe(400);
@@ -200,6 +202,7 @@ describe('parseCommand', () => {
     for (const value of [{ entry: 2, text: ' ' }, { entry: 2, text: 'x'.repeat(2001) }, { entry: 2 }, { entry: -1, text: 'What is a VPN?' }, { entry: '2', text: 'What is a VPN?' }]) expect(parseCommand({ type: 'fix', ...value })).toBeNull();
     expect(parseCommand({ type: 'topics', list: [] })).toEqual({ type: 'topics' });
     expect(parseCommand({ type: 'now', text: 'ignored' })).toEqual({ type: 'now' }); // Answers what the laptop heard, not what the phone says.
+    expect(parseCommand({ type: 'probe', said: 'ignored' })).toEqual({ type: 'probe' }); // So does the follow-up on your answer.
     expect(parseCommand({ type: 'clear' })).toBeNull();
     expect(parseCommand(null)).toBeNull();
   });

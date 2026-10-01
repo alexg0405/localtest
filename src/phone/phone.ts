@@ -217,7 +217,8 @@ function render() {
   ui.askSend.disabled = !live; ui.now.disabled = !live || !(state?.heard.length || state?.interim);
   for (const button of ui.modes.querySelectorAll('button')) { button.disabled = !live; button.classList.toggle('active', button.dataset.mode === state?.mode); button.setAttribute('aria-pressed', String(button.dataset.mode === state?.mode)); }
   const current = state?.live ? state.entries[state.entries.length - 1] : undefined;
-  for (const button of ui.actions.querySelectorAll('button')) button.disabled = !live || !current?.question;
+  // Follow-up on my answer waits until you have said something to the question.
+  for (const button of ui.actions.querySelectorAll<HTMLButtonElement>('button')) button.disabled = !live || !current?.question || (button.dataset.command === 'probe' && !state?.replied);
   if (!state) { ui.listen.disabled = true; return; }
 
   ui.mic.className = `mic ${state.listening}`; ui.micLabel.textContent = listeningLabels[state.listening];

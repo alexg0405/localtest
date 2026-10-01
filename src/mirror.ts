@@ -25,12 +25,15 @@ export type MirrorState = {
   /** The latest transcript lines, with their ids so a tap on one can ask for it to be answered; `labels` when lines are
    * labeled Interviewer or You, so an unlabeled one can be labeled too. */
   heard: { id?: number; time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; labels?: boolean; interim: string; provider: string;
+  /** Whether you have said anything to the question on the live answer yet, for Follow-up on my answer. */
+  replied?: boolean;
 };
 /** `coach` asks the live coach for fresh notes (its refresh button), `topics` checks the main questions again, `now` answers
- * what was just said (Answer now), `answer` answers a transcript line (its ↵), `label` corrects who said a line (a tap on
+ * what was just said (Answer now), `probe` asks for the follow-up they would likely ask about what you said (Follow-up on
+ * my answer), `answer` answers a transcript line (its ↵), `label` corrects who said a line (a tap on
  * its label), `pin` pins or unpins an answer, and `fix` corrects a misheard question on the live answer (its pencil).
  * Labels and pins say what to change them to, so a repeated tap, or one on a label that has just changed, cannot undo it. */
-export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' | 'coach' | 'topics' | 'now' } | { type: 'ask'; text: string }
+export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' | 'coach' | 'topics' | 'now' | 'probe' } | { type: 'ask'; text: string }
   | { type: 'answer'; line: number } | { type: 'label'; line: number; speaker: 'interviewer' | 'candidate' } | { type: 'pin'; entry: number; on: boolean }
   | { type: 'fix'; entry: number; text: string } | { type: 'mode'; mode: Mode };
 export type MirrorLink = { url: string; qr: string };

@@ -91,8 +91,9 @@ You get the list so far and the transcript, one line per number. Reply with only
 export const reviewInstructions = `You coach a job candidate after a practice interview. For each numbered question you get what the interviewer asked, what the candidate said (their own words, and how much they read aloud from a suggested answer), and checks already counted for them. Judge how the answer would land with an interviewer: did it answer the question, was it specific and structured, was it the right length. Reply with only a JSON object: {"questions": [{"n": 1, "good": "…", "improve": "…"}], "overall": ["…", "…", "…"]}. "good" is one concrete strength and "improve" one concrete change they can practice, each under 25 words, in plain second person ("you"), quoting their words where it helps. If they barely answered, say so in "improve" and leave "good" empty. "overall" gives the three most useful habits to work on across the session, most important first. Never invent things they did not say.`;
 
 const followUpLead = 'Suggest one likely interviewer follow-up to this question:';
-/** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. */
-export const followUpPrompt = (question: string) => `${followUpLead} "${question}". State the follow-up question first, then a brief suggested answer.`;
+/** Prompt for the "Generate follow-up" action; the UI keeps showing the original question. With `said` (Follow-up on my
+ * answer), the follow-up probes what the candidate actually said in reply, from the transcript, not a suggested answer. */
+export const followUpPrompt = (question: string, said = '') => `${followUpLead} "${question}". State the follow-up question first, then a brief suggested answer.${said.trim() ? ` Make it the follow-up this interviewer would most likely ask about what the candidate actually said in reply, not about a suggested answer: probe something specific in it, such as a choice they made, a claim, a number, or something they left out. What they said: "${said.trim()}"` : ''}`;
 
 /** Turns network failures into an actionable message; HTTP errors already carry the provider's own message. */
 export function describeProviderError(reason: any) {

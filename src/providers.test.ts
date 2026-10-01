@@ -168,6 +168,15 @@ describe('LocalDemoProvider', () => {
     expect(await demo.answer(followUpPrompt('Tell me about a time you failed'), '', 'SHORT')).toMatch(/differently/);
   });
 
+  it('asks for the follow-up on what the candidate actually said, for Follow-up on my answer', async () => {
+    const probe = followUpPrompt('How would you scale it?', '  I would shard by user and cache the hot reads  ');
+    expect(probe).toContain('about what the candidate actually said in reply, not about a suggested answer');
+    expect(probe.endsWith('What they said: "I would shard by user and cache the hot reads"')).toBe(true);
+    expect(followUpPrompt('How would you scale it?', ' ')).toBe(followUpPrompt('How would you scale it?')); // Nothing said yet.
+    // The offline demo still finds the question in it.
+    expect(await demo.answer(followUpPrompt('What is the difference between a process and a thread?', 'a process has its own memory'), '', 'SHORT')).toMatch(/^QUESTION\nWhy are threads generally cheaper/);
+  });
+
   it('adds supporting detail in DETAILED mode', async () => {
     expect(await demo.answer('Explain the CAP theorem', '', 'DETAILED')).toMatch(/SUPPORTING DETAIL/);
   });

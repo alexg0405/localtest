@@ -23,10 +23,10 @@ import { ReviewPanel, type CoachingState } from './ReviewPanel';
 type Line = SessionLine;
 type AudioInput = { deviceId: string; label: string };
 /** `replace` updates the current card instead of starting a new one (a question that continued after a pause), `keep`
- * leaves the old answer up until the new one starts arriving, and `before` is what the candidate said to the question
- * before, for a follow-up to go on from. */
+ * leaves the old answer up until the new one starts arriving, `before` is what the candidate said to the question
+ * before, for a follow-up to go on from, and `said` what they have said to this one, for a follow-up on their answer. */
 type Before = { asked: string; said: string };
-type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean; replace?: boolean; keep?: boolean; before?: Before };
+type GenerateOptions = { mode?: Mode; uncertain?: boolean; partial?: boolean; followUp?: boolean; replace?: boolean; keep?: boolean; before?: Before; said?: string };
 /** `words` are what a preview heard (the open line and the words still coming). */
 type LiveUpdate = { step: Exclude<LiveStep, { action: 'hold' }>; partial: boolean; uncertain?: boolean; words?: string; before?: Before };
 const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
@@ -212,7 +212,7 @@ export default function App() {
     setQuestion(text); setLowConfidence(!!options.uncertain); setAnswerError(''); setShownMode(selectedMode); setAnswerKind(options.followUp ? 'followup' : 'answer'); setGenerating(true); setStatus(options.keep ? 'Updating…' : 'Preparing response…');
     let fresh = !!options.keep; // The first words replace the answer kept up meanwhile.
     try {
-      const result = await provider().answer(options.followUp ? followUpPrompt(text) : text, context(text, options.before), selectedMode, chunk => {
+      const result = await provider().answer(options.followUp ? followUpPrompt(text, options.said) : text, context(text, options.before), selectedMode, chunk => {
         if (!current.signal.aborted) { const first = fresh; fresh = false; setAnswer(value => first ? chunk : value + chunk); setStatus('Writing response…'); }
       }, current.signal);
       if (!current.signal.aborted) { setAnswer(result); setStatus(result.trim() ? 'Response ready' : 'The provider returned an empty response'); }
@@ -654,6 +654,12 @@ export default function App() {
   const detailed = useCallback(() => rework({ mode: 'DETAILED' }), [rework]);
   const followUp = useCallback(() => rework({ mode: 'SHORT', followUp: true }), [rework]);
   const regenerate = useCallback(() => rework({ mode: shownMode, followUp: answerKind === 'followup' }), [rework, shownMode, answerKind]);
+  // What you have said to the question on the card, from the transcript: since it was asked (with the words still coming),
+  // or, without a live answer, your latest lines.
+  const saidToQuestion = () => (liveTurn.current ? [...liveTurn.current.said, browserFinal.current, interimRef.current]
+    : transcriptRef.current.slice(-6).filter(line => line.speaker === 'candidate').map(line => line.text)).filter(Boolean).join(' ').trim();
+  // Follow-up on my answer: the follow-up they would likely ask about what you actually said, not about a suggested answer.
+  const followUpOnAnswer = () => { const said = saidToQuestion(); if (question.trim() && said) rework({ mode: 'SHORT', followUp: true, said: said.length > 1500 ? `…${said.slice(-1500)}` : said }); };
   // A corrected question is answered in place on its card, and fixes the transcript line it came from, so later answers
   // remember the right words too. `fixed` is a correction made on the phone mirror instead of here.
   const saveEdit = useCallback((fixed?: string) => {
@@ -682,6 +688,7 @@ export default function App() {
       else if (command.type === 'coach') refreshCoach();
       else if (command.type === 'topics') runTopics();
       else if (command.type === 'now') answerNow();
+      else if (command.type === 'probe') followUpOnAnswer();
       else ({ shorter, detailed, followup: followUp, regenerate })[command.type]();
     };
   });
@@ -906,7 +913,7 @@ export default function App() {
       pinned: pinned ? { id: pinned.id, question: pinned.question, ...(entries.some(entry => entry.pinned) ? {} : { entry: forPhone(pinned) }) } : undefined,
       // The coach as it shows here, working or not; the phone has no Context panel to link to.
       coach: liveCoach && liveAnswers && coach ? { key: coach.key, points: coach.points, tip: coach.tip, busy: coach.busy, after: coach.after || undefined, missing: coachMissing.replace(/\s*→$/, '') || undefined } : undefined,
-      heard: transcript.slice(-30).map(({ id, time, text, speaker }) => ({ id, time, text, ...(speakers && speaker ? { speaker } : {}) })), labels: speakers, interim, provider: providerLabel,
+      heard: transcript.slice(-30).map(({ id, time, text, speaker }) => ({ id, time, text, ...(speakers && speaker ? { speaker } : {}) })), labels: speakers, interim, provider: providerLabel, replied: !!question.trim() && !!saidToQuestion(),
     });
   });
   const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];
@@ -983,7 +990,7 @@ export default function App() {
                 <div className="edit-hint">Enter to answer this instead · Esc to cancel</div></>
                 : <div className="question-text">{question || 'Waiting for a question…'}</div>}
               <div className="response-content" aria-live="polite" aria-busy={generating}><AnswerContent blocks={blocks}/>{!blocks.length && !answerError && (generating ? <div className="typing" aria-hidden="true"><i/><i/><i/></div> : <p className="muted">Your answer will appear here.</p>)}{answerError && <div className="answer-error" role="alert">{answerError}</div>}</div>
-              <div className="qa-foot"><span className={'answer-state' + (generating ? ' busy' : answerError ? ' failed' : '')}><i/><span>{status}</span></span><span className="quick-actions"><button onClick={shorter} disabled={!question} title={`Shorter answer (${mod} 1)`}>Shorter</button><button onClick={detailed} disabled={!question} title={`Explain more (${mod} 2)`}>More detail</button><button onClick={followUp} disabled={!question} title="Prepare for the likely follow-up question">Follow-up</button><button onClick={regenerate} disabled={!question} title="Regenerate" aria-label="Regenerate"><RefreshCw size={13}/></button></span></div>
+              <div className="qa-foot"><span className={'answer-state' + (generating ? ' busy' : answerError ? ' failed' : '')}><i/><span>{status}</span></span><span className="quick-actions"><button onClick={shorter} disabled={!question} title={`Shorter answer (${mod} 1)`}>Shorter</button><button onClick={detailed} disabled={!question} title={`Explain more (${mod} 2)`}>More detail</button><button onClick={followUp} disabled={!question} title="Prepare for the likely follow-up question">Follow-up</button><button onClick={followUpOnAnswer} disabled={!question.trim() || !saidToQuestion()} title="The follow-up they would likely ask about what you actually said">Follow-up on my answer</button><button onClick={regenerate} disabled={!question} title="Regenerate" aria-label="Regenerate"><RefreshCw size={13}/></button></span></div>
             </article> : !history.length && <div className="empty-answers"><b>Suggested answers appear here</b><span>{liveAnswers ? 'One live answer keeps up with the conversation as people talk, and earlier ones collect below it.' : 'When a question is heard or typed, an answer streams in.'} The length you pick above applies to every answer.</span></div>}
             {history.length > 0 && <section className="earlier" aria-label="Earlier answers"><button className="earlier-toggle" onClick={() => setEarlierOpen(open => !open)} aria-expanded={earlierOpen}><ChevronDown size={14}/><b>Earlier</b><span className="earlier-count">{history.length}</span>{!earlierOpen && <span className="earlier-preview">{earlier.slice(0, 3).map(entry => entry.question).join(' · ')}</span>}</button>
               {earlierOpen && earlier.map(entry => <PastAnswer key={entry.id} entry={entry} pinned={pinned?.id === entry.id} onPin={pinEntry} onCopy={copyText}/>)}</section>}

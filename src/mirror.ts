@@ -14,11 +14,14 @@ export type MirrorState = {
   total?: number;
   /** The main question being worked on now (see topics.ts). */
   topic?: { title: string; question: string };
-  /** The live coach's notes on the question being answered: the key idea to land, the next points, and a tip. */
-  coach?: { key: string; points: string[]; tip: string };
-  heard: { time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; interim: string; provider: string;
+  /** The live coach's notes on the question being answered: the key idea to land, the next points, and a tip; `busy` while
+   * it works on them, `after` the last words it coached on, and `missing` what to add in Context for notes about you. */
+  coach?: { key: string; points: string[]; tip: string; busy?: boolean; after?: string; missing?: string };
+  /** The latest transcript lines, with their ids so a tap on one can ask for it to be answered. */
+  heard: { id?: number; time: string; text: string; speaker?: 'interviewer' | 'candidate' }[]; interim: string; provider: string;
 };
-export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' } | { type: 'ask'; text: string } | { type: 'mode'; mode: Mode };
+/** `coach` asks the live coach for fresh notes (its refresh button), and `answer` answers a transcript line (its ↵). */
+export type MirrorCommand = { type: 'listen' | 'stop' | 'shorter' | 'detailed' | 'followup' | 'regenerate' | 'coach' } | { type: 'ask'; text: string } | { type: 'answer'; line: number } | { type: 'mode'; mode: Mode };
 export type MirrorLink = { url: string; qr: string };
 /** `owner` says which tab the phone mirrors: this one, another Roomside tab, or none yet. */
 export type MirrorStatus = { running: boolean; owner: 'this' | 'other' | 'none'; phones: number; links: MirrorLink[] };

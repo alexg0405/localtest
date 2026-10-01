@@ -40,6 +40,18 @@ button:disabled{opacity:.45;cursor:default}
 .coach ul{margin:5px 0 0;padding-left:20px}
 .coach li{margin:3px 0}
 .coach .tip{margin:6px 0 0;font-size:14px;color:var(--muted)}
+.coach-head{display:flex;align-items:center;gap:8px}
+.coach-status{min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--mint-ink);opacity:.75}
+.coach-refresh{flex:none;width:40px;height:40px;margin:-10px -10px -10px -4px;border:0;border-radius:12px;background:none;color:var(--mint-ink);font-size:19px;line-height:1}
+.coach-refresh:active:not(:disabled){background:#0000000f}
+.coach.busy .coach-refresh{animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.coach .typing{display:flex;gap:5px;padding:9px 0 3px}
+.coach .typing i{width:6px;height:6px;border-radius:50%;background:var(--mint-ink);opacity:.35;animation:dot 1.2s ease-in-out infinite}
+.coach .typing i:nth-child(2){animation-delay:.15s}
+.coach .typing i:nth-child(3){animation-delay:.3s}
+@keyframes dot{40%{opacity:.9}}
+.coach-missing{margin:7px 0 0;font-size:13px;line-height:1.4;color:var(--mint-ink);opacity:.8}
 .answer p{margin:9px 0}
 .answer h4{font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.9px;text-transform:uppercase;color:var(--mint-ink);margin:18px 0 4px}
 .answer .bullet{display:flex;gap:11px;margin:7px 0}
@@ -59,6 +71,9 @@ button:disabled{opacity:.45;cursor:default}
 .transcript summary{font:500 10px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);cursor:pointer}
 .transcript .line{display:flex;gap:10px;font-size:14px;line-height:1.45;margin-top:9px;overflow-wrap:anywhere}
 .transcript time{flex:0 0 auto;color:var(--muted);font-size:11px;padding-top:2px}
+.transcript button.line{width:calc(100% + 16px);margin:3px -8px 0;padding:6px 8px;border:0;border-radius:10px;background:none;color:inherit;text-align:left}
+.transcript button.line::after{content:'↵';flex:none;margin-left:auto;padding-left:4px;color:var(--muted)}
+.transcript button.line:active,.transcript button.line.sent{background:var(--mint)}
 .transcript .interim{color:var(--muted);font-style:italic}
 .transcript .empty{color:var(--muted);font-size:14px;margin:9px 0 0}
 .footnote{font-size:11px;color:var(--muted);text-align:center;margin:16px 0 0}

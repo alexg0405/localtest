@@ -91,6 +91,11 @@ describe('PhoneMirror', () => {
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'ask', text: 'How does Kafka keep ordering?' } });
     expect((await command(url, { type: 'listen' })).status).toBe(202);
     expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'listen' } });
+    // Tapping a transcript line, and the coach's refresh.
+    expect((await command(url, { type: 'answer', line: 12 })).status).toBe(202);
+    expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'answer', line: 12 } });
+    expect((await command(url, { type: 'coach' })).status).toBe(202);
+    expect(await laptop.next()).toEqual({ event: 'command', data: { type: 'coach' } });
     expect((await command(url, { type: 'mode', mode: 'LOUD' })).status).toBe(400);
     expect((await fetch(`${url}command`, { method: 'POST', body: '{"type":"listen"}' })).status).toBe(415); // Not sent as JSON.
     laptop.close(); phone.close();
@@ -167,6 +172,10 @@ describe('parseCommand', () => {
     expect(parseCommand({ type: 'mode', mode: 'BULLETS' })).toEqual({ type: 'mode', mode: 'BULLETS' });
     expect(parseCommand({ type: 'ask', text: ' ' })).toBeNull();
     expect(parseCommand({ type: 'ask', text: 'x'.repeat(2001) })).toBeNull();
+    expect(parseCommand({ type: 'coach', extra: 'ignored' })).toEqual({ type: 'coach' });
+    // A transcript line goes by its id, so the phone can only ask for lines the laptop has.
+    expect(parseCommand({ type: 'answer', line: 7, text: 'ignored' })).toEqual({ type: 'answer', line: 7 });
+    for (const line of [0, -3, 2.5, '7', null, undefined, Number.MAX_SAFE_INTEGER + 1]) expect(parseCommand({ type: 'answer', line })).toBeNull();
     expect(parseCommand({ type: 'clear' })).toBeNull();
     expect(parseCommand(null)).toBeNull();
   });

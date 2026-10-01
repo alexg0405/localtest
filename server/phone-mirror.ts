@@ -14,7 +14,7 @@ import { isLocalRequest, readBody } from './http';
 
 type Laptop = { id: string; tab: string; res: ServerResponse };
 
-const simpleCommands = ['listen', 'stop', 'shorter', 'detailed', 'followup', 'regenerate'];
+const simpleCommands = ['listen', 'stop', 'shorter', 'detailed', 'followup', 'regenerate', 'coach'];
 const modes = ['SHORT', 'STANDARD', 'DETAILED', 'BULLETS'];
 
 /** Accepts only the commands the laptop page knows how to carry out. */
@@ -22,6 +22,7 @@ export function parseCommand(value: any): MirrorCommand | null {
   if (!value || typeof value !== 'object') return null;
   if (simpleCommands.includes(value.type)) return { type: value.type };
   if (value.type === 'ask' && typeof value.text === 'string' && value.text.trim() && value.text.length <= 2000) return { type: 'ask', text: value.text.trim() };
+  if (value.type === 'answer' && Number.isSafeInteger(value.line) && value.line > 0) return { type: 'answer', line: value.line };
   if (value.type === 'mode' && modes.includes(value.mode)) return { type: 'mode', mode: value.mode };
   return null;
 }

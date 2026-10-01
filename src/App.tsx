@@ -666,7 +666,9 @@ export default function App() {
       if (command.type === 'listen') { if (!activeRef.current) start(); }
       else if (command.type === 'stop') { if (activeRef.current) stop(); }
       else if (command.type === 'ask') ask(command.text);
+      else if (command.type === 'answer') { const line = transcriptRef.current.find(item => item.id === command.line); if (line) answerLine(line.text); }
       else if (command.type === 'mode') chooseMode(command.mode);
+      else if (command.type === 'coach') refreshCoach();
       else ({ shorter, detailed, followup: followUp, regenerate })[command.type]();
     };
   });
@@ -885,8 +887,10 @@ export default function App() {
     mirrorConnection.current?.publish({
       listening: active ? micReady ? voiceDetected ? 'voice' : 'on' : 'starting' : 'off', micError: error, notice: micNotice,
       entries: showCurrent ? [...pastForPhone, { id: entryId, question, tag, possible: lowConfidence, kind: answerKind, mode: shownMode, time: entryTime, blocks: mirrorBlocks(blocks) }] : pastForPhone,
-      total: history.length + (showCurrent ? 1 : 0), live: showCurrent, generating, status, answerError, mode, coach: coach?.key ? { key: coach.key, points: coach.points, tip: coach.tip } : undefined, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
-      heard: transcript.slice(-8).map(({ time, text, speaker }) => ({ time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
+      total: history.length + (showCurrent ? 1 : 0), live: showCurrent, generating, status, answerError, mode, topic: trackTopics && currentTopic ? { title: currentTopic.title, question: currentTopic.question } : undefined,
+      // The coach as it shows here, working or not; the phone has no Context panel to link to.
+      coach: liveCoach && liveAnswers && coach ? { key: coach.key, points: coach.points, tip: coach.tip, busy: coach.busy, after: coach.after || undefined, missing: coachMissing.replace(/\s*→$/, '') || undefined } : undefined,
+      heard: transcript.slice(-30).map(({ id, time, text, speaker }) => ({ id, time, text, ...(speakers && speaker ? { speaker } : {}) })), interim, provider: providerLabel,
     });
   });
   const link = mirror?.links[Math.min(mirrorLink, mirror.links.length - 1)];

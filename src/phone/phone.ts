@@ -53,11 +53,18 @@ function entryCard(entry: MirrorEntry, live: MirrorState | null) {
   card.append(head, make('p', 'question', entry.question || 'Waiting for a question…'));
   if (live?.topic) { const topic = make('div', 'topic'); topic.append(make('div', 'eyebrow', 'Main question'), make('p', 'title', live.topic.title)); if (live.topic.question !== live.topic.title) topic.append(make('p', '', live.topic.question)); card.prepend(topic); }
   if (live?.coach) {
-    const coach = make('div', 'coach'); const list = make('ul');
-    for (const point of live.coach.points) list.append(make('li', '', point));
-    coach.append(make('div', 'eyebrow', 'Coach'), make('p', 'key', live.coach.key));
-    if (live.coach.points.length) coach.append(list);
-    if (live.coach.tip) coach.append(make('p', 'tip', live.coach.tip));
+    const { key, points, tip, busy, after, missing } = live.coach;
+    const coach = make('div', busy ? 'coach busy' : 'coach'); const head = make('div', 'coach-head');
+    // Fresh tips for this question, like the refresh button beside the coach on the laptop.
+    const refresh = make('button', 'coach-refresh', '↻'); refresh.type = 'button'; refresh.disabled = !!busy; refresh.setAttribute('aria-label', 'Get fresh coaching tips');
+    head.append(make('div', 'eyebrow', 'Coach'), make('span', 'coach-status', busy ? key ? 'Updating…' : 'Reading the question…' : after ? `after “${after}”` : 'for this question'), refresh);
+    coach.append(head);
+    if (key) {
+      coach.append(make('p', 'key', key));
+      if (points.length) { const list = make('ul'); for (const point of points) list.append(make('li', '', point)); coach.append(list); }
+      if (tip) coach.append(make('p', 'tip', tip));
+    } else { const typing = make('div', 'typing'); typing.append(make('i'), make('i'), make('i')); coach.append(typing); }
+    if (missing) coach.append(make('p', 'coach-missing', missing));
     card.append(coach);
   }
   card.append(make('div', 'eyebrow answer-label', `${entry.kind === 'followup' ? 'Likely follow-up' : 'Response'} · ${entry.mode}`), answer);
@@ -166,12 +173,15 @@ function render() {
   for (const child of [...ui.feed.children]) if (!shown.includes(child as HTMLElement)) child.remove();
   shown.forEach((node, index) => { if (ui.feed.children[index] !== node) ui.feed.insertBefore(node, ui.feed.children[index] ?? null); });
   document.body.classList.toggle('stepping', nodes.length > 1);
+  for (const button of ui.feed.querySelectorAll<HTMLButtonElement>('.coach-refresh')) button.disabled = !live || !!state.coach?.busy;
 
   const transcript = JSON.stringify([state.heard, state.interim]);
   if (transcript !== shownTranscript) {
     shownTranscript = transcript;
     const lines = state.heard.map(line => {
-      const row = make('div', `line ${line.speaker ?? ''}`); const words = make('span');
+      // A tap on a line answers it, like ↵ beside it on the laptop.
+      const row = make(line.id ? 'button' : 'div', `line ${line.speaker ?? ''}`); const words = make('span');
+      if (row instanceof HTMLButtonElement) { row.type = 'button'; row.dataset.line = String(line.id); row.title = 'Answer this line'; }
       if (line.speaker) words.append(make('b', 'who', line.speaker === 'interviewer' ? 'Interviewer' : 'You'));
       words.append(line.text); row.append(make('time', '', line.time), words); return row;
     });
@@ -221,6 +231,17 @@ window.addEventListener('touchstart', event => { if (!ui.dock.contains(event.tar
 window.addEventListener('resize', () => { fitSpacer(); showSteps(); });
 ui.transcript.closest('details')?.addEventListener('toggle', fitSpacer);
 for (const button of ui.actions.querySelectorAll('button')) button.addEventListener('click', () => void send({ type: button.dataset.command } as MirrorCommand));
+// The coach's refresh is rebuilt with its card, so it is handled here; the next state shows the coach at work.
+ui.feed.addEventListener('click', event => {
+  const button = (event.target as Element).closest<HTMLButtonElement>('.coach-refresh'); if (!button || button.disabled) return;
+  button.disabled = true; void send({ type: 'coach' });
+});
+ui.transcript.addEventListener('click', async event => {
+  const row = (event.target as Element).closest<HTMLButtonElement>('button[data-line]'); if (!row) return;
+  row.classList.add('sent'); window.setTimeout(() => row.classList.remove('sent'), 1500);
+  // Up to the live answer, which then follows the line being answered.
+  if (await send({ type: 'answer', line: Number(row.dataset.line) })) jumpToNewest();
+});
 ui.ask.addEventListener('submit', async event => {
   event.preventDefault();
   const text = ui.askInput.value.trim(); if (!text) return;

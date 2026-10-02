@@ -87,11 +87,11 @@ describe('ClaudeCodeProvider', () => {
     const requests: { url: string; body: any }[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => { requests.push({ url, body: JSON.parse(String(init.body)) }); return ndjson({ text: 'A hash map ' }, { text: 'stores pairs.' }, { done: true }); }));
     const chunks: string[] = [];
-    const result = await new ClaudeCodeProvider('claude-sonnet-5').answer('How does a hash map work?', 'Candidate background:\nBackend engineer', 'SHORT', chunk => chunks.push(chunk));
+    const result = await new ClaudeCodeProvider('claude-sonnet-5-5').answer('How does a hash map work?', 'Candidate background:\nBackend engineer', 'SHORT', chunk => chunks.push(chunk));
     expect(result).toBe('A hash map stores pairs.');
     expect(chunks).toEqual(['A hash map ', 'stores pairs.']);
     expect(requests[0].url).toBe('/api/claude-code');
-    expect(requests[0].body.model).toBe('claude-sonnet-5');
+    expect(requests[0].body.model).toBe('claude-sonnet-5-5');
     expect(requests[0].body.prompt).toMatch(/^Candidate background:\nBackend engineer\n\nQuestion: How does a hash map work\?\n\nAnswer format: SHORT, /);
     expect(requests[0].body.prompt).toMatch(/If the interviewer is only greeting, making small talk, or introducing themselves, the team, or the product, reply with one or two friendly sentences instead\.$/);
   });

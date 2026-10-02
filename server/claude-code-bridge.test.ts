@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { claudeModels, isClaudeModel } from '../src/claude';
 import { childEnv, claudeArgs, findClaudeBinary, startClaude, streamAnswer, translateLine, WarmClaude, type BridgeEvent } from './claude-code-bridge';
 
 const root = mkdtempSync(join(tmpdir(), 'roomside-bridge-test-'));
@@ -53,7 +54,12 @@ describe('command line and environment', () => {
     expect(args[args.indexOf('--tools') + 1]).toBe('');
     expect(args[args.indexOf('--system-prompt') + 1]).toBe('Be brief.');
     expect(args).not.toContain('--effort');
-    expect(claudeArgs('claude-sonnet-5', 'x')).toEqual(expect.arrayContaining(['--effort', 'low']));
+    expect(claudeArgs('claude-sonnet-5-5', 'x')).toEqual(expect.arrayContaining(['--effort', 'low']));
+  });
+
+  it('runs only the models Settings offers', () => {
+    expect(claudeModels.map(model => model.id)).toEqual(['claude-haiku-4-5', 'claude-sonnet-5-5']);
+    expect(['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-opus-5-5'].map(isClaudeModel)).toEqual([true, false, false]);
   });
 
   it('never passes API keys or other Claude session variables to the CLI', () => {
@@ -154,7 +160,7 @@ describe('WarmClaude', () => {
       claude.prepare(binary, 'claude-haiku-4-5', 'Be brief.');
       await vi.waitFor(() => expect(startedPids(cwd)).toHaveLength(1), soon);
       const [waiting] = startedPids(cwd);
-      const child = claude.take(binary, 'claude-sonnet-5', 'Be brief.');
+      const child = claude.take(binary, 'claude-sonnet-5-5', 'Be brief.');
       expect(child.pid).not.toBe(waiting);
       await vi.waitFor(() => expect(stopped(waiting)).toBe(true), soon);
       child.kill();

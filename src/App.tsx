@@ -73,7 +73,7 @@ export default function App() {
   const [generating, setGenerating] = useState(false); const [speaking, setSpeaking] = useState(false); const utterance = useRef<SpeechSynthesisUtterance | null>(null);
   const [providerCheck, setProviderCheck] = useState(''); const [checkingProvider, setCheckingProvider] = useState(false);
   const [pinned, setPinned] = useState<Entry | null>(null); const [history, setHistory] = useState<Entry[]>([]); const [panel, setPanel] = useState<'settings' | 'context' | 'phone' | 'review' | null>(null); const settings = panel === 'settings';
-  const [source, setSource] = useState<AnswerSource>('demo'); const sourceChosen = useRef(false); const [claudeModel, setClaudeModel] = useState<ClaudeModel>('claude-sonnet-5-5'); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
+  const [source, setSource] = useState<AnswerSource>('demo'); const sourceChosen = useRef(false); const [claudeModel, setClaudeModel] = useState<ClaudeModel>('claude-haiku-5-5'); const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
   const [apiKey, setApiKey] = useState(''); const [model, setModel] = useState('gpt-4o-mini');
   const [keyFromEnv, setKeyFromEnv] = useState(false);
   const [speechEngine, setSpeechEngine] = useState<'browser' | 'deepgram'>('browser'); const [deepgramKey, setDeepgramKey] = useState(''); const [language, setLanguage] = useState('en-US');

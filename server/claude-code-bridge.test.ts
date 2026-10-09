@@ -54,12 +54,12 @@ describe('command line and environment', () => {
     expect(args[args.indexOf('--tools') + 1]).toBe('');
     expect(args[args.indexOf('--system-prompt') + 1]).toBe('Be brief.');
     expect(args).not.toContain('--effort');
-    expect(claudeArgs('claude-sonnet-5-5', 'x')).toEqual(expect.arrayContaining(['--effort', 'low']));
+    for (const model of ['claude-haiku-5-5', 'claude-sonnet-5-5'] as const) expect(claudeArgs(model, 'x')).toEqual(expect.arrayContaining(['--effort', 'low']));
   });
 
   it('runs only the models Settings offers', () => {
-    expect(claudeModels.map(model => model.id)).toEqual(['claude-haiku-4-5', 'claude-sonnet-5-5']);
-    expect(['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-opus-5-5'].map(isClaudeModel)).toEqual([true, false, false]);
+    expect(claudeModels.map(model => model.id)).toEqual(['claude-haiku-4-5', 'claude-haiku-5-5', 'claude-sonnet-5-5']);
+    expect(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-opus-5-5'].map(isClaudeModel)).toEqual([true, true, false, false]);
   });
 
   it('never passes API keys or other Claude session variables to the CLI', () => {

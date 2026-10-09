@@ -47,7 +47,7 @@ const noThinking = JSON.stringify({ alwaysThinkingEnabled: false });
  */
 export const claudeArgs = (model: ClaudeModel, system: string) => [
   '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model, '--system-prompt', system,
-  '--tools', '', '--strict-mcp-config', '--safe-mode', '--settings', noThinking, '--no-session-persistence', ...(model === 'claude-sonnet-5-5' ? ['--effort', 'low'] : []),
+  '--tools', '', '--strict-mcp-config', '--safe-mode', '--settings', noThinking, '--no-session-persistence', ...(model === 'claude-haiku-4-5' ? [] : ['--effort', 'low']),
 ];
 
 /** The prompt as Claude Code's stream-json input: a single user message. */

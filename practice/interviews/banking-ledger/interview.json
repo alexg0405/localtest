@@ -1,0 +1,33 @@
+{
+  "id": "banking-ledger",
+  "title": "Transaction ledger: cents, duplicates, validation, and reports",
+  "inspired_by": "Consumer banking and card teams (for example, Capital One-style transaction processing). An original simulation with synthetic data, not a real interview question.",
+  "level": "Internship / new grad to junior",
+  "summary": "A batch processor applies a feed of synthetic card and deposit events to account balances and produces daily totals. Finance found balances that are off by a cent, events applied twice, and bad events slipping through; statements are not built yet.",
+  "package": "ledger",
+  "duration_minutes": 60,
+  "change_at_minutes": 30,
+  "source_files": [
+    "ledger/money.py",
+    "ledger/events.py",
+    "ledger/processor.py",
+    "ledger/report.py",
+    "ledger/loader.py"
+  ],
+  "followups": {
+    "problem_understanding": "List the questions you would ask before adding 'reversal' events that undo an earlier transaction (what if the original is unknown, already reversed, or in another batch?), then write the agreed rules as five bullets.",
+    "repository_exploration": "Trace one JSON line from examples/events.jsonl through loader, events, processor, and report. Write down every place it can be rejected and what reason is recorded.",
+    "ai_instructions": "Write the prompt you would give Claude Code to add a daily debit limit per account: name the files, the rejection reason string, the tests, and ask for a plan and a diff before edits. Compare it with your transcript.",
+    "verification": "Ask your assistant for a parse_amount implementation, then write five adversarial inputs (three decimals, exponent, huge values, whitespace, a JSON number) and check its answer against them before accepting.",
+    "correctness": "Make a table of amount strings and expected cents (including 0.29, 4.35, 19.99, and values above 2^53 cents) and turn it into a parametrized test.",
+    "testing": "For each bug you fixed, write a test, run it against a fresh starter to see it fail, then against your fix to see it pass.",
+    "code_quality": "Refactor the processor so validation, duplicate detection, and the funds check are three small functions with one job each, keeping all tests green.",
+    "communication": "Explain to a finance partner, in under two minutes, why money is stored as integer cents and how you made duplicate events safe. Include one tradeoff."
+  },
+  "change_keywords": [
+    "overdraft",
+    "-$50",
+    "requirement change",
+    "change request"
+  ]
+}

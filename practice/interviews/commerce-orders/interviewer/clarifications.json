@@ -1,0 +1,142 @@
+[
+  {
+    "topic": "What makes two requests duplicates",
+    "important": true,
+    "keywords": [
+      "duplicate",
+      "same request",
+      "request_id",
+      "request id",
+      "idempotent",
+      "idempotency",
+      "twice",
+      "double"
+    ],
+    "answer": "The request_id is the idempotency key. Any call with a request_id that already produced an order is the same request: return that order, with no second charge and no second reservation.",
+    "answer_after_change": "The request_id is the idempotency key. A repeat with the same customer and the same items (in any order) returns the original order with no new charge or reservation. If the request_id comes back with a different customer or different items, raise IdempotencyConflict and charge nothing."
+  },
+  {
+    "topic": "Failed requests and retrying with the same id",
+    "important": true,
+    "keywords": [
+      "fail",
+      "failed",
+      "declined",
+      "retry the request",
+      "try again",
+      "after payment",
+      "same id again"
+    ],
+    "answer": "If the first attempt failed (out of stock or payment failed), nothing was placed, so the app may send the same request_id again and it should be processed as a new attempt."
+  },
+  {
+    "topic": "Retry policy",
+    "important": true,
+    "keywords": [
+      "retry",
+      "retries",
+      "attempt",
+      "attempts",
+      "backoff",
+      "transient",
+      "timeout"
+    ],
+    "answer": "Only TransientPaymentError is retried, 3 attempts in total including the first. A declined card fails immediately. Keep the existing backoff; tests pass a no-op sleep."
+  },
+  {
+    "topic": "Stock when an order fails",
+    "important": true,
+    "keywords": [
+      "stock",
+      "inventory",
+      "reserve",
+      "reservation",
+      "release",
+      "rollback",
+      "roll back",
+      "partial"
+    ],
+    "answer": "Stock is reserved when the order is placed. If the order is not placed for any reason, every unit reserved for that request goes back. Cancelling a placed order also returns its stock."
+  },
+  {
+    "topic": "Pagination contract",
+    "important": true,
+    "keywords": [
+      "page",
+      "pagination",
+      "token",
+      "next_page",
+      "limit",
+      "cursor",
+      "history"
+    ],
+    "answer": "Orders come back in creation order. Following next_page_token until it is None returns every matching order exactly once. The last page returns None as the token, and there is no trailing empty page. limit is 1 to 100; anything else is a ValueError, and so is a token that is not one we issued."
+  },
+  {
+    "topic": "Which orders can be cancelled",
+    "important": true,
+    "keywords": [
+      "cancel",
+      "cancelled",
+      "canceled",
+      "shipped",
+      "status",
+      "transition"
+    ],
+    "answer": "Only PLACED orders can be cancelled. Cancelling a SHIPPED order raises InvalidTransition. Cancelling an order that is already cancelled just returns it and must not return stock twice. An unknown id raises OrderNotFound."
+  },
+  {
+    "topic": "Refunds when cancelling",
+    "important": false,
+    "keywords": [
+      "refund",
+      "money back",
+      "reverse charge",
+      "void"
+    ],
+    "answer": "Refunds are handled by a separate billing job, out of scope here. Cancelling only changes the status and returns stock."
+  },
+  {
+    "topic": "Concurrency and persistence",
+    "important": false,
+    "keywords": [
+      "thread",
+      "concurrent",
+      "concurrency",
+      "lock",
+      "race",
+      "database",
+      "persist",
+      "restart",
+      "expire",
+      "expiry",
+      "ttl"
+    ],
+    "answer": "Assume a single process for this exercise; no locking or database. It is fine to mention what you would change in production (a unique constraint on request_id, key expiry), but do not build it."
+  },
+  {
+    "topic": "Money representation",
+    "important": false,
+    "keywords": [
+      "cents",
+      "price",
+      "currency",
+      "float",
+      "money",
+      "total"
+    ],
+    "answer": "All money is integer cents in one currency. The order total is the sum of quantity times unit price."
+  },
+  {
+    "topic": "Changing the API",
+    "important": false,
+    "keywords": [
+      "signature",
+      "change the api",
+      "rename",
+      "new parameter",
+      "breaking"
+    ],
+    "answer": "Keep the public method signatures as they are; other teams call them. Adding private helpers is fine."
+  }
+]

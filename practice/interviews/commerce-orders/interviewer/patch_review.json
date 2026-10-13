@@ -1,0 +1,9 @@
+{
+  "summary": "The patch fixes the duplicate lookup, but it stores the order and the request_id before charging. When payment fails, the unpaid order stays stored as PLACED, its stock stays reserved, and a retry with the same request_id gets that unpaid order back instead of a new attempt.",
+  "issue_groups": [
+    {"label": "Stores the order before payment succeeds", "keywords": ["before pay", "before charg", "before the charge", "before the payment", "prior to pay", "ahead of pay", "stored first", "added before", "records the order before", "too early", "before it is paid", "unpaid"]},
+    {"label": "A failed payment leaves a PLACED order or reserved stock behind", "keywords": ["payment fail", "payment fails", "failed payment", "declin", "not removed", "never removed", "stays placed", "remains placed", "left behind", "leak", "still reserved", "stock is not released", "not released", "not rolled back", "no rollback"]},
+    {"label": "A retry after a failure returns the unpaid order", "keywords": ["retry returns", "retry gets", "retried request", "same request_id again", "returns the failed", "returns the unpaid", "ghost order", "never charged", "free order", "without paying"]}
+  ],
+  "main_issue_groups_needed": 2
+}

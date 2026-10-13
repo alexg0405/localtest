@@ -11,3 +11,5 @@ src-tauri/gen/
 *[Rr][eé]sum[eé]*.pdf
 *[Rr][eé]sum[eé]*.docx
 /context/
+__pycache__/
+.pytest_cache/

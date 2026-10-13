@@ -1,0 +1,35 @@
+{
+  "id": "commerce-orders",
+  "title": "Order service: duplicates, stock, retries, and pages",
+  "inspired_by": "High-volume commerce teams (for example, Amazon-style order processing). An original simulation, not a real interview question.",
+  "level": "Internship / new grad to junior",
+  "summary": "A small order service places orders, reserves stock, charges a payment gateway, and lists orders page by page. Customers report double orders and missing orders, and cancelling is not built yet.",
+  "package": "orders",
+  "duration_minutes": 60,
+  "change_at_minutes": 30,
+  "source_files": [
+    "orders/models.py",
+    "orders/inventory.py",
+    "orders/payments.py",
+    "orders/retry.py",
+    "orders/repository.py",
+    "orders/service.py"
+  ],
+  "followups": {
+    "problem_understanding": "Before writing code, list five questions you would ask about a 'refund an order' feature for this service (partial refunds? shipped orders? idempotency?), then write the one-paragraph spec you would agree with the interviewer.",
+    "repository_exploration": "In 10 minutes, draw the call path of OrderService.place_order: which module owns stock, which owns money, which owns storage, and where an exception can leave state half-changed. Write it as five bullet points.",
+    "ai_instructions": "Write the prompt you would give Claude Code to add a 'max 3 open orders per customer' rule: name the files, the exception to raise, the tests to add, and ask it to show a diff before applying. Compare it with the prompts in your transcript.",
+    "verification": "Take one change your assistant made today and write two tests that would fail if it were subtly wrong (for example an off-by-one in retries or pagination). Run them against the starter code to prove they catch the bug.",
+    "correctness": "Write a table of edge cases for list_orders (empty store, exact multiple of the page size, customer filter, bad token, limit 0 and 101) and turn each row into a test.",
+    "testing": "Add a regression test for each bug you fixed, then run it against a fresh starter (Reset in the dashboard on a copy) to confirm every test fails there and passes on your fix.",
+    "code_quality": "Refactor place_order so stock reservation and rollback live in one helper with a single responsibility, keep the tests green, and explain the change in three sentences.",
+    "communication": "Record a 2-minute explanation of how your idempotency works, including one tradeoff (memory growth, key expiry, or payload comparison) and what you would do in production."
+  },
+  "change_keywords": [
+    "IdempotencyConflict",
+    "conflict",
+    "requirement change",
+    "change request",
+    "different items"
+  ]
+}

@@ -13,6 +13,10 @@ Without Rust installed locally, you can build the desktop app on GitHub: open **
 
 If macOS blocks the microphone, open the site in Chrome and allow microphone access for `127.0.0.1` in the address bar/site settings. If speech recognition is unavailable or network speech processing is disabled, type the question in the manual field. For model errors, confirm the endpoint and model name, then verify that the endpoint accepts browser CORS requests.
 
+## Interview practice lab
+
+`practice/` is a separate, local practice environment for AI-assisted coding interviews in Python. It has three timed interviews (commerce orders, a banking ledger, and an unfamiliar repository), a dashboard with a 60-minute clock and an offline interviewer, a requirement change at minute 30, and evidence-based grading. You use Claude Code on your own subscription as the coding assistant, and no API key is needed. Run `python3 practice/lab.py setup` once, then `npm run practice` (or `python3 practice/lab.py serve`). See [practice/README.md](practice/README.md).
+
 ## Tests
 
 Run `npm test` for the Vitest unit tests (they need Node.js 22.12 or newer); GitHub Actions runs them, plus the production build, on every push and pull request. They cover question detection, answer formatting, conversation memory, the OpenAI-compatible and demo answer providers (with `fetch` mocked), Deepgram message handling, how browser speech recognition starts, restarts, and fails, and the phone mirror's relay, secret link, and tab handover (over real local HTTP servers).

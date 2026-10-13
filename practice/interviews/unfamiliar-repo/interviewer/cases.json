@@ -1,0 +1,19 @@
+{
+  "test_reads_a_plain_csv": {"area": "core", "description": "A plain CSV imports"},
+  "test_headers_ignore_case_and_spaces": {"area": "core", "description": "Headers ignore case and spaces"},
+  "test_last_row_wins_and_output_is_sorted": {"area": "core", "description": "The last row per SKU wins and output is sorted"},
+  "test_bad_price_is_skipped_and_reported": {"area": "core", "description": "A bad price is skipped and reported"},
+  "test_nightly_example_succeeds": {"area": "core", "description": "The nightly example succeeds (the failing workflow)"},
+  "test_nightly_workflow_writes_the_expected_catalog": {"area": "core", "description": "The nightly workflow writes the exact expected catalog and reports the right lines", "topic": "Line numbers in skipped-row messages"},
+  "test_output_bytes_are_utf8_with_exact_names": {"area": "edge", "description": "Output is UTF-8 with names exactly as written, and no BOM", "topic": "Encoding and names"},
+  "test_bom_and_no_bom_give_the_same_catalog": {"area": "edge", "description": "Files with and without a byte-order mark give the same catalog", "topic": "Encoding and names"},
+  "test_bom_with_messy_headers": {"area": "edge", "description": "A byte-order mark plus messy header spacing and case still imports", "topic": "Encoding and names"},
+  "test_missing_field_reports_the_file_line_number": {"area": "edge", "description": "Skipped-row messages use the file's line number, counting blank lines", "topic": "Line numbers in skipped-row messages"},
+  "test_all_rows_invalid_fails_with_exit_code_1": {"area": "edge", "description": "When every row is invalid the run fails with exit code 1 and writes nothing", "topic": "Bad rows and empty output"},
+  "test_missing_input_file_fails_cleanly": {"area": "edge", "description": "A missing input file fails with an error message, not a traceback"},
+  "test_invalid_prices_are_skipped": {"area": "edge", "description": "Prices with three decimals, negatives, NaN, or junk are skipped"},
+  "test_change_semicolon_feed_with_only_the_delimiter_set": {"area": "change", "description": "Change: a semicolon feed with a BOM imports with only the delimiter set"},
+  "test_change_partial_options_keep_the_other_defaults": {"area": "change", "description": "Change: setting one option keeps the other option defaults", "topic": "Changing the configs"},
+  "test_change_default_delimiter_is_still_a_comma": {"area": "change", "description": "Change: existing configs still use a comma"},
+  "test_change_overriding_one_option_does_not_leak_into_the_next_config": {"area": "change", "description": "Change: one config's options do not leak into the next (defaults are not mutated)"}
+}

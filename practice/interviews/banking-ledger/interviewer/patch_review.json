@@ -1,0 +1,9 @@
+{
+  "summary": "The patch rounds the float instead of truncating it. That makes 19.99 and 0.29 come out right, but money still goes through a float: amounts with three decimals (1.005) or exponents (1e3) are silently rounded or accepted instead of rejected, amounts beyond float precision lose cents, and JSON number amounts still pass. Parsing the string exactly (digits and up to two decimals, or Decimal with validation) is the fix.",
+  "issue_groups": [
+    {"label": "Still converts money through a float", "keywords": ["float", "floating", "binary", "ieee", "precision", "decimal(", "use decimal", "string pars", "parse the string", "integer arithmetic", "2^53", "2**53", "large amount", "big amount"]},
+    {"label": "Silently accepts or rounds malformed amounts", "keywords": ["1.005", "three decimal", "3 decimal", "more than two decimal", "more than 2 decimal", "extra decimal", "1e3", "exponent", "scientific", "rounds instead", "silently round", "banker", "half-even", "half even", "should reject", "should be rejected", "nan", "inf"]},
+    {"label": "Only the happy-path values are tested", "keywords": ["only tests", "happy path", "more tests", "edge case", "missing test", "test for 1.005", "test the rejection", "negative test"]}
+  ],
+  "main_issue_groups_needed": 2
+}

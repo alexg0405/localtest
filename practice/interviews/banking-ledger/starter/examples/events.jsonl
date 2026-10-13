@@ -1,0 +1,10 @@
+{"event_id": "evt-1001", "account_id": "acct-1", "type": "credit", "amount": "125.00", "currency": "USD", "timestamp": "2026-03-01T14:05:00Z", "description": "Payroll"}
+{"event_id": "evt-1002", "account_id": "acct-1", "type": "debit", "amount": "19.99", "currency": "USD", "timestamp": "2026-03-01T18:30:00Z", "description": "Groceries"}
+{"event_id": "evt-1003", "account_id": "acct-2", "type": "credit", "amount": "40.29", "timestamp": "2026-03-01T23:30:00-05:00", "description": "Transfer in"}
+{"event_id": "evt-1002", "account_id": "acct-1", "type": "debit", "amount": "19.99", "currency": "USD", "timestamp": "2026-03-01T18:30:00Z", "description": "Groceries"}
+{"event_id": "evt-1004", "account_id": "acct-2", "type": "refund", "amount": "5.00", "currency": "USD", "timestamp": "2026-03-02T09:00:00Z", "description": "Unsupported type"}
+{"event_id": "evt-1005", "account_id": "acct-1", "type": "debit", "amount": "12.00", "currency": "EUR", "timestamp": "2026-03-02T10:15:00Z", "description": "Card abroad"}
+{"event_id": "evt-1006", "account_id": "acct-2", "type": "debit", "amount": "500.00", "currency": "USD", "timestamp": "2026-03-02T11:00:00Z", "description": "Rent"}
+{"event_id": "evt-1007", "account_id": "acct-1", "type": "debit", "amount": 4.35, "currency": "USD", "timestamp": "2026-03-02T12:00:00Z", "description": "Coffee"}
+
+{"event_id": "evt-1008", "account_id": "acct-1", "type": "debit", "amount": "4.35", "currency": "USD", "timestamp": "2026-03-02T12:01:00Z", "description": "Coffee"}

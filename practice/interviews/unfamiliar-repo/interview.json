@@ -1,0 +1,35 @@
+{
+  "id": "unfamiliar-repo",
+  "title": "Unfamiliar repository: the nightly catalog import is failing",
+  "inspired_by": "On-call style work in a codebase you did not write, common to many engineering teams. An original simulation, not a real interview question.",
+  "level": "Internship / new grad to junior",
+  "summary": "A small plugin-style pipeline imports a supplier's CSV into catalog JSON. The nightly job started failing after the supplier changed their export. Diagnose it, make a focused fix, add regression tests, and review an AI-proposed patch.",
+  "package": "pipeline",
+  "duration_minutes": 60,
+  "change_at_minutes": 30,
+  "source_files": [
+    "pipeline/cli.py",
+    "pipeline/config.py",
+    "pipeline/registry.py",
+    "pipeline/runner.py",
+    "pipeline/stages.py",
+    "pipeline/__main__.py"
+  ],
+  "followups": {
+    "problem_understanding": "Write down what you would ask the supplier and the on-call lead before changing anything for a new 'tab-separated' feed: which encodings, which columns are required, what happens to bad rows, and whether old configs must keep working.",
+    "repository_exploration": "Without running anything, explain in five bullets how `python -m pipeline examples/nightly.json` finds and runs each stage, and where configuration defaults come from. Then check your answer by stepping through it in a debugger.",
+    "ai_instructions": "Write the prompt you would give Claude Code to diagnose a failing job: paste the exact error, name the command, ask for hypotheses ranked by likelihood and a way to confirm each before any edit.",
+    "verification": "Take the assistant's fix for an encoding bug and test it against three files: UTF-8 with a BOM, UTF-8 without one, and a file with non-ASCII names. Confirm the output bytes, not just the exit code.",
+    "correctness": "List every way a supplier CSV can vary (BOM, header case and spaces, delimiter, blank lines, extra columns, quoted newlines) and write one test per item, marking which ones the pipeline should accept.",
+    "testing": "Write a regression test that reproduces the original nightly failure from a fixture file, run it on a fresh starter to see it fail, and only then apply your fix.",
+    "code_quality": "Replace the shallow config merge with a small, tested deep-merge helper, and keep the change under 30 lines.",
+    "communication": "Write the incident note you would post after the fix: symptom, root cause, the fix, how you verified it, and what would prevent a repeat. Five sentences."
+  },
+  "change_keywords": [
+    "delimiter",
+    "semicolon",
+    "requirement change",
+    "change request",
+    "deep merge"
+  ]
+}

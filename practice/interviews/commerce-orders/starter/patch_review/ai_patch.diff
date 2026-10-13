@@ -1,0 +1,50 @@
+diff --git a/orders/service.py b/orders/service.py
+--- a/orders/service.py
++++ b/orders/service.py
+@@ -27,8 +27,9 @@ class OrderService:
+         self._ids = itertools.count(1)
+ 
+     def place_order(self, request_id: str, customer_id: str, items: Iterable[LineItem]) -> Order:
+-        if request_id in self.repository._orders:
+-            return self.repository.get(self._by_request[request_id])
++        existing = self._by_request.get(request_id)
++        if existing is not None:
++            return self.repository.get(existing)
+         items = list(items)
+         if not items:
+             raise ValueError("an order needs at least one item")
+@@ -42,6 +43,10 @@ class OrderService:
+             items=items,
+             request_id=request_id,
+         )
++        # Record the request before charging, so a retry that arrives while the
++        # gateway is still slow gets this order back instead of creating a second one.
++        self.repository.add(order)
++        self._by_request[request_id] = order.order_id
+         try:
+             with_retries(
+                 lambda: self.gateway.charge(customer_id, order.total_cents, request_id),
+@@ -50,9 +55,6 @@ class OrderService:
+             )
+         except Exception as error:
+             raise PaymentFailed(str(error)) from error
+-
+-        self.repository.add(order)
+-        self._by_request[request_id] = order.order_id
+         return order
+ 
+     def cancel_order(self, order_id: str) -> Order:
+diff --git a/tests/test_orders.py b/tests/test_orders.py
+--- a/tests/test_orders.py
++++ b/tests/test_orders.py
+@@ -60,3 +60,10 @@ def test_cancel_returns_stock():
+     cancelled = service.cancel_order(order.order_id)
+     assert cancelled.status == OrderStatus.CANCELLED
+     assert inventory.available("MUG-1") == 10
++
++
++def test_duplicate_request_while_gateway_is_slow():
++    service, _, gateway = make_service(script=["transient", "ok"])
++    first = service.place_order("r9", "c1", [LineItem("MUG-1", 1, 1299)])
++    assert service.place_order("r9", "c1", [LineItem("MUG-1", 1, 1299)]) is first
++    assert len(gateway.charges) == 1

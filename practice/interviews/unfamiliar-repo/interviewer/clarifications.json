@@ -1,0 +1,136 @@
+[
+  {
+    "topic": "What changed on the supplier's side",
+    "important": true,
+    "keywords": [
+      "supplier",
+      "changed",
+      "upgrade",
+      "export",
+      "what changed",
+      "when did",
+      "since when",
+      "new tool"
+    ],
+    "answer": "All we know is the supplier upgraded their export tool the day the failures started. The columns are meant to be the same. We have not asked them for details; look at the file itself."
+  },
+  {
+    "topic": "Error output and logs",
+    "important": true,
+    "keywords": [
+      "error",
+      "log",
+      "logs",
+      "message",
+      "output",
+      "stack",
+      "traceback",
+      "exit code",
+      "page",
+      "alert"
+    ],
+    "answer": "The scheduler only keeps stderr, which says 'error: no valid rows in .../supplier_feed.csv' followed by 'missing sku' messages. You can reproduce it locally with the command in the README."
+  },
+  {
+    "topic": "Scope of the fix",
+    "important": true,
+    "keywords": [
+      "scope",
+      "rewrite",
+      "refactor",
+      "focused",
+      "how much",
+      "minimal",
+      "small fix",
+      "change other"
+    ],
+    "answer": "Keep the fix focused: the job has to run tonight, and others own the other stages. Small, well-tested changes only. Note anything else you find so we can file it."
+  },
+  {
+    "topic": "Encoding and names",
+    "important": true,
+    "keywords": [
+      "encoding",
+      "utf",
+      "utf-8",
+      "unicode",
+      "accent",
+      "non-ascii",
+      "characters",
+      "bom",
+      "byte order",
+      "latin"
+    ],
+    "answer": "Supplier files are UTF-8, and product names must come through exactly as written (we sell in France and Germany). Files from other tools may or may not start with a byte-order mark."
+  },
+  {
+    "topic": "Line numbers in skipped-row messages",
+    "important": true,
+    "keywords": [
+      "line number",
+      "line numbers",
+      "row number",
+      "which row",
+      "line 0",
+      "line n",
+      "skipped rows",
+      "report"
+    ],
+    "answer": "Ops opens the CSV in an editor and jumps to the line in the message, so the number must be the file's line number, with the header as line 1."
+  },
+  {
+    "topic": "Bad rows and empty output",
+    "important": false,
+    "keywords": [
+      "bad row",
+      "invalid row",
+      "skip",
+      "empty",
+      "no rows",
+      "all rows",
+      "partial"
+    ],
+    "answer": "Skip and report invalid rows. If nothing valid is left, fail the run rather than writing an empty catalog."
+  },
+  {
+    "topic": "Duplicates and order",
+    "important": false,
+    "keywords": [
+      "duplicate",
+      "dedupe",
+      "same sku",
+      "last",
+      "first",
+      "sort",
+      "order"
+    ],
+    "answer": "The last row for a SKU wins, and the output is sorted by SKU. That behaviour is correct today."
+  },
+  {
+    "topic": "Changing the configs",
+    "important": false,
+    "keywords": [
+      "config",
+      "configuration",
+      "nightly.json",
+      "defaults",
+      "option",
+      "options"
+    ],
+    "answer": "You can change the code, but ops owns the config files on the scheduler, so a fix that needs every config edited is not acceptable.",
+    "answer_after_change": "Ops owns the configs. The new supplier's config sets only options.delimiter; every other option must keep its default, and existing configs must keep working unchanged."
+  },
+  {
+    "topic": "Running and testing",
+    "important": false,
+    "keywords": [
+      "run",
+      "test",
+      "pytest",
+      "reproduce",
+      "locally",
+      "fixture"
+    ],
+    "answer": "Run it locally with the README command. Tests can create their own small CSV files under tmp_path; see the existing tests."
+  }
+]

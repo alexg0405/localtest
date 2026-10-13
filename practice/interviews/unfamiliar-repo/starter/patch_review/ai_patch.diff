@@ -1,0 +1,41 @@
+diff --git a/pipeline/stages.py b/pipeline/stages.py
+--- a/pipeline/stages.py
++++ b/pipeline/stages.py
+@@ -2,6 +2,7 @@ from __future__ import annotations
+ 
+ import csv
+ import json
++import re
+ from decimal import Decimal, InvalidOperation
+ from pathlib import Path
+ from typing import Dict
+@@ -12,7 +13,8 @@ from .registry import Context, Row, stage
+ @stage("read_csv")
+ def read_csv(context: Context) -> None:
+     options = context.config["options"]
+-    with open(context.config["input"], newline="", encoding=options["encoding"]) as handle:
++    # latin-1 can decode any byte, so a supplier file can never crash the import.
++    with open(context.config["input"], newline="", encoding="latin-1") as handle:
+         reader = csv.DictReader(handle)
+         context.rows = [Row(line=reader.line_num, fields=dict(raw)) for raw in reader]
+     context.rows_read = len(context.rows)
+@@ -21,7 +23,9 @@ def read_csv(context: Context) -> None:
+ @stage("normalize_headers")
+ def normalize_headers(context: Context) -> None:
+     for row in context.rows:
+-        row.fields = {str(key).strip().lower(): (value or "").strip() for key, value in row.fields.items()}
++        # Keep only letters and underscores, so stray characters from export tools
++        # (byte-order marks, non-breaking spaces) cannot break header matching.
++        row.fields = {re.sub(r"[^a-z_]", "", str(key).lower()): (value or "").strip() for key, value in row.fields.items()}
+ 
+ 
+ @stage("validate")
+diff --git a/tests/test_pipeline.py b/tests/test_pipeline.py
+--- a/tests/test_pipeline.py
++++ b/tests/test_pipeline.py
+@@ -52,4 +52,4 @@ def test_nightly_example_succeeds(tmp_path, capsys):
+     assert main([str(folder / "nightly.json")]) == 0
+     items = catalog(folder)
+     assert [item["sku"] for item in items] == ["BAG-2", "MUG-1", "TEE-M"]
+-    assert items[1] == {"sku": "MUG-1", "name": "Café Crème Mug", "price_cents": 1175}
++    assert items[1]["sku"] == "MUG-1" and items[1]["price_cents"] == 1175

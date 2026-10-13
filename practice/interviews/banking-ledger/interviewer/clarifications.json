@@ -1,0 +1,152 @@
+[
+  {
+    "topic": "What counts as a duplicate event",
+    "important": true,
+    "keywords": [
+      "duplicate",
+      "twice",
+      "replay",
+      "replayed",
+      "event_id",
+      "event id",
+      "redeliver",
+      "redelivered",
+      "at least once",
+      "idempot"
+    ],
+    "answer": "event_id is unique per real-world event. If an event_id was already processed, in this batch or an earlier one, skip it and list it in duplicates. Treat a repeated id as a duplicate even if the first copy was rejected for insufficient funds."
+  },
+  {
+    "topic": "Amount format and rounding",
+    "important": true,
+    "keywords": [
+      "amount",
+      "decimal",
+      "decimals",
+      "round",
+      "rounding",
+      "cent",
+      "cents",
+      "float",
+      "precision",
+      "fraction",
+      "1.005",
+      "three"
+    ],
+    "answer": "Amounts are strings with at most two decimal places. Never round: an amount with three decimals, an exponent, a sign, spaces, or a thousands separator is invalid. Amounts sent as JSON numbers are invalid too, because they may already have lost precision."
+  },
+  {
+    "topic": "Which events are invalid",
+    "important": true,
+    "keywords": [
+      "valid",
+      "invalid",
+      "validation",
+      "reject",
+      "malformed",
+      "type",
+      "refund",
+      "currency",
+      "euro",
+      "eur",
+      "zero",
+      "negative",
+      "missing"
+    ],
+    "answer": "Reject any event missing a required field, with a type other than exactly 'credit' or 'debit' (case matters; 'CREDIT' is invalid), a currency other than USD, a zero or negative amount, or a timestamp without a timezone. Rejected events change nothing and are recorded with a reason."
+  },
+  {
+    "topic": "Insufficient funds",
+    "important": true,
+    "keywords": [
+      "insufficient",
+      "overdraw",
+      "overdraft",
+      "negative balance",
+      "below zero",
+      "more than the balance",
+      "funds"
+    ],
+    "answer": "A debit larger than the current balance is rejected with the reason 'insufficient funds'. A debit equal to the balance is fine and leaves zero. Accounts that are not in the opening balances start at zero.",
+    "answer_after_change": "With the new overdraft rule, a debit is allowed as long as the balance afterwards is not below -$50.00 (overdraft_limit_cents, default 5000). Exactly -$50.00 is allowed; one cent more is rejected as 'insufficient funds'."
+  },
+  {
+    "topic": "Timezones and report days",
+    "important": true,
+    "keywords": [
+      "timezone",
+      "time zone",
+      "utc",
+      "offset",
+      "day",
+      "date",
+      "midnight",
+      "local time"
+    ],
+    "answer": "Report days are UTC calendar days. Events carry an offset (or Z); convert to UTC before taking the date. A timestamp with no timezone is invalid."
+  },
+  {
+    "topic": "Statement contents",
+    "important": true,
+    "keywords": [
+      "statement",
+      "running balance",
+      "opening",
+      "closing",
+      "lines"
+    ],
+    "answer": "Only applied transactions, in processing order. Credits positive, debits negative, the running balance after each line, and the UTC date. Opening is the account's opening balance (0 if none); closing equals the processor's balance for that account."
+  },
+  {
+    "topic": "Ordering of events",
+    "important": false,
+    "keywords": [
+      "order",
+      "ordering",
+      "sort",
+      "out of order",
+      "chronological",
+      "sequence"
+    ],
+    "answer": "Process events in the order they arrive in the feed, even if timestamps are out of order. Do not sort them."
+  },
+  {
+    "topic": "Formatting and thousands separators",
+    "important": false,
+    "keywords": [
+      "format",
+      "display",
+      "comma",
+      "separator",
+      "dollar sign"
+    ],
+    "answer": "format_cents has no thousands separators: $1234.56. Negative amounts put the minus before the dollar sign: -$0.05."
+  },
+  {
+    "topic": "Persistence and scale",
+    "important": false,
+    "keywords": [
+      "database",
+      "persist",
+      "memory",
+      "scale",
+      "million",
+      "performance",
+      "restart",
+      "crash"
+    ],
+    "answer": "Everything stays in memory for this exercise. It is good to mention how you would persist seen event ids in production, but do not build it."
+  },
+  {
+    "topic": "Changing the API",
+    "important": false,
+    "keywords": [
+      "signature",
+      "change the api",
+      "rename",
+      "breaking",
+      "new parameter"
+    ],
+    "answer": "Keep the existing function and class names and parameters; the nightly job imports them. Adding optional parameters or private helpers is fine."
+  }
+]

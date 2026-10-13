@@ -1,0 +1,26 @@
+diff --git a/ledger/money.py b/ledger/money.py
+--- a/ledger/money.py
++++ b/ledger/money.py
+@@ -8,7 +8,9 @@ class InvalidAmount(ValueError):
+ def parse_amount(text: str) -> int:
+     """Converts a dollar amount such as "12.34" to integer cents."""
+     try:
+-        return int(float(text) * 100)
++        # float("19.99") * 100 is 1998.9999999999998, so round to the nearest cent
++        # instead of truncating.
++        return int(round(float(text) * 100))
+     except (TypeError, ValueError, OverflowError) as error:
+         raise InvalidAmount(f"invalid amount: {text!r}") from error
+ 
+diff --git a/tests/test_ledger.py b/tests/test_ledger.py
+--- a/tests/test_ledger.py
++++ b/tests/test_ledger.py
+@@ -14,7 +14,7 @@ def test_parse_amount_whole_dollars_and_cents():
+     assert parse_amount("7") == 700
+ 
+ 
+-@pytest.mark.parametrize("text, cents", [("19.99", 1999), ("0.29", 29)])
++@pytest.mark.parametrize("text, cents", [("19.99", 1999), ("0.29", 29), ("4.35", 435), ("100.10", 10010)])
+ def test_parse_amount_is_exact(text, cents):
+     assert parse_amount(text) == cents
+ 

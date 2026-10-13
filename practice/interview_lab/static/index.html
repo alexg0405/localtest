@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interview Lab</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Interview Lab</h1>
+      <span class="sub">AI-assisted engineering interview practice</span>
+    </div>
+    <label class="picker">Interview
+      <select id="interview"></select>
+    </label>
+    <div class="modes">
+      <span class="badge sub-badge" title="Your coding assistant is the Claude Code app, signed in with your Claude subscription. The lab never sees or uses that login.">Coding assistant: Claude Code app · your subscription</span>
+      <span class="badge" id="api-badge">Interviewer: offline</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro card" id="intro">
+      <p class="eyebrow" id="intro-level"></p>
+      <h2 id="intro-title"></h2>
+      <p id="intro-summary"></p>
+      <p class="muted" id="intro-inspired"></p>
+      <div class="row">
+        <button class="primary" id="start">Start interview</button>
+        <label class="check"><input type="checkbox" id="start-reset"> Reset the workspace to the starter first</label>
+      </div>
+      <p class="muted small">The timer starts when you press Start. The task, your workspace folder, and the interviewer appear below.</p>
+    </section>
+
+    <div class="layout" id="session" hidden>
+      <div class="col main-col">
+        <section class="card change" id="change" hidden>
+          <p class="eyebrow">Requirement change</p>
+          <div id="change-text" class="md"></div>
+          <p class="muted small">Also saved as <code>CHANGE_REQUEST.md</code> in your workspace, so your coding assistant can read it.</p>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Task</h2></div>
+          <div id="task" class="md"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Ask the interviewer</h2><label class="check" id="use-api-wrap" hidden><input type="checkbox" id="use-api"> Use the API interviewer</label></div>
+          <form id="ask-form" class="row">
+            <input id="question" type="text" placeholder="e.g. What counts as a duplicate request?" autocomplete="off">
+            <button type="submit">Ask</button>
+          </form>
+          <ol id="questions" class="qa"></ol>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Your notes</h2><span class="muted small" id="saved"></span></div>
+          <p class="muted small">These are your evidence. Assessment uses them, and anything left empty is marked "not observed".</p>
+          <label class="note">Plan <span class="muted">(5–15 min: what you found, which files, what you'll change)</span><textarea data-note="plan" rows="5"></textarea></label>
+          <label class="note">Assumptions <span class="muted">(one per line)</span><textarea data-note="assumptions" rows="3"></textarea></label>
+          <label class="note">AI patch review <span class="muted">(40–50 min: see <code>patch_review/REVIEW.md</code>)</span><textarea data-note="patch_review" rows="5"></textarea></label>
+          <label class="note">Final explanation <span class="muted">(50–60 min: what you changed, why, tradeoffs, what's left)</span><textarea data-note="explanation" rows="6"></textarea></label>
+          <label class="note">Coding-assistant transcript <span class="muted">(optional: paste your Claude Code conversation; <code>/export</code> copies it)</span><textarea data-note="transcript" rows="4"></textarea></label>
+        </section>
+      </div>
+
+      <aside class="col side-col">
+        <section class="card timer">
+          <div class="clock"><span id="elapsed">00:00</span><span class="of">/ 60:00</span></div>
+          <div class="bar"><div id="bar-fill"></div><div class="tick" id="change-tick" title="Requirement change"></div></div>
+          <p id="timer-status" class="muted small"></p>
+          <ol id="phases" class="phases"></ol>
+          <div class="buttons">
+            <button id="pause">Pause</button>
+            <button id="resume" hidden>Resume</button>
+            <button id="restart">Restart…</button>
+            <button id="reveal" title="Reveal the requirement change before minute 30">Reveal change now</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Workspace</h2></div>
+          <p class="path"><code id="workspace"></code></p>
+          <div class="cmd"><span>Open in your editor</span><code id="cmd-editor"></code><button class="copy" data-copy="cmd-editor">Copy</button></div>
+          <div class="cmd"><span>Or start Claude Code there from a terminal</span><code id="cmd-assistant"></code><button class="copy" data-copy="cmd-assistant">Copy</button></div>
+          <div class="cmd"><span>Use the lab's Python in a terminal (then <code>pytest -q</code>)</span><code id="cmd-activate"></code><button class="copy" data-copy="cmd-activate">Copy</button></div>
+          <div class="cmd"><span>Run the tests yourself</span><code id="cmd-tests"></code><button class="copy" data-copy="cmd-tests">Copy</button></div>
+          <p class="muted small">Easiest: open this folder in the Claude desktop app's Code tab or the Claude Code extension in VS Code. The folder's <code>CLAUDE.md</code> keeps the assistant out of the interviewer materials.</p>
+          <button id="reset-workspace" class="quiet">Reset workspace to the starter…</button>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Tests</h2><button id="run-tests">Run visible tests</button></div>
+          <div id="test-result" class="muted small">Not run yet in this session.</div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Submit</h2></div>
+          <p class="muted small">Runs the visible and the hidden grading tests, compares your workspace with the starter, and scores your session from that evidence. You can keep working and submit again.</p>
+          <button class="primary" id="submit">Submit session</button>
+          <button id="show-report" class="quiet" hidden>Show last report</button>
+        </section>
+
+        <section class="card">
+          <details>
+            <summary>Interviewer in a separate Claude conversation</summary>
+            <p class="muted small">No API key needed: copy this prompt into a new Claude conversation (not your coding assistant's) and it will play the interviewer. <strong>It contains the answers and planted defects</strong>, so copy it without reading it.</p>
+            <button id="copy-interviewer">Copy interviewer prompt</button>
+          </details>
+        </section>
+      </aside>
+    </div>
+
+    <section class="card report" id="report" hidden>
+      <div class="card-head"><h2>Session report</h2><button class="quiet" id="close-report">Close</button></div>
+      <div id="report-body"></div>
+      <div class="row">
+        <button id="copy-grading">Copy grading prompt</button>
+        <button id="api-feedback" hidden>Get API feedback</button>
+      </div>
+      <p class="muted small">Paste the grading prompt into a separate Claude conversation for a second opinion grounded in the same evidence (no API key needed).</p>
+      <div id="api-feedback-text" class="md"></div>
+    </section>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

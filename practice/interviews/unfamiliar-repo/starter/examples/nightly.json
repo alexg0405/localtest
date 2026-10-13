@@ -1,0 +1,4 @@
+{
+  "input": "supplier_feed.csv",
+  "output": "out/catalog.json"
+}

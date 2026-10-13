@@ -3,130 +3,206 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>Interview Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <h1>Interview Lab</h1>
-      <span class="sub">AI-assisted engineering interview practice</span>
-    </div>
-    <label class="picker">Interview
-      <select id="interview"></select>
-    </label>
-    <a class="switch" id="switch" href="http://127.0.0.1:5173/" target="roomside" title="Roomside, the live interview copilot">Roomside ↗</a>
-    <div class="modes">
-      <span class="badge sub-badge" title="Your coding assistant is the Claude Code app, signed in with your Claude subscription. The lab never sees or uses that login.">Coding assistant: Claude Code app · your subscription</span>
-      <span class="badge" id="api-badge">Interviewer: offline</span>
-    </div>
-  </header>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a1 1 0 0 1 1-1h9" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 9l3 3-3 3M12 15h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
 
-  <main>
-    <section class="intro card" id="intro">
-      <p class="eyebrow" id="intro-level"></p>
-      <h2 id="intro-title"></h2>
-      <p id="intro-summary"></p>
-      <p class="muted" id="intro-inspired"></p>
-      <div class="row">
-        <button class="primary" id="start">Start interview</button>
-        <label class="check"><input type="checkbox" id="start-reset"> Reset the workspace to the starter first</label>
+  <!-- Lobby -->
+  <div id="intro" class="lobby">
+    <header class="lobby-top">
+      <a class="logo" href="#" aria-label="Interview Lab"><span class="mark">IL</span><span class="logo-text">Interview Lab</span></a>
+      <div class="lobby-links">
+        <span class="pill pill-sub" title="Your coding assistant is the Claude Code app, signed in with your Claude subscription. The lab never sees that login.">Assistant · Claude Code on your subscription</span>
+        <span class="pill" id="api-badge">Interviewer · offline</span>
+        <a class="pill pill-link" id="switch" href="http://127.0.0.1:5173/" target="roomside">Roomside ↗</a>
       </div>
-      <p class="muted small">The timer starts when you press Start. The task, your workspace folder, and the interviewer appear below.</p>
-    </section>
+    </header>
+    <main class="lobby-main">
+      <section class="hero">
+        <p class="kicker"><span class="live-dot"></span>AI-assisted coding interviews · Python · 60 min</p>
+        <h1>Pick your interview.</h1>
+        <p class="lede">Clarify the problem, find your way around unfamiliar code, direct your AI assistant, and defend your decisions on a real clock. You're graded on evidence, not on how little AI you used.</p>
+      </section>
+      <div class="cards" id="lobby-cards" role="list"></div>
+      <section class="launch">
+        <div class="launch-info">
+          <p class="eyebrow" id="intro-level"></p>
+          <h2 id="intro-title"></h2>
+          <p class="muted small" id="intro-inspired"></p>
+        </div>
+        <div class="launch-actions">
+          <button class="btn btn-green btn-lg" id="start">Start interview</button>
+          <label class="check"><input type="checkbox" id="start-reset"> Reset the workspace to the starter first</label>
+        </div>
+      </section>
+      <ol class="flow">
+        <li><b>0–5</b><span>Clarify</span></li>
+        <li><b>5–15</b><span>Explore and plan</span></li>
+        <li><b>15–40</b><span>Build with AI</span></li>
+        <li class="flow-change"><b>30:00</b><span>Requirement change</span></li>
+        <li><b>40–50</b><span>Edge cases and patch review</span></li>
+        <li><b>50–60</b><span>Explain</span></li>
+      </ol>
+    </main>
+  </div>
 
-    <div class="layout" id="session" hidden>
-      <div class="col main-col">
-        <section class="card change" id="change" hidden>
-          <p class="eyebrow">Requirement change</p>
-          <div id="change-text" class="md"></div>
-          <p class="muted small">Also saved as <code>CHANGE_REQUEST.md</code> in your workspace, so your coding assistant can read it.</p>
-        </section>
-
-        <section class="card">
-          <div class="card-head"><h2>Task</h2></div>
-          <div id="task" class="md"></div>
-        </section>
-
-        <section class="card">
-          <div class="card-head"><h2>Ask the interviewer</h2><label class="check" id="use-api-wrap" hidden><input type="checkbox" id="use-api"> Use the API interviewer</label></div>
-          <form id="ask-form" class="row">
-            <input id="question" type="text" placeholder="e.g. What counts as a duplicate request?" autocomplete="off">
-            <button type="submit">Ask</button>
-          </form>
-          <ol id="questions" class="qa"></ol>
-        </section>
-
-        <section class="card">
-          <div class="card-head"><h2>Your notes</h2><span class="muted small" id="saved"></span></div>
-          <p class="muted small">These are your evidence. Assessment uses them, and anything left empty is marked "not observed".</p>
-          <label class="note">Plan <span class="muted">(5–15 min: what you found, which files, what you'll change)</span><textarea data-note="plan" rows="5"></textarea></label>
-          <label class="note">Assumptions <span class="muted">(one per line)</span><textarea data-note="assumptions" rows="3"></textarea></label>
-          <label class="note">AI patch review <span class="muted">(40–50 min: see <code>patch_review/REVIEW.md</code>)</span><textarea data-note="patch_review" rows="5"></textarea></label>
-          <label class="note">Final explanation <span class="muted">(50–60 min: what you changed, why, tradeoffs, what's left)</span><textarea data-note="explanation" rows="6"></textarea></label>
-          <label class="note">Coding-assistant transcript <span class="muted">(optional: paste your Claude Code conversation; <code>/export</code> copies it)</span><textarea data-note="transcript" rows="4"></textarea></label>
-        </section>
+  <!-- Interview -->
+  <div id="session" class="ide" hidden>
+    <header class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn" id="back" title="All interviews"><svg><use href="#i-arrow"/></svg></button>
+        <span class="mark mark-sm">IL</span>
+        <div class="title-block">
+          <select id="interview" aria-label="Interview"></select>
+          <span class="phase" id="phase-pill"></span>
+        </div>
       </div>
-
-      <aside class="col side-col">
-        <section class="card timer">
-          <div class="clock"><span id="elapsed">00:00</span><span class="of">/ 60:00</span></div>
-          <div class="bar"><div id="bar-fill"></div><div class="tick" id="change-tick" title="Requirement change"></div></div>
-          <p id="timer-status" class="muted small"></p>
-          <ol id="phases" class="phases"></ol>
-          <div class="buttons">
-            <button id="pause">Pause</button>
-            <button id="resume" hidden>Resume</button>
-            <button id="restart">Restart…</button>
-            <button id="reveal" title="Reveal the requirement change before minute 30">Reveal change now</button>
+      <div class="tb-center">
+        <div class="timer" id="timer"><svg><use href="#i-clock"/></svg><span id="elapsed">00:00</span><span class="of">/ 60:00</span></div>
+        <button class="icon-btn" id="pause" title="Pause the clock"><svg><use href="#i-pause"/></svg></button>
+        <button class="icon-btn" id="resume" title="Resume the clock" hidden><svg><use href="#i-play"/></svg></button>
+      </div>
+      <div class="tb-right">
+        <div class="menu">
+          <button class="icon-btn" id="menu-button" aria-haspopup="true" aria-expanded="false" title="More"><svg><use href="#i-more"/></svg></button>
+          <div class="menu-list" id="menu" hidden>
+            <button id="reveal">Reveal the requirement change now</button>
+            <button id="restart">Restart the interview…</button>
+            <button id="reset-workspace">Reset the workspace to the starter…</button>
+            <hr>
+            <button id="copy-interviewer">Copy interviewer prompt (contains answers)</button>
+            <button id="show-report" hidden>Show the last report</button>
+            <a id="switch-ide" href="http://127.0.0.1:5173/" target="roomside">Switch to Roomside ↗</a>
           </div>
-        </section>
-
-        <section class="card">
-          <div class="card-head"><h2>Workspace</h2></div>
-          <p class="path"><code id="workspace"></code></p>
-          <div class="cmd"><span>Open in your editor</span><code id="cmd-editor"></code><button class="copy" data-copy="cmd-editor">Copy</button></div>
-          <div class="cmd"><span>Or start Claude Code there from a terminal</span><code id="cmd-assistant"></code><button class="copy" data-copy="cmd-assistant">Copy</button></div>
-          <div class="cmd"><span>Use the lab's Python in a terminal (then <code>pytest -q</code>)</span><code id="cmd-activate"></code><button class="copy" data-copy="cmd-activate">Copy</button></div>
-          <div class="cmd"><span>Run the tests yourself</span><code id="cmd-tests"></code><button class="copy" data-copy="cmd-tests">Copy</button></div>
-          <p class="muted small">Easiest: open this folder in the Claude desktop app's Code tab or the Claude Code extension in VS Code. The folder's <code>CLAUDE.md</code> keeps the assistant out of the interviewer materials.</p>
-          <button id="reset-workspace" class="quiet">Reset workspace to the starter…</button>
-        </section>
-
-        <section class="card">
-          <div class="card-head"><h2>Tests</h2><button id="run-tests">Run visible tests</button></div>
-          <div id="test-result" class="muted small">Not run yet in this session.</div>
-        </section>
-
-        <section class="card">
-          <div class="card-head"><h2>Submit</h2></div>
-          <p class="muted small">Runs the visible and the hidden grading tests, compares your workspace with the starter, and scores your session from that evidence. You can keep working and submit again.</p>
-          <button class="primary" id="submit">Submit session</button>
-          <button id="show-report" class="quiet" hidden>Show last report</button>
-        </section>
-
-        <section class="card">
-          <details>
-            <summary>Interviewer in a separate Claude conversation</summary>
-            <p class="muted small">No API key needed: copy this prompt into a new Claude conversation (not your coding assistant's) and it will play the interviewer. <strong>It contains the answers and planted defects</strong>, so copy it without reading it.</p>
-            <button id="copy-interviewer">Copy interviewer prompt</button>
-          </details>
-        </section>
-      </aside>
+        </div>
+        <button class="btn btn-ghost" id="run-tests"><svg><use href="#i-play"/></svg>Run tests</button>
+        <button class="btn btn-green" id="submit">Submit</button>
+      </div>
+    </header>
+    <div class="progress" title="Interview timeline">
+      <div class="progress-segments" id="phases"></div>
+      <div class="progress-fill" id="bar-fill"></div>
+      <div class="progress-tick" id="change-tick" title="Requirement change at 30:00"></div>
     </div>
 
-    <section class="card report" id="report" hidden>
-      <div class="card-head"><h2>Session report</h2><button class="quiet" id="close-report">Close</button></div>
-      <div id="report-body"></div>
-      <div class="row">
-        <button id="copy-grading">Copy grading prompt</button>
-        <button id="api-feedback" hidden>Get API feedback</button>
-      </div>
-      <p class="muted small">Paste the grading prompt into a separate Claude conversation for a second opinion grounded in the same evidence (no API key needed).</p>
-      <div id="api-feedback-text" class="md"></div>
-    </section>
-  </main>
+    <div class="panes" id="panes">
+      <section class="pane left-pane">
+        <nav class="tabs" role="tablist">
+          <button class="tab active" data-tab="problem"><svg><use href="#i-doc"/></svg>Problem</button>
+          <button class="tab" data-tab="interviewer"><svg><use href="#i-chat"/></svg>Interviewer<span class="count" id="q-count" hidden></span></button>
+          <button class="tab" data-tab="change" id="change-tab"><svg id="change-icon"><use href="#i-lock"/></svg>Change<span class="new" id="change-new" hidden>NEW</span></button>
+        </nav>
+        <div class="tab-body" data-panel="problem">
+          <div id="task" class="md problem"></div>
+        </div>
+        <div class="tab-body chat" data-panel="interviewer" hidden>
+          <div class="chat-log" id="questions"></div>
+          <div class="chat-foot">
+            <form id="ask-form" class="chat-input">
+              <input id="question" type="text" placeholder="Ask the interviewer a clarifying question…" autocomplete="off">
+              <button class="send" type="submit" title="Ask"><svg><use href="#i-send"/></svg></button>
+            </form>
+            <label class="check" id="use-api-wrap" hidden><input type="checkbox" id="use-api"> Answer with the API interviewer (billed per token)</label>
+          </div>
+        </div>
+        <div class="tab-body" data-panel="change" hidden>
+          <div id="change" hidden>
+            <div class="change-banner"><svg><use href="#i-bolt"/></svg>Requirement change from the interviewer</div>
+            <div id="change-text" class="md problem"></div>
+            <p class="muted small">Also saved as <code>CHANGE_REQUEST.md</code> in your workspace, so your assistant can read it.</p>
+          </div>
+          <div id="change-locked" class="locked">
+            <div class="lock-ring"><svg><use href="#i-lock"/></svg></div>
+            <h3>Unlocks at 30:00</h3>
+            <p class="muted">Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.</p>
+          </div>
+        </div>
+      </section>
 
+      <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+
+      <section class="pane right-pane">
+        <nav class="tabs editor-tabs">
+          <button class="tab file active" data-note-tab="plan">plan.md<i class="dot"></i></button>
+          <button class="tab file" data-note-tab="assumptions">assumptions.md<i class="dot"></i></button>
+          <button class="tab file" data-note-tab="patch_review">patch_review.md<i class="dot"></i></button>
+          <button class="tab file" data-note-tab="explanation">explanation.md<i class="dot"></i></button>
+          <button class="tab file" data-note-tab="transcript">transcript.txt<i class="dot"></i></button>
+          <span class="saved" id="saved"></span>
+        </nav>
+        <div class="editor">
+          <div class="editor-hint" id="editor-hint"></div>
+          <div class="editor-area">
+            <pre class="gutter" id="gutter" aria-hidden="true">1</pre>
+            <textarea data-note="plan" spellcheck="false" aria-label="Plan"></textarea>
+            <textarea data-note="assumptions" spellcheck="false" aria-label="Assumptions" hidden></textarea>
+            <textarea data-note="patch_review" spellcheck="false" aria-label="AI patch review" hidden></textarea>
+            <textarea data-note="explanation" spellcheck="false" aria-label="Final explanation" hidden></textarea>
+            <textarea data-note="transcript" spellcheck="false" aria-label="Coding-assistant transcript" hidden></textarea>
+          </div>
+          <div class="statusbar"><span id="status-note">Markdown</span><span id="status-lines"></span><span id="timer-status"></span></div>
+        </div>
+
+        <div class="console" id="console">
+          <nav class="tabs console-tabs">
+            <button class="tab active" data-console="tests"><svg><use href="#i-check"/></svg>Test results</button>
+            <button class="tab" data-console="workspace"><svg><use href="#i-terminal"/></svg>Workspace</button>
+            <span class="console-summary" id="console-summary"></span>
+          </nav>
+          <div class="console-body" data-console-panel="tests">
+            <div id="test-result" class="test-empty">You haven't run the tests yet. Press <b>Run tests</b>; every run counts as evidence of how you checked your work.</div>
+          </div>
+          <div class="console-body" data-console-panel="workspace" hidden>
+            <p class="muted small">Your code lives in this folder. Open it in your editor and in Claude Code (the desktop app's Code tab, the VS Code extension, or the CLI). Its <code>CLAUDE.md</code> keeps the assistant out of the interviewer materials.</p>
+            <div class="ws-path"><code id="workspace"></code></div>
+            <div class="cmds">
+              <div class="cmd"><span>Open in VS Code</span><code id="cmd-editor"></code><button class="copy" data-copy="cmd-editor" title="Copy"><svg><use href="#i-copy"/></svg></button></div>
+              <div class="cmd"><span>Claude Code in a terminal</span><code id="cmd-assistant"></code><button class="copy" data-copy="cmd-assistant" title="Copy"><svg><use href="#i-copy"/></svg></button></div>
+              <div class="cmd"><span>Use the lab's Python, then <code>pytest -q</code></span><code id="cmd-activate"></code><button class="copy" data-copy="cmd-activate" title="Copy"><svg><use href="#i-copy"/></svg></button></div>
+              <div class="cmd"><span>Run the tests yourself</span><code id="cmd-tests"></code><button class="copy" data-copy="cmd-tests" title="Copy"><svg><use href="#i-copy"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="report" class="results" hidden>
+    <header class="topbar">
+      <div class="tb-left"><span class="mark mark-sm">IL</span><div class="title-block"><strong>Results</strong><span class="phase" id="report-title"></span></div></div>
+      <div class="tb-right">
+        <button class="btn btn-ghost" id="copy-grading"><svg><use href="#i-copy"/></svg>Copy grading prompt</button>
+        <button class="btn btn-ghost" id="api-feedback" hidden><svg><use href="#i-bolt"/></svg>Get API feedback</button>
+        <button class="btn btn-green" id="close-report">Back to the interview</button>
+      </div>
+    </header>
+    <div class="results-body">
+      <div id="report-body"></div>
+      <div id="api-feedback-text" class="md feedback"></div>
+    </div>
+  </div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="static/app.js"></script>
 </body>

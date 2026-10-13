@@ -34,7 +34,7 @@ python3 practice/lab.py setup     # once: creates ~/interview-practice/.venv wit
 python3 practice/lab.py serve     # opens the dashboard at http://127.0.0.1:8765
 ```
 
-`npm run practice` does the same as `serve`. Check the lab itself:
+`npm run practice` does the same as `serve`. While Roomside is running (`npm start`), its **Practice** button starts Interview Lab if needed and opens it in its own tab, and the lab's **Roomside** link switches back. Check the lab itself:
 
 ```sh
 python3 practice/lab.py verify                                        # end-to-end self-check of all three interviews

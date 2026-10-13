@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, ListChecks, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2, Zap } from 'lucide-react';
+import { BookUser, ChevronDown, Copy, CornerDownLeft, FileText, GraduationCap, ListChecks, Mic, Pencil, Pin, RefreshCw, Send, Settings2, Smartphone, Square, Upload, X, Volume2, Trash2, Zap } from 'lucide-react';
 import { claudeModelLabel, claudeModels, type ClaudeModel } from './claude';
 import { ClaudeCodeProvider, LocalDemoProvider, OpenAICompatibleProvider, claudeCodeStatus, describeProviderError, followUpPrompt, liveCoachInstructions, reviewInstructions, topicsInstructions, type LLMProvider, type Mode } from './providers';
 import { BrowserSpeechToTextProvider, DeepgramSpeechToTextProvider, installOnDevice, learnVoice, onDeviceStatus, type OnDeviceStatus, type SpeechToTextProvider } from './speech';
@@ -62,6 +62,17 @@ const TranscriptLines = memo(function TranscriptLines({ lines, speakers, filter,
   return <>{lines.map((line, index) => <div className={'transcript-line' + (speakers && line.speaker ? ` ${line.speaker}` : '')} key={line.id} data-line={line.id}><time>{line.time}</time><p>{speakers && <button className={'speaker-tag' + (filter === 'all' && index && lines[index - 1].speaker === line.speaker ? ' same' : '')} onClick={() => onFlip(line.id)} title={line.by === 'answer' ? 'You, reading a suggested answer. Wrong person? Click to switch' : 'Wrong person? Click to switch'}>{line.speaker === 'interviewer' ? 'Interviewer' : line.speaker === 'candidate' ? 'You' : 'Who?'}</button>}{line.text}</p><button className="answer-line" onClick={() => onAnswer(line.text)} title="Answer this line" aria-label="Answer this line"><CornerDownLeft size={14}/></button></div>)}
     {speakers && filter !== 'all' && !lines.length && <div className="filter-empty">No lines from {filter === 'interviewer' ? 'the interviewer' : 'you'} yet.</div>}</>;
 });
+
+/** Starts Interview Lab (practice/lab.py) through the dev server if needed, and shows it in its own tab. */
+function openPractice() {
+  window.name = 'roomside'; // so Interview Lab's Roomside link comes back to this tab
+  const tab = window.open('', 'interview-lab');
+  const fail = (message: string) => { if (tab) { tab.document.title = 'Interview Lab'; tab.document.body.textContent = message; } };
+  fetch('/api/practice/start', { method: 'POST' })
+    .then(response => response.json().catch(() => ({})))
+    .then((body: { running?: boolean; url?: string; error?: string }) => { if (body.running && body.url && tab) tab.location.href = body.url; else fail(body.error ?? 'Interview Lab can only be started from the Roomside dev server (npm start). Or run: python3 practice/lab.py serve'); })
+    .catch(() => fail('Could not reach the Roomside dev server to start Interview Lab. Run: python3 practice/lab.py serve'));
+}
 
 export default function App() {
   const [active, setActive] = useState(false); const activeRef = useRef(false); const [micReady, setMicReady] = useState(false);
@@ -948,6 +959,7 @@ export default function App() {
           <div className="session-picker" ref={picker}><button className="session-title" onClick={() => setSessionMenu(open => !open)} aria-expanded={sessionMenu} aria-haspopup="dialog" title="Name, save, or open sessions"><span>{session.name.trim() || (session.saved ? sessionPlaceholder : 'Interview copilot')}</span><ChevronDown size={15}/></button>{sessionMenu && <SessionMenu name={session.name} placeholder={sessionPlaceholder} saved={session.saved} currentId={session.id} listening={active} sessions={savedSessions} notice={sessionNotice} onRename={name => setSession(current => ({ ...current, name }))} onSave={() => void saveThisSession()} onNew={newSession} onOpen={id => void openSession(id)} onDelete={item => void deleteSaved(item)}/>}</div>
           <span className={'save-state' + (session.saved ? ' saved' : '')} title={session.saved ? 'Saved on this computer; changes save as you go' : 'Nothing is saved unless you choose Save this session'}><i/>{session.saved ? 'Saved' : 'Memory only'}</span></div>
         <div className="top-actions">
+          <button className="ghost-button" onClick={openPractice} aria-label="Interview practice" title="Open Interview Lab, timed coding-interview practice, in its own tab"><GraduationCap size={15}/><span>Practice</span></button>
           <button className="ghost-button" onClick={() => setPanel('review')} aria-label="Review" title="How you answered each question, and what to work on"><ListChecks size={15}/><span>Review</span></button>
           <button className="ghost-button" onClick={() => setPanel('context')} aria-label="Your context" title="Your role, notes, and résumé"><BookUser size={15}/><span>Context</span></button>
           {mirror && <button className="ghost-button" onClick={() => setPanel('phone')} aria-label={'Phone mirror' + (mirrorShown ? mirror.phones ? ', phone connected' : ', waiting for phone' : '')} title="Phone mirror"><Smartphone size={15}/><span>{mirrorShown ? mirror.phones ? 'Phone connected' : 'Waiting for phone' : 'Phone'}</span>{mirrorShown && <i className={'phone-dot' + (mirror.phones ? ' live' : '')}/>}</button>}

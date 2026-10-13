@@ -19,7 +19,8 @@ function toast(message) {
 
 async function call(path, body) {
   const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interview: current, ...body }) };
-  const response = await fetch(path, options);
+  // Relative, so the dashboard works both on its own port and under Roomside at /practice/.
+  const response = await fetch(path.replace(/^\//, ""), options);
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.error) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
@@ -313,6 +314,7 @@ function wire() {
 }
 
 (async function main() {
+  if (location.pathname.startsWith("/practice")) $("switch").href = "/";  // served by Roomside: same server
   wire();
   try { await loadInterviews(); await refresh(); } catch (e) { toast(e.message); }
   setInterval(renderTimer, 1000);

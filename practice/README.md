@@ -31,10 +31,10 @@ From the repository root:
 
 ```sh
 python3 practice/lab.py setup     # once: creates ~/interview-practice/.venv with pytest
-python3 practice/lab.py serve     # opens the dashboard at http://127.0.0.1:8765
+python3 practice/lab.py serve     # or just `npm start`: Roomside serves it at http://127.0.0.1:5173/practice/
 ```
 
-`npm run practice` does the same as `serve`. While Roomside is running (`npm start`), its **Practice** button starts Interview Lab if needed and opens it in its own tab, and the lab's **Roomside** link switches back. Check the lab itself:
+If you run Roomside, you do not need a second command: `npm start` also starts Interview Lab and serves it at http://127.0.0.1:5173/practice/. Roomside's **Practice** button opens it in its own tab, and the lab's **Roomside** link switches back. `npm run practice` (or `serve`) runs the lab on its own at http://127.0.0.1:8765/. Check the lab itself:
 
 ```sh
 python3 practice/lab.py verify                                        # end-to-end self-check of all three interviews

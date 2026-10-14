@@ -23,6 +23,7 @@
     <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
     <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 9l3 3-3 3M12 15h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </svg>
 
@@ -80,6 +81,7 @@
         <div class="timer" id="timer"><svg><use href="#i-clock"/></svg><span id="elapsed">00:00</span><span class="of">/ 60:00</span></div>
         <button class="icon-btn" id="pause" title="Pause the clock"><svg><use href="#i-pause"/></svg></button>
         <button class="icon-btn" id="resume" title="Resume the clock" hidden><svg><use href="#i-play"/></svg></button>
+        <button class="pill live-pill" id="mic-pill" hidden title="The interviewer is listening. Click to stop."><i></i>Listening</button>
       </div>
       <div class="tb-right">
         <div class="menu">
@@ -117,6 +119,14 @@
         <div class="tab-body chat" data-panel="interviewer" hidden>
           <div class="chat-log" id="questions"></div>
           <div class="chat-foot">
+            <div class="voice-bar" id="voice-bar">
+              <button class="mic" id="mic" type="button" title="Talk to the interviewer" aria-pressed="false"><svg><use href="#i-mic"/></svg><span class="rings"></span></button>
+              <div class="voice-info">
+                <strong id="voice-state">Talk to your interviewer</strong>
+                <span id="voice-live">Press the mic and speak. Questions get answered out loud; everything else is kept as your think-aloud.</span>
+              </div>
+              <label class="check" title="Have the interviewer read its replies aloud"><input type="checkbox" id="speak-replies" checked> Voice</label>
+            </div>
             <form id="ask-form" class="chat-input">
               <input id="question" type="text" placeholder="Ask the interviewer a clarifying question…" autocomplete="off">
               <button class="send" type="submit" title="Ask"><svg><use href="#i-send"/></svg></button>

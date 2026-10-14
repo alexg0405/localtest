@@ -119,7 +119,14 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     sessions.set_note(interview, str(body.get("field", "")), str(body.get("text", "")))
                     return self._json(200, {"saved": True})
                 elif action == "/api/ask":
-                    return self._json(200, {"entry": self._ask(interview, str(body.get("question", "")), bool(body.get("use_api")))})
+                    return self._json(200, {"entry": self._ask(interview, str(body.get("question", "")), bool(body.get("use_api")), bool(body.get("voice")))})
+                elif action == "/api/speech":
+                    sessions.record_speech(interview, str(body.get("text", "")))
+                    return self._json(200, {"saved": True})
+                elif action == "/api/cue":
+                    return self._json(200, {"entry": sessions.cue(interview, str(body.get("cue", "")))})
+                elif action == "/api/followup":
+                    return self._json(200, {"entry": sessions.follow_up(interview, str(body.get("phase", "")))})
                 elif action == "/api/test":
                     return self._json(200, self._run_visible(interview))
                 elif action == "/api/submit":
@@ -177,9 +184,9 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 },
             }
 
-        def _ask(self, interview, question: str, use_api: bool) -> Dict[str, Any]:
+        def _ask(self, interview, question: str, use_api: bool, voice: bool = False) -> Dict[str, Any]:
             if not (use_api and lab.api.enabled):
-                return lab.sessions.ask(interview, question)
+                return lab.sessions.ask(interview, question, voice)
             state = lab.sessions.load(interview.id)
             if not state:
                 raise SessionError("No session yet. Start the interview first.")
@@ -189,11 +196,11 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             try:
                 result = api.complete(lab.api, api.INTERVIEWER_SYSTEM, prompt, state.get("api_usage", {}), lab.home)
             except api.ApiError as error:
-                entry = lab.sessions.ask(interview, question)  # graceful fallback to the offline interviewer
+                entry = lab.sessions.ask(interview, question, voice)  # graceful fallback to the offline interviewer
                 entry["api_error"] = {"kind": error.kind, "message": str(error)}
                 return entry
             lab.sessions.add_api_usage(interview, result["usage"])
-            entry = {"question": question.strip()[:2000], "answer": result["text"], "topic": None, "matched": True, "source": "api", "usage": result["usage"]}
+            entry = {"question": question.strip()[:2000], "answer": result["text"], "topic": None, "matched": True, "source": "api", "usage": result["usage"], "voice": voice}
             local = interviewer.answer(interview, question, revealed)  # still credit the topic for scoring
             entry["topic"] = local["topic"]
             lab.sessions.record_question(interview, entry)

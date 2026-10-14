@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +80,17 @@ class Interview:
 
     def patch_review(self) -> Dict[str, Any]:
         return self._json("patch_review.json", {})
+
+    def followups(self) -> List[str]:
+        """The guide's follow-up questions, without the answers it notes in parentheses."""
+        match = re.search(r"^## Follow-up questions to ask\n(.*?)(?=^## |\Z)", self.guide(), re.M | re.S)
+        items: List[str] = []
+        for line in (match.group(1) if match else "").splitlines():
+            if line.startswith("- "):
+                items.append(line[2:].strip())
+            elif items and line.strip():
+                items[-1] += " " + line.strip()
+        return [re.sub(r"\s*\([^()]*\)\s*$", "", item).strip() for item in items]
 
     def task(self) -> str:
         return (self.starter / "README.md").read_text(encoding="utf-8")

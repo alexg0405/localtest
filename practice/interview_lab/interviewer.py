@@ -85,3 +85,27 @@ Start by greeting the candidate and asking if they have read the task.
 === Rubric ===
 {interview.rubric()}
 """
+
+
+# What the interviewer says, unprompted, as the session moves along.
+CUES = {
+    "start": "Hi, I'll be your interviewer today. Take a few minutes to read the problem, and ask me anything that's unclear before you start.",
+    "plan": "Let's move on. Walk me through the code and tell me your plan before you start changing things.",
+    "build": "Sounds good. Go ahead and start implementing. Use your assistant however you like, and talk me through what you're doing.",
+    "change": "Quick change from the product side. I've put the new requirement in the Change tab and in CHANGE_REQUEST.md in your workspace. Take a look and tell me how it affects your design.",
+    "edge": "Let's look at edge cases now. There's also a patch an AI assistant proposed in the patch review folder. Tell me whether you'd merge it.",
+    "explain": "We have about ten minutes left. Walk me through your final implementation and the tradeoffs you made.",
+}
+PLAN_PROMPTS = [
+    "Which file do you think the problem is in, and why?",
+    "What would you change first?",
+    "How will you know your fix works?",
+]
+CLOSING_PROMPTS = [
+    "How did you check what your coding assistant gave you?",
+    "What would you do differently with more time?",
+]
+
+
+def prompts_for(interview: Interview, phase: str) -> List[str]:
+    return PLAN_PROMPTS if phase == "plan" else interview.followups() + CLOSING_PROMPTS

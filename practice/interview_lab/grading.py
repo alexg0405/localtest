@@ -187,7 +187,7 @@ def _patch_review(interview: Interview, text: str) -> Dict[str, Any]:
 
 
 def _score_problem_understanding(interview, state, notes):
-    questions = state.get("questions", [])
+    questions = [q for q in state.get("questions", []) if q.get("source") != "interviewer"]
     stated = " ".join([notes["assumptions"], notes["plan"]])
     if not questions and not stated.strip():
         return None, ["No clarification questions, assumptions, or plan were recorded."], {"covered": [], "missed": [t["topic"] for t in interview.clarifications() if t.get("important")]}
@@ -205,9 +205,9 @@ def _score_problem_understanding(interview, state, notes):
 
 
 def _score_exploration(interview, notes):
-    text = "\n".join([notes["plan"], notes["transcript"], notes["explanation"]])
-    if not notes["plan"].strip() and not notes["transcript"].strip():
-        return None, ["No plan or transcript was recorded, so exploration could not be observed."]
+    text = "\n".join([notes["plan"], notes["transcript"], notes["explanation"], notes["spoken"]])
+    if not notes["plan"].strip() and not notes["transcript"].strip() and not notes["spoken"].strip():
+        return None, ["No plan, transcript, or spoken walkthrough was recorded, so exploration could not be observed."]
     package = interview.meta.get("package", "")
     mentioned = []
     for source in interview.meta.get("source_files", []):
@@ -357,9 +357,9 @@ def _score_code_quality(diff):
 
 
 def _score_communication(interview, notes):
-    text = notes["explanation"]
+    text = "\n".join(part for part in (notes["explanation"], notes["spoken_late"]) if part.strip())
     if not text.strip():
-        return None, ["No final explanation was recorded."], []
+        return None, ["No final explanation was written or spoken."], []
     checks = [
         ("enough detail (80+ words)", len(text.split()) >= 80),
         ("tradeoffs or alternatives", re.search(r"\b(trade-?offs?|because|instead|alternatives?|downside|risk|cost|chose|choice)\b", text, re.I)),
@@ -369,7 +369,7 @@ def _score_communication(interview, notes):
     ]
     present = [label for label, ok in checks if ok]
     missing = [label for label, ok in checks if not ok]
-    evidence = [f"Final explanation: {len(text.split())} words."]
+    evidence = [f"Final explanation: {len(notes['explanation'].split())} written words" + (f" and {len(notes['spoken_late'].split())} spoken words in the last 20 minutes." if notes["spoken_late"].strip() else ".")]
     if present:
         evidence.append("It covers " + "; ".join(present) + ".")
     if missing:
@@ -423,6 +423,9 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         raise ValueError("Start the interview before submitting.")
     workspace = workspace_path(interview, home)
     notes = {key: state.get("notes", {}).get(key, "") for key in ("plan", "assumptions", "patch_review", "explanation", "transcript")}
+    spoken = state.get("spoken", [])
+    notes["spoken"] = "\n".join(s["text"] for s in spoken)
+    notes["spoken_late"] = "\n".join(s["text"] for s in spoken if s["at"] >= 40 * 60)
     review_file = workspace / "patch_review" / "my_review.md"
     if review_file.exists():
         notes["patch_review"] = (notes["patch_review"] + "\n\n" + review_file.read_text(encoding="utf-8")).strip()
@@ -554,7 +557,8 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
     """A self-contained prompt for grading this session in a separate Claude conversation (no API key needed)."""
     def clip(text: str, limit: int) -> str:
         return text if len(text) <= limit else text[:limit] + f"\n… [{len(text) - limit} more characters cut]"
-    questions = "\n".join(f"- [{q['at'] / 60:.0f} min] Q: {q['question']}\n  A: {q['answer']}" for q in state.get("questions", [])) or "(none)"
+    questions = "\n".join(f"- [{q['at'] / 60:.0f} min] Interviewer: {q['answer']}" if q.get("source") == "interviewer" else f"- [{q['at'] / 60:.0f} min] Q: {q['question']}\n  A: {q['answer']}" for q in state.get("questions", [])) or "(none)"
+    spoken = "\n".join(f"- [{s['at'] / 60:.0f} min] {s['text']}" for s in state.get("spoken", [])) or "(none)"
     auto = "\n".join(f"- {s['label']}: {s['score'] if s['score'] is not None else 'not observed'}" for s in report["scores"])
     return f"""You are grading a 60-minute practice software engineering interview ("{interview.title}"). The candidate used an AI coding assistant (Claude Code), which is allowed and expected.
 
@@ -585,6 +589,9 @@ Candidate's own tests: {json.dumps(report['tests']['your_tests'])}; new tests: {
 
 === Clarification questions ===
 {questions}
+
+=== What the candidate said out loud (speech recognition, may contain errors) ===
+{clip(spoken, 30000)}
 
 === Candidate's plan ===
 {notes['plan'] or '(none)'}

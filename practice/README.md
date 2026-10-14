@@ -62,8 +62,14 @@ put them somewhere else.
    - the Claude desktop app's Code tab
    - the Claude Code extension in VS Code
    - `claude` in a terminal in that folder
-4. Use Claude Code as your coding assistant. Ask the interviewer through the
-   dashboard. Run tests with **Run visible tests** (each run is recorded as
+4. Use Claude Code as your coding assistant. Talk to the interviewer: press the
+   mic in the Interviewer tab and ask out loud, or type. It answers out loud,
+   speaks up at each phase and when the requirement changes, and asks follow-up
+   questions when you pause while planning or explaining. Whatever you say that
+   isn't a question is kept as your think-aloud and counts as evidence. The
+   browser transcribes your speech: on this device when it can, otherwise with
+   its speech service (Chrome sends the audio to Google). Replies use your
+   computer's built-in voices. Run tests with **Run visible tests** (each run is recorded as
    evidence) or with `pytest` in your terminal.
 5. Write your plan, assumptions, patch review, and final explanation in the
    dashboard. Optionally paste your Claude Code conversation into

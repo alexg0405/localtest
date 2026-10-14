@@ -221,3 +221,51 @@ def test_sessions_pause_and_restart():
         assert round(sessions.status(orders)["elapsed"]) == 180
         restarted = sessions.start(orders)
         assert restarted["restarts"] == 1 and sessions.status(orders)["elapsed"] == 0
+
+
+def test_follow_ups_leave_out_the_guides_answers():
+    orders = get_interview("commerce-orders")
+    followups = orders.followups()
+    assert followups[0] == "How would idempotency work across two app servers?"
+    assert not any("shared store" in f or "(" in f for f in followups)
+    for interview in all_interviews():
+        assert len(interview.followups()) >= 3
+
+
+def test_interviewer_cues_once_and_runs_out_of_follow_ups():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as home:
+        sessions = Sessions(Path(home))
+        orders = get_interview("commerce-orders")
+        sessions.start(orders)
+        first = sessions.cue(orders, "start")
+        assert first["source"] == "interviewer" and "interviewer" in first["answer"]
+        assert sessions.cue(orders, "start") is None
+        plan = [sessions.follow_up(orders, "plan") for _ in range(len(interviewer.PLAN_PROMPTS) + 1)]
+        assert plan[-1] is None and plan[0]["answer"] == interviewer.PLAN_PROMPTS[0]
+        assert sessions.follow_up(orders, "explain")["answer"] == orders.followups()[0]
+        state = sessions.load("commerce-orders")
+        assert [q["kind"] for q in state["questions"]][:2] == ["cue:start", "followup:plan"]
+
+
+def test_spoken_walkthrough_counts_as_evidence(tmp_path, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setenv("PRACTICE_PYTHON", sys.executable)
+    sessions = Sessions(tmp_path, clock=lambda: clock[0])
+    orders = get_interview("commerce-orders")
+    sessions.start(orders)
+    sessions.cue(orders, "start")
+    sessions.record_speech(orders, "I looked at orders/service.py first because place_order owns the whole flow.")
+    clock[0] += 52 * 60
+    sessions.record_speech(orders, "I fixed the duplicate lookup because it checked the wrong dictionary, and I verified it with a regression test. "
+                                   "The tradeoff is that request ids are kept forever, which I would expire in production.")
+    state = sessions.load("commerce-orders")
+    notes = {key: "" for key in ("plan", "assumptions", "patch_review", "explanation", "transcript")}
+    notes["spoken"] = "\n".join(s["text"] for s in state["spoken"])
+    notes["spoken_late"] = state["spoken"][1]["text"]
+    pu_score, evidence, _ = grading._score_problem_understanding(orders, state, notes)
+    assert pu_score is None  # interviewer lines are not the candidate's questions
+    assert grading._score_exploration(orders, notes)[0] is not None
+    score, evidence, missing = grading._score_communication(orders, notes)
+    assert score >= 3 and "spoken words" in evidence[0]

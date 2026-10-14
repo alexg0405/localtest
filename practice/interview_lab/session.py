@@ -87,6 +87,9 @@ class Sessions:
                 "questions": [],
                 "notes": {field: "" for field in NOTE_FIELDS},
                 "test_runs": [],
+                "spoken": [],
+                "cues": [],
+                "prompts_asked": {},
                 "api_usage": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
                 "submitted_at": None,
                 "restarts": previous.get("restarts", -1) + 1,
@@ -161,14 +164,14 @@ class Sessions:
 
     # Recording
 
-    def ask(self, interview: Interview, question: str) -> Dict[str, Any]:
+    def ask(self, interview: Interview, question: str, voice: bool = False) -> Dict[str, Any]:
         question = question.strip()
         if not question:
             raise SessionError("Type a question first.")
         with LOCK:
             state = self._require(interview.id)
             reply = interviewer.answer(interview, question, state.get("change_revealed_at") is not None)
-            entry = {"at": round(self.elapsed(state), 1), "question": question[:2000], **reply, "source": "offline"}
+            entry = {"at": round(self.elapsed(state), 1), "question": question[:2000], **reply, "source": "offline", "voice": voice}
             state["questions"].append(entry)
             self.save(state)
             return entry
@@ -178,6 +181,51 @@ class Sessions:
             state = self._require(interview.id)
             state["questions"].append({"at": round(self.elapsed(state), 1), **entry})
             self.save(state)
+
+    def record_speech(self, interview: Interview, text: str) -> None:
+        """Something the candidate said out loud that was not a question: their think-aloud, kept as evidence."""
+        text = " ".join(text.split())[:4000]
+        if not text:
+            return
+        with LOCK:
+            state = self._require(interview.id)
+            spoken = state.setdefault("spoken", [])
+            if sum(len(s["text"]) for s in spoken) < 400_000:
+                spoken.append({"at": round(self.elapsed(state), 1), "text": text})
+                self.save(state)
+
+    def _interviewer_message(self, state: Dict[str, Any], text: str, kind: str) -> Dict[str, Any]:
+        entry = {"at": round(self.elapsed(state), 1), "question": "", "answer": text, "topic": None, "matched": True, "source": "interviewer", "kind": kind}
+        state["questions"].append(entry)
+        return entry
+
+    def cue(self, interview: Interview, name: str) -> Optional[Dict[str, Any]]:
+        """The interviewer's line for a point in the session, said once per session."""
+        if name not in interviewer.CUES:
+            raise SessionError(f"Unknown cue {name!r}.")
+        with LOCK:
+            state = self._require(interview.id)
+            if name in state.setdefault("cues", []):
+                return None
+            state["cues"].append(name)
+            entry = self._interviewer_message(state, interviewer.CUES[name], f"cue:{name}")
+            self.save(state)
+            return entry
+
+    def follow_up(self, interview: Interview, phase: str) -> Optional[Dict[str, Any]]:
+        """The next follow-up question the interviewer has not asked yet, or None when there are no more."""
+        phase = "plan" if phase == "plan" else "explain"
+        with LOCK:
+            state = self._require(interview.id)
+            asked = state.setdefault("prompts_asked", {})
+            prompts = interviewer.prompts_for(interview, phase)
+            index = asked.get(phase, 0)
+            if index >= len(prompts):
+                return None
+            asked[phase] = index + 1
+            entry = self._interviewer_message(state, prompts[index], f"followup:{phase}")
+            self.save(state)
+            return entry
 
     def set_note(self, interview: Interview, field: str, text: str) -> Dict[str, Any]:
         if field not in NOTE_FIELDS:

@@ -53,9 +53,10 @@ function inline(text) {
 }
 function markdown(source) {
   const lines = source.replace(/\r/g, "").split("\n");
-  let html = "", list = null, paragraph = [], code = null;
+  let html = "", list = null, item = null, paragraph = [], code = null;
   const flush = () => { if (paragraph.length) { html += `<p>${inline(paragraph.join(" "))}</p>`; paragraph = []; } };
-  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+  const endItem = () => { if (item !== null) { html += `<li>${inline(item)}</li>`; item = null; } };  // whole item at once, so **bold** can wrap lines
+  const closeList = () => { endItem(); if (list) { html += `</${list}>`; list = null; } };
   for (const line of lines) {
     if (code !== null) {
       if (line.startsWith("```")) { html += `<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`; code = null; } else code.push(line);
@@ -67,12 +68,12 @@ function markdown(source) {
     const numbered = /^\s*\d+\.\s+(.*)$/.exec(line);
     if (heading) { flush(); closeList(); const level = Math.min(heading[1].length, 3); html += `<h${level}>${inline(heading[2])}</h${level}>`; }
     else if (bullet || numbered) {
-      flush();
+      flush(); endItem();
       const kind = bullet ? "ul" : "ol";
       if (list !== kind) { closeList(); html += `<${kind}>`; list = kind; }
-      html += `<li>${inline((bullet || numbered)[1])}</li>`;
+      item = (bullet || numbered)[1];
     } else if (!line.trim()) { flush(); closeList(); }
-    else if (list && /^\s{2,}\S/.test(line)) { html = html.replace(/<\/li>$/, ` ${inline(line.trim())}</li>`); }
+    else if (item !== null && /^\s{2,}\S/.test(line)) { item += " " + line.trim(); }
     else { closeList(); paragraph.push(line.trim()); }
   }
   if (code !== null) html += `<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`;
@@ -169,17 +170,23 @@ function renderTimer() {
   }
 }
 
-function renderQuestions(questions) {
-  $("q-count").hidden = !questions.length;
-  $("q-count").textContent = questions.length;
-  if (!questions.length) {
-    $("questions").innerHTML = `<div class="chat-empty"><h3>Ask before you build</h3><p>The interviewer answers clarifying questions about requirements. Strong candidates ask a few in the first five minutes.</p><div class="suggest">${SUGGESTED.map(s => `<button type="button">${escapeHtml(s)}</button>`).join("")}</div></div>`;
+function renderQuestions(questions, spoken = []) {
+  const asked = questions.filter(q => q.source !== "interviewer");
+  $("q-count").hidden = !asked.length;
+  $("q-count").textContent = asked.length;
+  if (!questions.length && !spoken.length) {
+    $("questions").innerHTML = `<div class="chat-empty"><h3>Ask before you build</h3><p>Press the mic and talk, or type. The interviewer answers clarifying questions about requirements. Strong candidates ask a few in the first five minutes.</p><div class="suggest">${SUGGESTED.map(s => `<button type="button">${escapeHtml(s)}</button>`).join("")}</div></div>`;
     document.querySelectorAll(".suggest button").forEach(b => b.onclick = () => { $("question").value = b.textContent; $("question").focus(); });
     return;
   }
-  $("questions").innerHTML = questions.map(q => `
-    <div class="msg you"><div class="avatar">You</div><div><div class="bubble">${escapeHtml(q.question)}</div><div class="meta">${clock(q.at)}</div></div></div>
-    <div class="msg them"><div class="avatar">IV</div><div><div class="bubble">${escapeHtml(q.answer)}</div><div class="meta">${q.source === "api" ? "API interviewer" : "Interviewer"}${q.topic ? " · " + escapeHtml(q.topic) : ""}</div></div></div>`).join("");
+  const items = questions.map(q => ({ at: q.at, q })).concat(spoken.map(s => ({ at: s.at, said: s.text }))).sort((a, b) => a.at - b.at);
+  const you = (text, at, extra = "", label = "") => `<div class="msg you ${extra}"><div class="avatar">You</div><div><div class="bubble">${escapeHtml(text)}</div><div class="meta">${label}${clock(at)}</div></div></div>`;
+  const them = (text, meta, extra = "") => `<div class="msg them ${extra}"><div class="avatar">IV</div><div><div class="bubble">${escapeHtml(text)}</div><div class="meta">${meta}</div></div></div>`;
+  $("questions").innerHTML = items.map(({ at, q, said }) => {
+    if (said) return you(said, at, "said", "said aloud · ");
+    if (q.source === "interviewer") return them(q.answer, `Interviewer · ${clock(at)}`, "cue");
+    return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, `${q.source === "api" ? "API interviewer" : "Interviewer"}${q.topic ? " · " + escapeHtml(q.topic) : ""}`);
+  }).join("");
   $("questions").scrollTop = $("questions").scrollHeight;
 }
 
@@ -253,7 +260,8 @@ function render(data) {
   $("resume").hidden = status !== "paused";
   $("reveal").hidden = session.state.change_revealed_at !== null;
   renderPhases(session);
-  renderQuestions(session.state.questions);
+  renderQuestions(session.state.questions, session.state.spoken || []);
+  cues(session);
   renderNotes(session.state.notes, renderedFor !== current);
   renderedFor = current;
   const revealed = !!session.change;
@@ -293,6 +301,161 @@ function renderTests(result) {
     <div class="test-grid">${failing.concat(passing).map(caseHtml).join("")}</div>
     <details class="raw"><summary>Raw pytest output</summary><pre>${escapeHtml(result.output)}</pre></details>`;
 }
+
+// Voice: the interviewer listens through the browser's speech recognition and answers with speech synthesis.
+
+const recognitionClass = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+const voice = { on: false, rec: null, finals: "", silence: null, speaking: false, lastNudge: 0, nudgeTimer: null, local: false, spokeAt: 0 };
+const FILLERS = /^(?:(?:so|okay|ok|um+|uh+|and|also|alright|all right|right|hey|well|yeah|quick question|one more thing)[\s,]+)+/i;
+const ASKS = /^(what|how|why|when|where|which|who|whose|should|shall|can|could|would|will|is|are|am|was|were|do|does|did|have|has|may|might|must|any)\b|\?\s*$|\b(can i|can you|could you|do you|should i|should we|is it|is there|are there|are we|what if|what about|how about|i was wondering|do we need|am i allowed)\b/i;
+
+function isQuestion(text) { return ASKS.test(text.replace(FILLERS, "").trim()); }
+
+function setVoiceUi(stateText, live) {
+  const bar = $("voice-bar");
+  bar.classList.toggle("on", voice.on && !voice.speaking);
+  bar.classList.toggle("speaking", voice.speaking);
+  $("mic").setAttribute("aria-pressed", String(voice.on));
+  $("mic-pill").hidden = !voice.on;
+  if (stateText) $("voice-state").textContent = stateText;
+  if (live !== undefined) $("voice-live").textContent = live;
+}
+
+function pickVoice() {
+  const voices = speechSynthesis.getVoices().filter(v => /^en(-|_|$)/i.test(v.lang));
+  const preferred = ["Samantha", "Ava", "Google US English", "Allison", "Daniel", "Karen", "Alex"];
+  return preferred.map(name => voices.find(v => v.name.includes(name))).find(Boolean) || voices.find(v => v.lang === "en-US") || voices[0] || null;
+}
+
+function say(text) {
+  if (!$("speak-replies").checked || !("speechSynthesis" in window) || !text) return;
+  const utterance = new SpeechSynthesisUtterance(text.replace(/`/g, "").replace(/_/g, " "));
+  const chosen = pickVoice();
+  if (chosen) utterance.voice = chosen;
+  utterance.rate = 1.03;
+  utterance.onstart = () => {
+    voice.speaking = true;                       // stop listening, so the interviewer does not hear itself
+    try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
+    setVoiceUi("Interviewer is speaking…", text);
+  };
+  const done = () => {
+    voice.speaking = false;
+    if (voice.on) { setTimeout(listen, 250); setVoiceUi("Listening…", "Go ahead, I'm listening."); } else setVoiceUi("Talk to your interviewer");
+  };
+  utterance.onend = done;
+  utterance.onerror = done;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utterance);
+}
+
+function listen() {
+  if (!voice.on || voice.speaking || !voice.rec) return;
+  try { voice.rec.start(); } catch (e) { /* already started */ }
+}
+
+async function handleUtterance(text) {
+  text = text.trim();
+  if (text.split(/\s+/).length < 2 || !latest || !latest.session.started) return;
+  if (isQuestion(text)) {
+    setVoiceUi("Thinking…", `“${text}”`);
+    try {
+      const data = await call("/api/ask", { question: text, use_api: $("use-api").checked, voice: true });
+      if (data.entry.api_error) toast(`API: ${data.entry.api_error.message} Answered offline instead.`);
+      await refresh();
+      say(data.entry.answer);
+      if (!$("speak-replies").checked) setVoiceUi("Listening…", data.entry.answer);
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  try { await call("/api/speech", { text }); refresh(); } catch (e) { toast(e.message); }
+  setVoiceUi("Listening…", `Noted: “${text}”`);
+  // While you plan or explain, the interviewer asks a follow-up when you pause after saying something substantial.
+  const phase = latest.session.phase;
+  const kind = phase === 1 ? "plan" : phase >= 4 ? "explain" : null;
+  if (!kind || text.split(/\s+/).length < 12 || Date.now() - voice.lastNudge < 40000) return;
+  clearTimeout(voice.nudgeTimer);
+  const spokeAt = voice.spokeAt;
+  voice.nudgeTimer = setTimeout(async () => {
+    if (voice.spokeAt !== spokeAt || voice.speaking || !voice.on) return;   // you kept talking
+    voice.lastNudge = Date.now();
+    try {
+      const { entry } = await call("/api/followup", { phase: kind });
+      if (entry) { await refresh(); say(entry.answer); }
+    } catch (e) { /* no follow-up this time */ }
+  }, 4000);
+}
+
+async function startVoice() {
+  const Recognition = recognitionClass();
+  if (!Recognition) { toast("This browser has no speech recognition. Use Chrome, Edge, or Safari, or type your questions."); return; }
+  const rec = new Recognition();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.lang = "en-US";
+  try {
+    if (Recognition.available && await Recognition.available({ langs: ["en-US"], processLocally: true }) === "available") { rec.processLocally = true; voice.local = true; }
+  } catch (e) { /* on-device recognition unavailable */ }
+  rec.onresult = event => {
+    if (voice.speaking) return;
+    let interim = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const piece = event.results[i][0].transcript;
+      if (event.results[i].isFinal) voice.finals += " " + piece; else interim += piece;
+    }
+    voice.spokeAt = Date.now();
+    $("voice-bar").classList.add("hearing");
+    setVoiceUi("Listening…", (voice.finals + " " + interim).trim());
+    clearTimeout(voice.silence);
+    voice.silence = setTimeout(() => {
+      $("voice-bar").classList.remove("hearing");
+      const text = voice.finals; voice.finals = "";
+      handleUtterance(text);
+    }, 1300);
+  };
+  rec.onerror = event => {
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") { stopVoice(); toast("Microphone access was blocked. Allow it for this page in the address bar, then try again."); }
+    else if (event.error === "network") toast("Speech recognition needs a network connection in this browser.");
+  };
+  rec.onend = () => { if (voice.on && !voice.speaking) setTimeout(listen, 200); };
+  voice.rec = rec;
+  voice.on = true;
+  listen();
+  setVoiceUi("Listening…", voice.local ? "Speech is transcribed on this device." : "Your browser's speech service transcribes what you say (in Chrome, audio goes to Google).");
+  // Say the interviewer's latest line if it came in during the last two minutes, before the mic was on.
+  const session = latest && latest.session;
+  const last = session && session.started ? session.state.questions[session.state.questions.length - 1] : null;
+  if (last && last.source === "interviewer" && session.elapsed - last.at < 120) say(last.answer);
+}
+
+function stopVoice() {
+  voice.on = false;
+  clearTimeout(voice.silence); clearTimeout(voice.nudgeTimer);
+  try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
+  voice.rec = null; voice.finals = "";
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  voice.speaking = false;
+  $("voice-bar").classList.remove("hearing");
+  setVoiceUi("Talk to your interviewer", "Press the mic and speak. Questions get answered out loud; everything else is kept as your think-aloud.");
+}
+
+// The interviewer speaks up at each phase and when the requirement changes. The server says each line once.
+const PHASE_CUES = ["start", "plan", "build", "edge", "explain"];
+async function cues(session) {
+  if (session.state.status !== "running") return;
+  const wanted = [];
+  if (session.phase < PHASE_CUES.length) wanted.push(PHASE_CUES[session.phase]);
+  if (session.change) wanted.push("change");
+  for (const name of wanted) {
+    if ((session.state.cues || []).includes(name) || cues.pending.has(name)) continue;
+    cues.pending.add(name);
+    try {
+      const { entry } = await call("/api/cue", { cue: name });
+      if (entry) { if (voice.on) say(entry.answer); refresh(); }
+    } catch (e) { /* try again on the next refresh */ }
+    cues.pending.delete(name);
+  }
+}
+cues.pending = new Set();
 
 // Results
 
@@ -410,6 +573,7 @@ function wire() {
       const data = await call("/api/ask", { question, use_api: $("use-api").checked });
       if (data.entry.api_error) toast(`API: ${data.entry.api_error.message} Answered offline instead.`);
       $("question").value = "";
+      if (voice.on) say(data.entry.answer);
       await refresh();
     } catch (e) { toast(e.message); }
     $("question").disabled = false;
@@ -471,7 +635,12 @@ function wire() {
     } catch (e) { toast(e.message); }
     button.disabled = false;
   };
-  document.querySelectorAll(".copy").forEach(button => { button.onclick = () => copyText($(button.dataset.copy).textContent, "Command"); });
+  $("mic").onclick = () => { if (voice.on) stopVoice(); else { showTab("interviewer"); startVoice(); } };
+  $("mic-pill").onclick = () => stopVoice();
+  $("speak-replies").checked = recall("lab.voice") !== "off";
+  $("speak-replies").onchange = () => { remember("lab.voice", $("speak-replies").checked ? "on" : "off"); if (!$("speak-replies").checked && "speechSynthesis" in window) speechSynthesis.cancel(); };
+  if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => pickVoice();
+    document.querySelectorAll(".copy").forEach(button => { button.onclick = () => copyText($(button.dataset.copy).textContent, "Command"); });
 
   // Draggable split between the problem and the editor.
   const panes = $("panes"), splitter = $("splitter");

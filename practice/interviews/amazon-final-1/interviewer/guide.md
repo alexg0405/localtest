@@ -12,11 +12,15 @@ describe final rounds of 45–60 minutes:
   plain shared editor. Candidates explain the approach, analyze complexity, and
   dry-run the code by hand.
 - Amazon asks candidates not to use generative AI tools in interviews unless
-  explicitly permitted, so this round has no assistant.
+  explicitly permitted, so this round has no assistant. Reports differ on whether
+  the editor runs code; this simulation lets it, and counts the runs.
 
 ## Leadership Principles
 
-Two questions, three follow-ups each (`behavioral.json`): Ownership, then
+Each session picks two principles from this round's focus list and a question
+for each from the shared bank (`interviews/_amazon/leadership_principles.json`),
+preferring questions you haven't been asked recently. Each question has three
+follow-ups. Ownership, then
 Deliver Results / Bias for Action. Look for:
 - a specific situation (not "I usually…")
 - the candidate's own actions ("I", not "we")

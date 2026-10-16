@@ -229,7 +229,7 @@ def test_follow_ups_leave_out_the_guides_answers():
     assert followups[0] == "How would idempotency work across two app servers?"
     assert not any("shared store" in f or "(" in f for f in followups)
     for interview in all_interviews():
-        assert len(interview.followups()) >= 3
+        assert len(interview.followups()) >= 2
 
 
 def test_interviewer_cues_once_and_runs_out_of_follow_ups():
@@ -276,7 +276,9 @@ def test_amazon_behavioral_flow_asks_every_question_and_follow_up_in_order(tmp_p
     round1 = get_interview("amazon-final-1")
     sessions.start(round1)
     sessions.record_answer(round1, "Hi, I'm a sophomore studying computer science.")  # before any question: think-aloud
-    expected = [p for q in round1.behavioral() for p in [q["question"], *q["followups"]]]
+    plan = sessions.load("amazon-final-1")["behavioral"]["plan"]
+    assert len(plan) == 2 and len({item["lp"] for item in plan}) == 2
+    expected = [p for q in plan for p in [q["question"], *q["followups"]]]
     asked = []
     while True:
         entry = sessions.behavioral_next(round1)
@@ -287,7 +289,7 @@ def test_amazon_behavioral_flow_asks_every_question_and_follow_up_in_order(tmp_p
         sessions.record_answer(round1, f"answer {len(asked)}")
     assert asked == expected
     state = sessions.load("amazon-final-1")
-    assert [len(a["parts"]) for a in state["behavioral"]["answers"]] == [len(q["followups"]) + 1 for q in round1.behavioral()]
+    assert [len(a["parts"]) for a in state["behavioral"]["answers"]] == [len(q["followups"]) + 1 for q in plan]
     assert state["spoken"][0]["text"].startswith("Hi, I'm a sophomore")
 
 
@@ -298,7 +300,7 @@ def test_leadership_scores_owned_specific_stories_above_vague_ones():
               "an 80% cut, and the team shipped twice as often. Looking back, I learned to measure first. ") * 2
     vague = "We had a project and we worked hard on it as a team and we finished it."
     def state_with(text):
-        return {"behavioral": {"answers": [{"question": round1.behavioral()[0]["question"], "lp": "Ownership", "prompts": ["q"], "parts": [{"at": 1, "text": text}]}]}}
+        return {"behavioral": {"answers": [{"question": "Tell me about a time you took on something that wasn't your job.", "lp": "Ownership", "prompts": ["q"], "parts": [{"at": 1, "text": text}]}]}}
     good, good_evidence, _ = grading._score_leadership(round1, state_with(strong))
     bad, _, missing = grading._score_leadership(round1, state_with(vague))
     assert good >= 4 and bad <= 2
@@ -306,14 +308,84 @@ def test_leadership_scores_owned_specific_stories_above_vague_ones():
     assert "(Ownership)" in good_evidence[0]
 
 
-def test_amazon_rounds_are_no_ai_and_do_not_run_tests(tmp_path):
+def test_amazon_rounds_are_no_ai_but_run_code_in_the_browser_editor(tmp_path):
     from interview_lab.workspace import create_workspace
     for interview_id in ("amazon-final-1", "amazon-final-2"):
         interview = get_interview(interview_id)
-        assert not interview.ai_allowed and interview.public()["run_tests_allowed"] is False
+        public = interview.public()
+        assert not interview.ai_allowed and public["run_tests_allowed"] is True
+        assert public["editor_files"] == interview.meta["source_files"] and public["custom_input"]
         workspace = create_workspace(interview, tmp_path)
         assert "Do not help with the exercise" in (workspace / "CLAUDE.md").read_text()
         assert not (workspace / "patch_review").exists()
         assert [a for a, _ in grading.areas_for(interview)] == [a for a, _ in grading.AMAZON_AREAS]
-        public = interview.public()
         assert [p["name"] for p in public["phases"]][1] == "Leadership Principles questions" and "cue" not in public["phases"][0]
+
+
+STORIES = [
+    ["Last fall in my robotics club I was responsible for the drive code before regionals, and {signals} mattered most. I decided to rewrite the "
+     "motor controller, I profiled it on the practice field and I added unit tests for each sensor. As a result our autonomous score went up 40% "
+     "and we placed third. Looking back, I learned to test on real hardware early.",
+     "Personally I wrote the controller and the sensor tests; two teammates handled the chassis.",
+     "We logged autonomous points over six practice matches: from about 12 to 17 on average.",
+     "I'd book field time a week sooner, since we nearly ran out of tuning sessions."],
+    ["During my data structures course, my lab partner and I disagreed about using a trie, and {signals} came into it. I proposed benchmarking "
+     "both designs, I wrote a script with ten thousand words and I shared the numbers. As a result we picked the hash map, which ran 3x faster, "
+     "and we got full marks. In hindsight, I realized data ends arguments faster than opinions.",
+     "My own part was the benchmark script and the write-up comparing memory use.",
+     "The grader's timing harness showed 0.8 seconds against 2.4 for the trie version.",
+     "Next time I would agree on how to decide before we started arguing about designs."],
+    ["At a weekend hackathon our payment demo broke two hours before judging, and {signals} drove what I did. I traced the failure to an expired "
+     "sandbox key, I set up a mock gateway and I rewired the checkout in forty minutes. As a result we demoed on time and won the fintech prize "
+     "out of 25 teams. I learned to keep a fallback for every external dependency.",
+     "I built the mock gateway myself while my teammate rehearsed the pitch.",
+     "Judges scored the demo 9 out of 10; the only deduction was for styling.",
+     "I'd test third-party keys at the start of the event instead of the end."],
+    ["As a peer tutor at the campus writing center, I noticed new tutors were overwhelmed, and {signals} was the heart of it. I created a "
+     "one-page guide, I paired each new tutor with a senior one, and I ran a short training. As a result session ratings rose from 3.9 to 4.6 "
+     "and turnover fell by half. Looking back, I'd involve the new tutors in writing the guide.",
+     "The guide and the pairing schedule were mine; the director approved the training slot.",
+     "We tracked ratings for eight weeks and compared them with the previous semester.",
+     "I would survey tutors before designing anything, rather than guessing what they needed."],
+]
+
+
+def _story_for(item, n):
+    """A distinct, owned, measured story that shows the principle (two of its signals), with new detail per follow-up."""
+    parts = list(STORIES[n % len(STORIES)])
+    parts[0] = parts[0].format(signals=" and ".join(item["signals"][:2]))
+    return parts
+
+
+def test_behavioral_round_scores_each_story_and_breaks_it_down_by_principle(tmp_path):
+    sessions = Sessions(tmp_path)
+    round_ = get_interview("amazon-behavioral")
+    sessions.start(round_)
+    plan = sessions.load("amazon-behavioral")["behavioral"]["plan"]
+    answers = {i: _story_for(item, i) for i, item in enumerate(plan)}
+    while True:
+        entry = sessions.behavioral_next(round_)
+        if entry is None:
+            break
+        flow = sessions.load("amazon-behavioral")["behavioral"]
+        sessions.record_answer(round_, answers[flow["question"]][flow["followup"]])
+    state = sessions.load("amazon-behavioral")
+    rows = grading.lp_breakdown(round_, state)
+    assert [r["lp"] for r in rows] == [item["lp"] for item in plan] and len(rows) == 4
+    assert all(row["score"] >= 3 for row in rows) and sum(row["score"] for row in rows) / len(rows) >= 3.5, rows
+    scores = grading._behavioral_scores(round_, state, {})
+    assert set(scores) == {a for a, _ in grading.BEHAVIORAL_AREAS}
+    assert scores["impact"][0] >= 4 and scores["star"][0] >= 4 and scores["followups"][0] == 5
+
+
+def test_reused_stories_and_repeated_follow_ups_lose_points(tmp_path):
+    sessions = Sessions(tmp_path)
+    round_ = get_interview("amazon-behavioral")
+    sessions.start(round_)
+    plan = sessions.load("amazon-behavioral")["behavioral"]["plan"]
+    same = _story_for(plan[0], 0)[0]
+    while sessions.behavioral_next(round_):
+        sessions.record_answer(round_, same)  # one story, repeated for every question and follow-up
+    rows = grading.lp_breakdown(round_, sessions.load("amazon-behavioral"))
+    assert all(row["score"] <= 2 for row in rows[1:]) and any("reuses your" in m for m in rows[1]["missing"])
+    assert any("repeated what you'd already said" in m for m in rows[0]["missing"])

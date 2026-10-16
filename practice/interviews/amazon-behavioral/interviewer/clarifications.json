@@ -1,0 +1,70 @@
+[
+  {
+    "topic": "Behavioral examples",
+    "important": false,
+    "keywords": [
+      "school",
+      "class",
+      "example from",
+      "personal",
+      "project",
+      "club",
+      "hackathon",
+      "doesn't have to be work"
+    ],
+    "answer": "School projects, internships, clubs, hackathons, or part-time jobs all count. Pick the example where you personally did the most."
+  },
+  {
+    "topic": "Length of answers",
+    "important": false,
+    "keywords": [
+      "how long",
+      "too long",
+      "detail",
+      "should i keep"
+    ],
+    "answer": "Two to three minutes per story is about right. I'll ask follow-ups if I want more."
+  },
+  {
+    "topic": "The team and internship",
+    "important": false,
+    "keywords": [
+      "team",
+      "intern",
+      "day to day",
+      "typical day",
+      "work on",
+      "mentor",
+      "culture",
+      "favorite",
+      "advice"
+    ],
+    "answer": "On my team, interns own a small project end to end with a mentor, write a design doc, ship it, and present it at the end. What would you most like to learn this summer?"
+  },
+  {
+    "topic": "Repeating a story",
+    "important": false,
+    "keywords": [
+      "same story",
+      "reuse",
+      "repeat",
+      "already told",
+      "different example",
+      "another example"
+    ],
+    "answer": "Try to use a different story for each question. I want to see a range of experiences."
+  },
+  {
+    "topic": "No example",
+    "important": false,
+    "keywords": [
+      "can't think",
+      "don't have",
+      "no example",
+      "never had",
+      "hypothetical",
+      "haven't"
+    ],
+    "answer": "Take a moment. A smaller example from school or a club is fine. If you truly have none, tell me what you would do, but a real example is much stronger."
+  }
+]

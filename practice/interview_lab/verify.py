@@ -127,6 +127,10 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         settings = json.loads((workspace / ".claude" / "settings.json").read_text())
         c.check("CLAUDE.md and assistant deny rules are in place", (workspace / "CLAUDE.md").exists() and any(str(LAB_ROOT) in rule for rule in settings["permissions"]["deny"]))
 
+        if interview.meta.get("format") == "amazon-behavioral":
+            verify_behavioral_round(interview, home, workspace, scratch, c)
+            return
+
         # 2. Starter defects are detectable.
         visible = run_pytest(python, workspace, ["tests"])
         blank = interview.meta.get("format") == "amazon-final"  # an empty function to write, not planted bugs
@@ -204,7 +208,77 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         unrelated.unlink()
 
 
+def verify_behavioral_round(interview, home: Path, workspace: Path, scratch: Path, c: Checker) -> None:
+    from .catalog import leadership_bank
+    c.check("no-AI round: the workspace tells the assistant not to help", "Do not help with the exercise" in (workspace / "CLAUDE.md").read_text(encoding="utf-8"))
+    bank = {entry["lp"]: entry for entry in leadership_bank()}
+    c.check("the bank covers all 16 Leadership Principles with two questions and three follow-ups each",
+            len(bank) == 16 and all(len(e["questions"]) == 2 and all(len(q["followups"]) == 3 for q in e["questions"]) for e in bank.values()))
+    rotation_home = scratch / "rotation"  # a fresh history, so earlier checks' questions don't count
+    rotation_home.mkdir()
+    sessions = Sessions(rotation_home, clock=FakeClock())
+    seen, plans = set(), []
+    for _ in range(8):
+        sessions.start(interview, reset=True)
+        plan = sessions.load(interview.id)["behavioral"]["plan"]
+        plans.append(plan)
+        seen.update(item["id"] for item in plan)
+    count = interview.meta["behavioral"]["count"]
+    c.check(f"each session asks {count} different principles", all(len({item['lp'] for item in plan}) == count for plan in plans))
+    c.check("repeat sessions rotate through the whole bank before repeating", len(seen) == 32, f"{len(seen)} of 32 questions in 8 sessions")
+    sessions = Sessions(home, clock=FakeClock())
+    sessions.start(interview, reset=True)
+    status = sessions.status(interview)
+    c.check("a behavioral round has no requirement change", status["change_at"] is None and status["change"] is None)
+    readme = workspace / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8") + "\nmy notes\n", encoding="utf-8")
+    (workspace / "stories.txt").write_text("keep me", encoding="utf-8")
+    report = reset_workspace(interview, home)
+    backup = Path(report["backup"])
+    c.check("reset restores the starter and backs up your files", "my notes" not in readme.read_text(encoding="utf-8") and (backup / "stories.txt").read_text(encoding="utf-8") == "keep me")
+
+
+def verify_behavioral_workflow(interview, home: Path, c: Checker) -> None:
+    from .server import Lab, make_server
+    print(f"\nDashboard workflow without an API key [{interview.id}]")
+    server = make_server(Lab(home, api_config=api.ApiConfig(env={})), port=0)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        _http(port, "/api/start", {"interview": interview.id, "reset": True})
+        empty = {s["area"]: s["score"] for s in _http(port, "/api/submit", {"interview": interview.id})["report"]["scores"]}
+        c.check("every area is 'not observed' before you answer", all(v is None for v in empty.values()))
+        _http(port, "/api/start", {"interview": interview.id, "reset": True})
+        plan = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]["behavioral"]["plan"]
+        story = ("Last spring during my internship I was responsible for our signup page. I noticed users complained it was slow, so I decided to dig in. "
+                 "I measured load times, I found two blocking scripts, I rewrote the loader and I tested it on slow phones. As a result load time dropped 60% "
+                 "and signups rose 15%. Looking back, I learned to measure before guessing, and next time I'd set up monitoring first.")
+        prompts = []
+        while True:
+            entry = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
+            if entry is None:
+                break
+            prompts.append(entry["answer"])
+            _http(port, "/api/answer", {"interview": interview.id, "text": story})
+        expected = [p for item in plan for p in [item["question"], *item["followups"]]]
+        c.check("the interviewer asks every planned question and follow-up in order", prompts == expected, f"{len(prompts)} prompts")
+        _http(port, "/api/ask", {"interview": interview.id, "question": "What does a typical day look like for interns on your team?"})
+        report = _http(port, "/api/submit", {"interview": interview.id})["report"]
+        scores = {s["area"]: s["score"] for s in report["scores"]}
+        c.check("all six behavioral areas are scored", [x["area"] for x in report["scores"]] == [a for a, _ in grading.BEHAVIORAL_AREAS] and all(v is not None for v in scores.values()), str(scores))
+        c.check("the report breaks the score down by principle", [row["lp"] for row in report["lp_breakdown"]] == [item["lp"] for item in plan])
+        c.check("a strong, owned, measured story scores well", scores["impact"] >= 4 and scores["star"] >= 4, f"impact {scores['impact']}, STAR {scores['star']}")
+        c.check("reusing one story for every principle is marked down", all(row["score"] <= 3 for row in report["lp_breakdown"][1:]) and scores["leadership"] <= 3, f"Leadership {scores['leadership']}")
+        prompt = _http(port, f"/api/packet?interview={interview.id}&kind=interviewer")["text"]
+        c.check("the interviewer prompt includes the principles bank", "Customer Obsession" in prompt and "Follow-ups" in prompt)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def verify_workflow(interview, home: Path, c: Checker) -> None:
+    if interview.meta.get("format") == "amazon-behavioral":
+        return verify_behavioral_workflow(interview, home, c)
     """The whole session through the dashboard's HTTP API, with API mode off and no key."""
     from .server import Lab, make_server
     print(f"\nDashboard workflow without an API key [{interview.id}]")
@@ -239,14 +313,38 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         amazon = interview.meta.get("format") == "amazon-final"
         if amazon:
             c.check("Leadership Principles are 'not observed' before any answer", scores["leadership"] is None and "ai_instructions" not in scores)
+            plan = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]["behavioral"]["plan"]
+            c.check("this session's principles come from the round's focus list", len(plan) == 2 and all(item["lp"] in interview.meta["behavioral"]["focus"] for item in plan))
             first = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
             _http(port, "/api/answer", {"interview": interview.id, "text": "During my internship last summer I noticed our deploy script had no owner, so I decided to fix it. I rewrote it, tested it, and documented it. As a result deploys dropped from 40 minutes to 8 minutes. I learned to ask who owns something early."})
             follow = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
             waiting = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
             c.check("the interviewer asks an LP question, digs in with a follow-up, then waits for an answer",
-                    first["answer"] == interview.behavioral()[0]["question"] and follow["answer"] == interview.behavioral()[0]["followups"][0] and waiting is None)
+                    first["answer"] == plan[0]["question"] and follow["answer"] == plan[0]["followups"][0] and waiting is None)
 
         workspace = workspace_path(interview, home)
+        if interview.meta.get("editor_files"):
+            path = interview.meta["editor_files"][0]
+            loaded = _http(port, f"/api/file?interview={interview.id}&path={path}")
+            solution = (interview.solution / path).read_text(encoding="utf-8")
+            saved = _http(port, "/api/file", {"interview": interview.id, "path": path, "content": solution, "mtime": loaded["mtime"]})
+            c.check("the browser editor loads and saves the workspace file", saved.get("saved") and (workspace / path).read_text(encoding="utf-8") == solution)
+            try:
+                _http(port, "/api/file", {"interview": interview.id, "path": path, "content": "stale", "mtime": loaded["mtime"]})
+                conflict = False
+            except urllib.error.HTTPError as error:
+                conflict = error.code == 409
+            c.check("an edit made elsewhere is not silently overwritten", conflict and (workspace / path).read_text(encoding="utf-8") == solution)
+            try:
+                _http(port, f"/api/file?interview={interview.id}&path=../../etc/passwd")
+                escaped = True
+            except urllib.error.HTTPError:
+                escaped = False
+            c.check("the browser editor can't open files outside the round's editor files", not escaped)
+            run = _http(port, "/api/run", {"interview": interview.id, "code": interview.meta["custom_input"]})
+            c.check("custom input runs against your code", run["ok"] and run["stdout"].strip() != "", run["stdout"].strip()[:60])
+            looping = _http(port, "/api/run", {"interview": interview.id, "code": "while True:\n    pass\n"})
+            c.check("an infinite loop in custom input is stopped", looping["timed_out"])
         _overlay(interview.solution, workspace)  # stands in for the candidate's work
         (workspace / "tests" / "test_regressions.py").write_text(CANDIDATE_TESTS[interview.id], encoding="utf-8")
         _http(port, "/api/reveal", {"interview": interview.id})

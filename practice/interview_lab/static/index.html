@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
   <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
@@ -151,7 +152,7 @@
       <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
 
       <section class="pane right-pane">
-        <nav class="tabs editor-tabs">
+        <nav class="tabs editor-tabs" id="editor-tabs">
           <button class="tab file active" data-note-tab="plan">plan.md<i class="dot"></i></button>
           <button class="tab file" data-note-tab="assumptions">assumptions.md<i class="dot"></i></button>
           <button class="tab file" data-note-tab="patch_review">patch_review.md<i class="dot"></i></button>
@@ -161,7 +162,8 @@
         </nav>
         <div class="editor">
           <div class="editor-hint" id="editor-hint"></div>
-          <div class="editor-area">
+          <div class="code-area" id="code-area" hidden><textarea id="code-fallback" spellcheck="false" aria-label="Code"></textarea></div>
+          <div class="editor-area" id="note-area">
             <pre class="gutter" id="gutter" aria-hidden="true">1</pre>
             <textarea data-note="plan" spellcheck="false" aria-label="Plan"></textarea>
             <textarea data-note="assumptions" spellcheck="false" aria-label="Assumptions" hidden></textarea>
@@ -175,11 +177,24 @@
         <div class="console" id="console">
           <nav class="tabs console-tabs">
             <button class="tab active" data-console="tests"><svg><use href="#i-check"/></svg>Test results</button>
+            <button class="tab" data-console="custom" id="custom-tab" hidden><svg><use href="#i-play"/></svg>Custom input</button>
             <button class="tab" data-console="workspace"><svg><use href="#i-terminal"/></svg>Workspace</button>
             <span class="console-summary" id="console-summary"></span>
           </nav>
           <div class="console-body" data-console-panel="tests">
             <div id="test-result" class="test-empty">You haven't run the tests yet. Press <b>Run tests</b>; every run counts as evidence of how you checked your work.</div>
+          </div>
+          <div class="console-body custom" data-console-panel="custom" hidden>
+            <div class="custom-grid">
+              <div class="custom-in">
+                <div class="custom-head"><span>Your code (runs against your saved file)</span><button class="btn btn-ghost btn-sm" id="run-custom"><svg><use href="#i-play"/></svg>Run</button></div>
+                <textarea id="custom-code" spellcheck="false" aria-label="Custom input code"></textarea>
+              </div>
+              <div class="custom-out">
+                <div class="custom-head"><span>Output</span><span class="muted small" id="custom-status"></span></div>
+                <pre id="custom-output" class="output">Press Run to see what your code prints.</pre>
+              </div>
+            </div>
           </div>
           <div class="console-body" data-console-panel="workspace" hidden>
             <p class="muted small">Your code lives in this folder. Open it in your editor and in Claude Code (the desktop app's Code tab, the VS Code extension, or the CLI). Its <code>CLAUDE.md</code> keeps the assistant out of the interviewer materials.</p>
@@ -214,6 +229,10 @@
 
   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>
   <div id="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
   <script src="static/app.js"></script>
 </body>
 </html>

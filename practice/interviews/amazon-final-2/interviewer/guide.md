@@ -8,11 +8,14 @@ The second of two back-to-back final rounds, a shape many Amazon SDE intern
 candidates report for the Summer 2026 and Winter 2027 cycles:
 - New Leadership Principles questions, since each round probes different ones.
 - A state-search coding problem framed as a warehouse task.
-- No AI, and a plain editor that doesn't run code.
+- No AI. The editor runs code, but the interviewer cares most about the reasoning, the complexity, and a dry run.
 
 ## Leadership Principles
 
-Two questions, three follow-ups each (`behavioral.json`):
+Each session picks two principles from this round's focus list and a question
+for each from the shared bank (`interviews/_amazon/leadership_principles.json`),
+preferring questions you haven't been asked recently. Each question has three
+follow-ups.
 - Have Backbone; Disagree and Commit / Earn Trust
 - Learn and Be Curious / Dive Deep
 

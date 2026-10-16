@@ -1,0 +1,64 @@
+{
+  "id": "amazon-behavioral",
+  "title": "Amazon behavioral round: Leadership Principles deep dive",
+  "company": "amazon",
+  "format": "amazon-behavioral",
+  "inspired_by": "Amazon interviewers spend much of every round on the 16 Leadership Principles and probe each story with several follow-ups. This round practices only that: four principles per session, drawn from a bank of 32 original questions. An original simulation, not real Amazon questions.",
+  "level": "SDE intern behavioral practice",
+  "summary": "Four Leadership Principles questions, a different mix every session, each with three probing follow-ups, then your questions for the interviewer. Graded story by story on STAR, ownership, impact, follow-ups, and self-awareness.",
+  "tags": [
+    "45 min",
+    "no AI",
+    "16 principles",
+    "voice"
+  ],
+  "duration_minutes": 45,
+  "change_at_minutes": null,
+  "ai_allowed": false,
+  "run_tests_allowed": false,
+  "note_tabs": {
+    "plan": "stories.md"
+  },
+  "source_files": [],
+  "behavioral": {
+    "bank": "amazon",
+    "count": 4
+  },
+  "phases": [
+    {
+      "start": 0,
+      "end": 2,
+      "name": "Introductions",
+      "cue": "amz_intro",
+      "kind": "intro"
+    },
+    {
+      "start": 2,
+      "end": 40,
+      "name": "Leadership Principles questions",
+      "cue": "amz_behavioral",
+      "kind": "behavioral"
+    },
+    {
+      "start": 40,
+      "end": 45,
+      "name": "Your questions for the interviewer",
+      "cue": "amz_wrap",
+      "kind": "wrap"
+    }
+  ],
+  "cues": {
+    "amz_intro": "Hi, thanks for joining. I'm an engineer here, and today is all about your past experience. I'll ask about four situations, with follow-ups on each. Use real, specific examples, and tell me what you personally did. To start, tell me a little about yourself.",
+    "amz_behavioral": "Great, let's get into it.",
+    "amz_wrap": "That's all the questions I have. What questions do you have for me?"
+  },
+  "closing_prompts": [],
+  "followups": {
+    "leadership": "Map your best eight stories to the 16 principles in a table (one story can cover two or three). Fill any principle with no story before your next session.",
+    "star": "Rewrite your weakest story as four labeled lines (Situation, Task, Action, Result), then say it aloud in under 2.5 minutes.",
+    "impact": "For each story, find one number for the result (time saved, users, percent, grade) and rewrite every “we” as what you did.",
+    "followups": "For each story, write the answers to: What did you do yourself? How did you measure it? What would you do differently? Then practice with this round again.",
+    "self_awareness": "Prepare two stories about real mistakes or failures, each ending with what you changed afterwards.",
+    "communication": "Time yourself telling three stories; aim for 2–3 minutes each, and prepare three questions about the team to ask at the end."
+  }
+}

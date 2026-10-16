@@ -1,0 +1,601 @@
+[
+  {
+    "lp": "Customer Obsession",
+    "look_for": "Starts from what the customer needed, gathers their feedback, and makes a tradeoff in their favor.",
+    "signals": [
+      "customer",
+      "user",
+      "users",
+      "client",
+      "feedback",
+      "needs",
+      "experience",
+      "pain point",
+      "complain",
+      "survey",
+      "interview"
+    ],
+    "questions": [
+      {
+        "id": "co1",
+        "q": "Tell me about a time you went out of your way to understand what a user or customer actually needed.",
+        "followups": [
+          "How did you find out what they needed?",
+          "What did you change because of it?",
+          "How did you know it helped them?"
+        ]
+      },
+      {
+        "id": "co2",
+        "q": "Tell me about a time you had to choose between what was easiest for you and what was best for the people using your work.",
+        "followups": [
+          "What did the easier option look like?",
+          "What did choosing the harder one cost you?",
+          "What was the outcome for the user?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Ownership",
+    "look_for": "Acts beyond their job description, thinks long term, and doesn't say 'that's not my job'.",
+    "signals": [
+      "responsib",
+      "owned",
+      "ownership",
+      "nobody",
+      "no one",
+      "stepped up",
+      "took on",
+      "volunteer",
+      "long term",
+      "long-term",
+      "follow through",
+      "followed through"
+    ],
+    "questions": [
+      {
+        "id": "ow1",
+        "q": "Tell me about a time you took on something that wasn't your responsibility because you saw that it needed to get done.",
+        "followups": [
+          "What exactly did you do yourself, as opposed to the rest of the team?",
+          "How did you measure the result?",
+          "Looking back, what would you do differently?"
+        ]
+      },
+      {
+        "id": "ow2",
+        "q": "Tell me about a time you made a decision that was better for the long term even though it cost you something in the short term.",
+        "followups": [
+          "What was the short-term cost?",
+          "How did you convince others it was worth it?",
+          "How did it turn out over time?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Invent and Simplify",
+    "look_for": "Finds a new or simpler way, looks outside for ideas, and is fine with being misunderstood for a while.",
+    "signals": [
+      "simplif",
+      "simpler",
+      "new way",
+      "automat",
+      "invent",
+      "idea",
+      "creative",
+      "redesign",
+      "streamlin",
+      "from scratch",
+      "reused"
+    ],
+    "questions": [
+      {
+        "id": "is1",
+        "q": "Tell me about a time you found a simpler way to do something that others were doing the hard way.",
+        "followups": [
+          "Where did the idea come from?",
+          "Did anyone push back? How did you handle it?",
+          "How much did it actually save?"
+        ]
+      },
+      {
+        "id": "is2",
+        "q": "Tell me about something you built or proposed that was genuinely new for your team or class.",
+        "followups": [
+          "What problem was it solving?",
+          "What did you try that didn't work?",
+          "What happened to it after you shipped it?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Are Right, A Lot",
+    "look_for": "Makes good calls with incomplete data, seeks out different views, and works to disprove their own beliefs.",
+    "signals": [
+      "judgment",
+      "decided",
+      "decision",
+      "data",
+      "evidence",
+      "assumption",
+      "wrong",
+      "other perspectives",
+      "opinions",
+      "intuition",
+      "tradeoff"
+    ],
+    "questions": [
+      {
+        "id": "ar1",
+        "q": "Tell me about a time you had to make an important decision without all the information you wanted.",
+        "followups": [
+          "What information was missing?",
+          "How did you reduce the risk of being wrong?",
+          "Was it the right call? How do you know?"
+        ]
+      },
+      {
+        "id": "ar2",
+        "q": "Tell me about a time you changed your mind after hearing a different point of view.",
+        "followups": [
+          "What did you believe at first, and why?",
+          "What convinced you?",
+          "What did you do differently afterwards?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Learn and Be Curious",
+    "look_for": "Teaches themselves new things quickly and is curious about possibilities beyond the task.",
+    "signals": [
+      "learned",
+      "learnt",
+      "taught myself",
+      "curious",
+      "new to me",
+      "never used",
+      "read",
+      "course",
+      "documentation",
+      "picked up",
+      "explored"
+    ],
+    "questions": [
+      {
+        "id": "lc1",
+        "q": "Tell me about a time you had to learn a new technology or skill quickly to get something done.",
+        "followups": [
+          "How did you go about learning it?",
+          "What was hardest to pick up?",
+          "How do you use it now?"
+        ]
+      },
+      {
+        "id": "lc2",
+        "q": "Tell me about something you explored on your own just because you were curious.",
+        "followups": [
+          "What sparked it?",
+          "What did you find out?",
+          "Did it change how you work?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Hire and Develop the Best",
+    "look_for": "Helps others grow: mentors, gives useful feedback, and raises the bar of the people around them.",
+    "signals": [
+      "mentor",
+      "taught",
+      "teach",
+      "helped them",
+      "onboard",
+      "coach",
+      "feedback",
+      "grow",
+      "explained",
+      "pair",
+      "tutor"
+    ],
+    "questions": [
+      {
+        "id": "hd1",
+        "q": "Tell me about a time you helped a teammate or classmate get better at something.",
+        "followups": [
+          "How did you figure out what they needed?",
+          "What did you do, step by step?",
+          "How did they improve?"
+        ]
+      },
+      {
+        "id": "hd2",
+        "q": "Tell me about a time you gave someone difficult feedback.",
+        "followups": [
+          "How did you prepare for the conversation?",
+          "How did they react?",
+          "What changed afterwards?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Insist on the Highest Standards",
+    "look_for": "Holds a high bar for quality, fixes problems so they stay fixed, and doesn't ship something they know is broken.",
+    "signals": [
+      "quality",
+      "standard",
+      "bar",
+      "test",
+      "tests",
+      "review",
+      "bug",
+      "polish",
+      "refused",
+      "not good enough",
+      "edge case",
+      "reliab"
+    ],
+    "questions": [
+      {
+        "id": "hs1",
+        "q": "Tell me about a time you weren't satisfied with something that others thought was good enough.",
+        "followups": [
+          "What exactly wasn't good enough?",
+          "What did raising the bar cost in time?",
+          "Was it worth it? How do you know?"
+        ]
+      },
+      {
+        "id": "hs2",
+        "q": "Tell me about a time you found a problem in your own work after you thought you were done.",
+        "followups": [
+          "How did you find it?",
+          "What did you do about it?",
+          "What do you do now to catch it earlier?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Think Big",
+    "look_for": "Proposes a bold direction, communicates it, and looks for ways to have a bigger impact.",
+    "signals": [
+      "vision",
+      "bigger",
+      "scale",
+      "ambitious",
+      "bold",
+      "long term",
+      "impact",
+      "expand",
+      "whole",
+      "every",
+      "platform"
+    ],
+    "questions": [
+      {
+        "id": "tb1",
+        "q": "Tell me about a time you turned a small task into something with much bigger impact.",
+        "followups": [
+          "What made you see the bigger opportunity?",
+          "How did you get others on board?",
+          "How far did it get?"
+        ]
+      },
+      {
+        "id": "tb2",
+        "q": "Tell me about the most ambitious goal you've set for a project.",
+        "followups": [
+          "Why that goal?",
+          "What got in the way?",
+          "How close did you get, and what did you learn?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Bias for Action",
+    "look_for": "Moves quickly when a decision is reversible, takes calculated risks, and doesn't wait for perfect information.",
+    "signals": [
+      "quickly",
+      "immediately",
+      "right away",
+      "risk",
+      "calculated",
+      "reversible",
+      "didn't wait",
+      "without waiting",
+      "fast",
+      "prototype",
+      "same day"
+    ],
+    "questions": [
+      {
+        "id": "ba1",
+        "q": "Tell me about a time you had a tight deadline and couldn't get everything done. How did you decide what to cut?",
+        "followups": [
+          "Who set the deadline, and did you push back on it?",
+          "What did you leave out, and what happened because of that?",
+          "How did you tell the people affected about the tradeoff?"
+        ]
+      },
+      {
+        "id": "ba2",
+        "q": "Tell me about a time you took a calculated risk to move faster.",
+        "followups": [
+          "What was the risk, and why was it acceptable?",
+          "What would you have done if it went wrong?",
+          "What was the result?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Frugality",
+    "look_for": "Gets more done with less: works within limits on time, money, or people, and finds resourceful ways around them.",
+    "signals": [
+      "budget",
+      "limited",
+      "constraint",
+      "cheap",
+      "free tier",
+      "cost",
+      "saved",
+      "resourceful",
+      "without",
+      "less",
+      "reuse",
+      "spare"
+    ],
+    "questions": [
+      {
+        "id": "fr1",
+        "q": "Tell me about a time you had to get something done with far fewer resources than you wanted.",
+        "followups": [
+          "Which resource was missing?",
+          "What did you do instead?",
+          "What did you have to give up?"
+        ]
+      },
+      {
+        "id": "fr2",
+        "q": "Tell me about a time you saved time or money for your team in a way nobody asked for.",
+        "followups": [
+          "How did you notice the waste?",
+          "How much did it save?",
+          "Did it stick after you left?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Earn Trust",
+    "look_for": "Listens, speaks candidly, admits mistakes openly, and treats others respectfully.",
+    "signals": [
+      "trust",
+      "listened",
+      "honest",
+      "admitted",
+      "apolog",
+      "transparent",
+      "respect",
+      "relationship",
+      "credib",
+      "kept my word",
+      "candid"
+    ],
+    "questions": [
+      {
+        "id": "et1",
+        "q": "Tell me about a time you had to rebuild trust with someone after something went wrong.",
+        "followups": [
+          "What broke the trust?",
+          "What did you do to rebuild it?",
+          "How did you know it was rebuilt?"
+        ]
+      },
+      {
+        "id": "et2",
+        "q": "Tell me about a time you had to tell someone something they didn't want to hear.",
+        "followups": [
+          "Why did it need to be said?",
+          "How did you say it?",
+          "How did they respond, and what happened next?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Dive Deep",
+    "look_for": "Stays connected to the details, audits with data, and digs until the root cause is clear.",
+    "signals": [
+      "root cause",
+      "data",
+      "logs",
+      "metric",
+      "dug",
+      "investigat",
+      "debug",
+      "analy",
+      "detail",
+      "traced",
+      "measured",
+      "why"
+    ],
+    "questions": [
+      {
+        "id": "dd1",
+        "q": "Tell me about a time you used data to find the real cause of a problem that others had missed.",
+        "followups": [
+          "What data did you look at, and why that data?",
+          "What surprised you?",
+          "How did you confirm it was the root cause?"
+        ]
+      },
+      {
+        "id": "dd2",
+        "q": "Tell me about a mistake you made on a project. How did you find it, and what did you change afterwards?",
+        "followups": [
+          "How did you track down the root cause?",
+          "What did you change so it wouldn't happen again?",
+          "What did you learn from it that you still use?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Have Backbone; Disagree and Commit",
+    "look_for": "Respectfully challenges decisions they disagree with, with evidence, and then commits fully once a decision is made.",
+    "signals": [
+      "disagree",
+      "pushed back",
+      "push back",
+      "challenged",
+      "argued",
+      "evidence",
+      "commit",
+      "committed",
+      "even though",
+      "convinced",
+      "spoke up"
+    ],
+    "questions": [
+      {
+        "id": "hb1",
+        "q": "Tell me about a time you disagreed with a teammate or a manager about a technical decision.",
+        "followups": [
+          "How did you make your case? What data did you use?",
+          "What happened in the end, and how did you feel about the outcome?",
+          "If the decision went against you, how did you commit to it?"
+        ]
+      },
+      {
+        "id": "hb2",
+        "q": "Tell me about a time you committed to a decision you didn't agree with.",
+        "followups": [
+          "What did you disagree with?",
+          "How did you make sure it still succeeded?",
+          "Looking back, who was right?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Deliver Results",
+    "look_for": "Focuses on the key inputs, delivers with the right quality on time, and doesn't settle when setbacks happen.",
+    "signals": [
+      "delivered",
+      "shipped",
+      "launched",
+      "finished",
+      "on time",
+      "deadline",
+      "goal",
+      "result",
+      "setback",
+      "despite",
+      "completed",
+      "%"
+    ],
+    "questions": [
+      {
+        "id": "dr1",
+        "q": "Tell me about a time you hit a major setback but still delivered.",
+        "followups": [
+          "What was the setback?",
+          "What did you change to still deliver?",
+          "What did you deliver in the end, and was it on time?"
+        ]
+      },
+      {
+        "id": "dr2",
+        "q": "Tell me about the project you're proudest of delivering.",
+        "followups": [
+          "What was your personal part?",
+          "What nearly made it fail?",
+          "What impact did it have, in numbers?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Strive to be Earth's Best Employer",
+    "look_for": "Makes the environment better for the people around them: safer, more inclusive, more supportive.",
+    "signals": [
+      "team",
+      "inclusive",
+      "welcom",
+      "support",
+      "morale",
+      "burnout",
+      "safe",
+      "everyone",
+      "included",
+      "environment",
+      "wellbeing",
+      "well-being"
+    ],
+    "questions": [
+      {
+        "id": "eb1",
+        "q": "Tell me about a time you made a team or group a better place to work for someone else.",
+        "followups": [
+          "What wasn't working for them?",
+          "What did you do about it?",
+          "How did it change things?"
+        ]
+      },
+      {
+        "id": "eb2",
+        "q": "Tell me about a time you noticed a teammate struggling and did something about it.",
+        "followups": [
+          "What did you notice?",
+          "How did you approach them?",
+          "What happened afterwards?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Success and Scale Bring Broad Responsibility",
+    "look_for": "Thinks about second-order effects of their work on users, the community, and the world, and acts responsibly.",
+    "signals": [
+      "impact",
+      "community",
+      "privacy",
+      "ethic",
+      "responsib",
+      "accessib",
+      "fair",
+      "environment",
+      "safety",
+      "unintended",
+      "consequence",
+      "society"
+    ],
+    "questions": [
+      {
+        "id": "ss1",
+        "q": "Tell me about a time you thought about how your work could affect people beyond its intended users.",
+        "followups": [
+          "What effect were you worried about?",
+          "What did you change because of it?",
+          "How did you check it worked?"
+        ]
+      },
+      {
+        "id": "ss2",
+        "q": "Tell me about a time you raised a concern about privacy, accessibility, or fairness in something you worked on.",
+        "followups": [
+          "What was the concern?",
+          "How did others react?",
+          "What was decided, and what was your part?"
+        ]
+      }
+    ]
+  }
+]

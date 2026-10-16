@@ -21,7 +21,7 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"] };
 const AMAZON_NOTES = {
   plan: { hint: "<b>Before you code.</b> Your approach: data structures, time and space complexity, and the edge cases you'll handle. Say it out loud too.", placeholder: "## Approach\n- \n\n## Complexity\n- Time: \n- Space: \n\n## Edge cases\n- " },
   assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },
@@ -63,7 +63,17 @@ function markdown(source) {
   const flush = () => { if (paragraph.length) { html += `<p>${inline(paragraph.join(" "))}</p>`; paragraph = []; } };
   const endItem = () => { if (item !== null) { html += `<li>${inline(item)}</li>`; item = null; } };  // whole item at once, so **bold** can wrap lines
   const closeList = () => { endItem(); if (list) { html += `</${list}>`; list = null; } };
+  let table = null;
+  const cells = line => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+  const closeTable = () => {
+    if (!table) return;
+    const [head, ...body] = table.filter(row => !/^\s*\|?\s*:?-{2,}/.test(row));
+    html += `<table class="md-table"><thead><tr>${cells(head).map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${body.map(row => `<tr>${cells(row).map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    table = null;
+  };
   for (const line of lines) {
+    if (code === null && /^\s*\|/.test(line)) { flush(); closeList(); (table = table || []).push(line); continue; }
+    closeTable();
     if (code !== null) {
       if (line.startsWith("```")) { html += `<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`; code = null; } else code.push(line);
       continue;
@@ -83,7 +93,7 @@ function markdown(source) {
     else { closeList(); paragraph.push(line.trim()); }
   }
   if (code !== null) html += `<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`;
-  flush(); closeList();
+  closeTable(); flush(); closeList();
   return html;
 }
 
@@ -133,7 +143,11 @@ function showView() {
   $("intro").hidden = reportOpen || (started && !inLobby);
   $("session").hidden = reportOpen || !started || inLobby;
   const view = reportOpen ? "report" : $("session").hidden ? "lobby" : "ide";
-  if (view !== showView.last) { window.scrollTo(0, 0); showView.last = view; }
+  if (view !== showView.last) {
+    window.scrollTo(0, 0);
+    showView.last = view;
+    if (view === "ide" && code.cm) setTimeout(() => code.cm.refresh(), 0);  // CodeMirror can't measure itself while hidden
+  }
   document.body.classList.toggle("locked-scroll", view !== "lobby");
 }
 
@@ -151,7 +165,8 @@ function renderApi(apiInfo) {
 function renderPhases(session) {
   const total = session.duration / 60;
   $("phases").innerHTML = session.phases.map((p, i) => `<span class="${i < session.phase ? "done" : ""}" style="width:${((p.end - p.start) / total) * 100}%" title="${p.start}–${p.end} min · ${escapeHtml(p.name)}"></span>`).join("");
-  $("change-tick").style.left = `calc(${(session.change_at / session.duration) * 100}% - 1px)`;
+  $("change-tick").hidden = session.change_at === null;
+  if (session.change_at !== null) $("change-tick").style.left = `calc(${(session.change_at / session.duration) * 100}% - 1px)`;
   const phase = session.phases[Math.min(session.phase, session.phases.length - 1)];
   $("phase-pill").innerHTML = session.state.status === "submitted" ? "Submitted" : session.phase >= session.phases.length ? "<b>Overtime</b> · wrap up and submit" : `<b>Phase ${session.phase + 1}/${session.phases.length}</b> · ${escapeHtml(phase.name)}`;
 }
@@ -170,7 +185,7 @@ function renderTimer() {
   timer.classList.toggle("warn", status === "running" && remaining > 0 && remaining <= 300);
   timer.classList.toggle("over", status !== "submitted" && remaining <= 0);
   $("timer-status").textContent = status === "paused" ? "⏸ paused" : status === "submitted" ? "✓ submitted · you can keep working and resubmit" : remaining > 0 ? `${clock(remaining)} left` : "time is up · submit when ready";
-  if (status === "running" && session.state.change_revealed_at === null && elapsed >= session.change_at && !renderTimer.asked) {
+  if (status === "running" && session.change_at !== null && session.state.change_revealed_at === null && elapsed >= session.change_at && !renderTimer.asked) {
     renderTimer.asked = true;
     refresh().finally(() => { renderTimer.asked = false; });
   }
@@ -179,8 +194,10 @@ function renderTimer() {
 function renderFlow(info) {
   const items = info.phases.map(p => `<li><b>${p.start}–${p.end}</b><span>${escapeHtml(p.name)}</span></li>`);
   const at = info.change_at_minutes;
-  const index = info.phases.findIndex(p => p.start <= at && at < p.end);
-  items.splice(index + 1, 0, `<li class="flow-change"><b>${at}:00</b><span>${info.format === "amazon-final" ? "Interviewer's follow-up" : "Requirement change"}</span></li>`);
+  if (at !== null) {
+    const index = info.phases.findIndex(p => p.start <= at && at < p.end);
+    items.splice(index + 1, 0, `<li class="flow-change"><b>${at}:00</b><span>${info.format === "amazon-final" ? "Interviewer's follow-up" : "Requirement change"}</span></li>`);
+  }
   document.querySelector(".flow").innerHTML = items.join("");
   document.querySelector(".flow").style.setProperty("--flow-cols", items.length);
 }
@@ -197,6 +214,23 @@ function applyFormat(info) {
   document.querySelector("#change-locked h3").textContent = `Unlocks at ${info.change_at_minutes}:00`;
   document.querySelector("#change-locked p").textContent = amazon ? "Partway through the coding problem, the interviewer adds a follow-up, as Amazon interviewers usually do. Keep going." : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
   document.querySelector(".change-banner").lastChild.textContent = amazon ? "Follow-up from the interviewer" : "Requirement change from the interviewer";
+  const behavioralOnly = info.format === "amazon-behavioral";
+  $("change-tab").hidden = info.change_at_minutes === null;
+  $("console").hidden = behavioralOnly;
+  $("custom-tab").hidden = !(info.editor_files || []).length;
+  $("custom-code").value = info.custom_input || "";
+  document.querySelectorAll(".code-tab").forEach(tab => tab.remove());
+  const firstNote = document.querySelector("[data-note-tab]");
+  (info.editor_files || []).forEach(path => {
+    const tab = document.createElement("button");
+    tab.className = "tab file code-tab";
+    tab.dataset.codeTab = path;
+    tab.title = path;
+    tab.innerHTML = `<span class="lang">PY</span>${escapeHtml(path.split("/").pop())}<i class="dot"></i>`;
+    tab.onclick = () => openCode(path);
+    firstNote.parentElement.insertBefore(tab, firstNote);
+  });
+  code.path = null;
   const labels = info.note_tabs;
   document.querySelectorAll("[data-note-tab]").forEach(tab => {
     const key = tab.dataset.noteTab;
@@ -208,7 +242,8 @@ function applyFormat(info) {
     $("test-result").className = "test-empty";
     $("test-result").innerHTML = "This round simulates Amazon's interview editor, which doesn't run code. Reason about correctness and <b>dry-run your code by hand</b> on the example. Grading runs your code after you submit.";
   }
-  $("question").placeholder = amazon ? "Answer the interviewer, or ask a clarifying question…" : "Ask the interviewer a clarifying question…";
+  $("question").placeholder = amazon || behavioralOnly ? "Answer the interviewer, or ask a question…" : "Ask the interviewer a clarifying question…";
+  if (behavioralOnly) showTab("interviewer");
 }
 
 function renderQuestions(questions, spoken = []) {
@@ -251,6 +286,9 @@ function updateGutter() {
 
 function showNote(name) {
   activeNote = name;
+  $("code-area").hidden = true;
+  $("note-area").hidden = false;
+  document.querySelectorAll(".code-tab").forEach(tab => tab.classList.remove("active"));
   document.querySelectorAll("[data-note-tab]").forEach(tab => tab.classList.toggle("active", tab.dataset.noteTab === name));
   document.querySelectorAll("[data-note]").forEach(area => { area.hidden = area.dataset.note !== name; });
   const area = document.querySelector(`[data-note="${name}"]`);
@@ -258,6 +296,94 @@ function showNote(name) {
   $("editor-hint").innerHTML = notesFor()[name].hint;
   $("status-note").textContent = name === "transcript" ? "Plain text" : "Markdown";
   updateGutter();
+}
+
+// The code editor: edits the workspace file directly, so it stays in sync with VS Code or any other editor.
+const code = { path: null, mtime: null, dirty: false, cm: null, timer: null, loading: false };
+
+function codeValue() { return code.cm ? code.cm.getValue() : $("code-fallback").value; }
+function setCodeValue(text) {
+  code.loading = true;
+  if (code.cm) { code.cm.setValue(text); code.cm.clearHistory(); setTimeout(() => code.cm.refresh(), 0); } else $("code-fallback").value = text;
+  code.loading = false;
+}
+
+function ensureCodeMirror() {
+  if (code.cm || !window.CodeMirror) return;
+  code.cm = CodeMirror.fromTextArea($("code-fallback"), {
+    mode: "python", lineNumbers: true, indentUnit: 4, tabSize: 4, indentWithTabs: false, matchBrackets: true, autoCloseBrackets: true,
+    extraKeys: {
+      Tab: cm => (cm.somethingSelected() ? cm.indentSelection("add") : cm.replaceSelection("    ", "end")),
+      "Shift-Tab": cm => cm.indentSelection("subtract"),
+      "Cmd-Enter": () => $("run-tests").click(), "Ctrl-Enter": () => $("run-tests").click(),
+      "Cmd-S": () => saveCode(), "Ctrl-S": () => saveCode(),
+    },
+  });
+  code.cm.on("change", () => codeChanged());
+  code.cm.on("cursorActivity", () => { const pos = code.cm.getCursor(); $("status-lines").textContent = `Ln ${pos.line + 1}, Col ${pos.ch + 1}`; });
+}
+
+function markCodeTab() {
+  document.querySelectorAll(".code-tab").forEach(tab => {
+    tab.classList.toggle("active", tab.dataset.codeTab === code.path && !$("code-area").hidden);
+    tab.classList.toggle("dirty", tab.dataset.codeTab === code.path && code.dirty);
+  });
+}
+
+async function openCode(path) {
+  $("note-area").hidden = true;
+  $("code-area").hidden = false;
+  document.querySelectorAll("[data-note-tab]").forEach(tab => tab.classList.remove("active"));
+  ensureCodeMirror();
+  $("editor-hint").innerHTML = `<b>${escapeHtml(path)}</b> · saved to your workspace as you type · <b>⌘/Ctrl+Enter</b> runs the tests`;
+  $("status-note").textContent = "Python";
+  if (code.path !== path) {
+    if (code.dirty) await saveCode();
+    try {
+      const file = await call(`/api/file?interview=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`);
+      code.path = path; code.mtime = file.mtime; code.dirty = false;
+      setCodeValue(file.content);
+    } catch (e) { toast(e.message); }
+  }
+  markCodeTab();
+  setTimeout(() => { if (code.cm) { code.cm.refresh(); code.cm.focus(); } }, 0);
+}
+
+function codeChanged() {
+  if (code.loading || !code.path) return;
+  code.dirty = true;
+  markCodeTab();
+  $("saved").textContent = "Saving…";
+  clearTimeout(code.timer);
+  code.timer = setTimeout(saveCode, 700);
+}
+
+async function saveCode(force = false) {
+  clearTimeout(code.timer);
+  if (!code.path || !code.dirty) return true;
+  try {
+    const result = await call("/api/file", { path: code.path, content: codeValue(), mtime: force ? null : code.mtime });
+    code.mtime = result.mtime; code.dirty = false;
+    $("saved").textContent = "✓ Saved";
+    markCodeTab();
+    return true;
+  } catch (e) {
+    if (/changed on disk/.test(e.message)) {
+      if (confirm("This file changed in your other editor.\n\nOK = keep the version in this browser and overwrite it.\nCancel = load the other version.")) return saveCode(true);
+      code.path = null; await openCode(Object.keys(latest.files || {})[0]); return false;
+    }
+    $("saved").textContent = "Not saved: " + e.message;
+    return false;
+  }
+}
+
+async function syncCode(files) {
+  // Pick up edits made in VS Code (or anywhere else) when there are no unsaved edits here.
+  if (!code.path || code.dirty || !files || files[code.path] === undefined || files[code.path] === code.mtime) return;
+  try {
+    const file = await call(`/api/file?interview=${encodeURIComponent(current)}&path=${encodeURIComponent(code.path)}`);
+    if (!code.dirty) { code.mtime = file.mtime; setCodeValue(file.content); toast("Loaded the latest version of the file from disk."); }
+  } catch (e) { /* try again on the next refresh */ }
 }
 
 function showTab(name) {
@@ -328,6 +454,9 @@ function render(data) {
   } else {
     $("change-new").hidden = true;
   }
+  const files = info.editor_files || [];
+  if (files.length && !code.path && !code.opening) { code.opening = true; openCode(files[0]).finally(() => { code.opening = false; }); }
+  syncCode(data.files);
   renderTimer();
 }
 
@@ -563,7 +692,22 @@ function renderReport(report) {
   const scored = report.scores.filter(s => s.score !== null);
   const average = scored.length ? (scored.reduce((sum, s) => sum + s.score, 0) / scored.length).toFixed(1) : "–";
   $("report-title").textContent = report.title;
-  $("report-body").innerHTML = `
+  const lps = report.lp_breakdown || [];
+  const lpColor = n => (n >= 4 ? "var(--green)" : n === 3 ? "var(--amber)" : "var(--red)");
+  const lpSection = lps.length ? `<h3 class="section-title">Leadership Principles, story by story</h3>
+    <div class="box"><table class="lp-table">${lps.map(l => `<tr><td class="lp">${escapeHtml(l.lp || "Story")}<div class="q">${escapeHtml(l.question)}</div></td><td class="n" style="color:${lpColor(l.score)}">${l.score}/5</td><td>${l.missing.length ? "Missing: " + escapeHtml(l.missing.join("; ")) : "Hit every signal."}</td></tr>`).join("")}</table></div>` : "";
+  const lpAverage = lps.length ? lps.reduce((sum, l) => sum + l.score, 0) / lps.length : 0;
+  const summary = report.behavioral_only ? `
+    <section class="summary">
+      <div class="ring" style="--p:${lpAverage * 20};--ring:${lpColor(Math.round(lpAverage))}"><div><b>${lps.length ? lpAverage.toFixed(1) : "–"}</b><span>avg story score</span></div></div>
+      <div>
+        <p class="eyebrow">Behavioral round report</p>
+        <h2>${lps.length} of ${(latest && latest.session.state.behavioral && latest.session.state.behavioral.plan || []).length || lps.length} Leadership Principles answered</h2>
+        <p>Average rubric score <b>${average}</b> across ${scored.length} observed area${scored.length === 1 ? "" : "s"} · ${report.elapsed_minutes} min</p>
+        <div class="chips">${lps.map(l => `<span class="chip">${escapeHtml(l.lp || "Story")} <b>${l.score}/5</b></span>`).join("")}</div>
+      </div>
+    </section>` : null;
+  $("report-body").innerHTML = (summary || `
     <section class="summary">
       <div class="ring" style="--p:${percent};--ring:${ringColor}"><div><b>${percent}%</b><span>grading tests</span></div></div>
       <div>
@@ -572,7 +716,7 @@ function renderReport(report) {
         <p>Average rubric score <b>${average}</b> across ${scored.length} observed area${scored.length === 1 ? "" : "s"} · ${report.elapsed_minutes} min · requirement change ${report.change_revealed_at_minutes === null ? "not revealed" : `at ${report.change_revealed_at_minutes} min`}</p>
         <div class="chips">${chips}<span class="chip">Your new tests <b>${t.your_new_tests}</b></span><span class="chip">Catch starter bugs <b>${t.your_tests_that_catch_starter_bugs}</b></span>${t.your_tests ? `<span class="chip">Your suite <b>${t.your_tests.passed}/${t.your_tests.total}</b></span>` : ""}</div>
       </div>
-    </section>
+    </section>`) + `
 
     <h3 class="section-title">Rubric</h3>
     <div class="scores">${report.scores.map(s => `
@@ -582,8 +726,10 @@ function renderReport(report) {
         <details><summary>Evidence</summary><ul>${s.evidence.map(e => `<li>${escapeHtml(e)}</li>`).join("")}</ul></details>
       </div>`).join("")}</div>
 
-    <div class="two">
-      <div><h3 class="section-title">Missed cases</h3><div class="box">${list(missed)}</div></div>
+    ${lpSection}
+
+    <div class="two"${report.behavioral_only ? ' style="grid-template-columns:1fr"' : ""}>
+      ${report.behavioral_only ? "" : `<div><h3 class="section-title">Missed cases</h3><div class="box">${list(missed)}</div></div>`}
       <div><h3 class="section-title">Questionable assumptions</h3><div class="box">${list(report.questionable_assumptions.map(escapeHtml))}</div></div>
     </div>
 
@@ -597,7 +743,7 @@ function renderReport(report) {
     <div class="box spoiler"><details><summary>Show what was wrong with the patch</summary><p>${escapeHtml(report.patch_review.answer)}</p></details></div>` : ""}
     ${report.format_note ? `<p class="foot">${escapeHtml(report.format_note)}</p>` : ""}
 
-    <details class="raw"><summary>Grading test output</summary><pre>${escapeHtml(t.grading_output || "")}</pre></details>
+    ${report.behavioral_only ? "" : `<details class="raw"><summary>Grading test output</summary><pre>${escapeHtml(t.grading_output || "")}</pre></details>`}
     <p class="foot">${escapeHtml(report.ai_usage_note)} ${escapeHtml(report.disclaimer)} Saved to <code>${escapeHtml(report.saved_to || "")}</code>.</p>`;
   $("api-feedback-text").innerHTML = "";
   $("report").hidden = false;
@@ -699,17 +845,38 @@ function wire() {
   });
   $("run-tests").onclick = async () => {
     const button = $("run-tests");
+    if (button.disabled) return;
     button.disabled = true; button.lastChild.textContent = "Running…";
+    await saveCode();
     showConsole("tests");
     $("console-summary").innerHTML = `<span class="muted">running…</span>`;
     try { const { result } = await call("/api/test", {}); renderTests(result); refresh(); }
     catch (e) { toast(e.message); $("console-summary").textContent = ""; }
     button.disabled = false; button.lastChild.textContent = "Run tests";
   };
+  $("run-custom").onclick = async () => {
+    const button = $("run-custom");
+    button.disabled = true;
+    $("custom-status").textContent = "running…";
+    await saveCode();
+    try {
+      const result = await call("/api/run", { code: $("custom-code").value });
+      $("custom-output").innerHTML = escapeHtml(result.stdout) + (result.stderr ? `<span class="err">${escapeHtml(result.stderr)}</span>` : "") || '<span class="muted">(no output)</span>';
+      $("custom-status").textContent = result.timed_out ? "stopped after 10 s" : result.ok ? "✓ ran" : "✕ error";
+      refresh();
+    } catch (e) { toast(e.message); $("custom-status").textContent = ""; }
+    button.disabled = false;
+  };
+  $("custom-code").addEventListener("keydown", event => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); $("run-custom").click(); }
+    if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); $("custom-code").setRangeText("    ", $("custom-code").selectionStart, $("custom-code").selectionEnd, "end"); }
+  });
+  window.addEventListener("beforeunload", () => { if (code.dirty) saveCode(); });
   $("submit").onclick = async () => {
     if (!confirm("Submit for grading? This runs the hidden grading tests (about 10–30 seconds). You can keep working and resubmit.")) return;
     const button = $("submit");
     button.disabled = true; button.textContent = "Grading…";
+    await saveCode();
     try { const data = await call("/api/submit", {}); renderReport(data.report); refresh(); } catch (e) { toast(e.message); }
     button.disabled = false; button.textContent = "Submit";
   };

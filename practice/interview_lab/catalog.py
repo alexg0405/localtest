@@ -12,7 +12,12 @@ from typing import Any, Dict, List
 LAB_ROOT = Path(__file__).resolve().parent.parent
 INTERVIEWS_DIR = LAB_ROOT / "interviews"
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-final-1", "amazon-final-2"]
+ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-final-1", "amazon-final-2", "amazon-behavioral"]
+LP_BANK = INTERVIEWS_DIR / "_amazon" / "leadership_principles.json"  # interviewer-only: questions, follow-ups, signals
+
+
+def leadership_bank() -> List[Dict[str, Any]]:
+    return json.loads(LP_BANK.read_text(encoding="utf-8")) if LP_BANK.exists() else []
 
 # The default 60-minute AI-assisted flow. An interview can define its own "phases" in interview.json.
 # "cue" names the interviewer's line at the start of the phase; "nudge" lets it ask follow-ups when you pause;
@@ -119,7 +124,7 @@ class Interview:
 
     def public(self) -> Dict[str, Any]:
         """What the dashboard may show before submission: nothing from the interviewer folder."""
-        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes", "company", "format", "note_tabs", "tags")
+        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes", "company", "format", "note_tabs", "tags", "editor_files", "custom_input")
         public = {key: self.meta.get(key) for key in keys}
         public["ai_allowed"] = self.ai_allowed
         public["run_tests_allowed"] = self.meta.get("run_tests_allowed", True)

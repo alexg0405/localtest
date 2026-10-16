@@ -6,13 +6,14 @@ so the 30-minute change can be tested without waiting.
 from __future__ import annotations
 
 import json
+import random
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import interviewer
-from .catalog import DEFAULT_PHASES, Interview
+from .catalog import DEFAULT_PHASES, Interview, leadership_bank
 from .workspace import create_workspace, reset_workspace, workspace_path
 
 PHASES = DEFAULT_PHASES
@@ -90,8 +91,39 @@ class Sessions:
             }
             if reset_report:
                 state["last_reset"] = reset_report
+            plan = self._behavioral_plan(interview)
+            if plan:
+                state["behavioral"] = {"question": -1, "followup": 0, "awaiting": False, "answers": [], "plan": plan}
             self.save(state)
             return state
+
+    def _behavioral_plan(self, interview: Interview) -> List[Dict[str, Any]]:
+        """Picks this session's Leadership Principles questions from the shared bank: different principles, and the
+        questions you were asked least recently, so repeat sessions don't repeat questions."""
+        config = interview.meta.get("behavioral")
+        if not config:
+            return []
+        bank = {entry["lp"]: entry for entry in leadership_bank()}
+        history_path = self.home / ".lab" / "behavioral_history.json"
+        try:
+            history = {k: v for k, v in json.loads(history_path.read_text(encoding="utf-8")).items() if isinstance(v, list)}
+        except (OSError, ValueError, AttributeError):
+            history = {}
+        rng = random.Random()
+        focus = [lp for lp in config.get("focus", list(bank)) if lp in bank]
+        rng.shuffle(focus)
+        # Principles you've been asked least come first (then the longest ago), so sessions rotate through the bank.
+        asked = lambda q: history.get(q["id"], [0, 0])  # [times asked, last asked]
+        focus.sort(key=lambda lp: (sum(asked(q)[0] for q in bank[lp]["questions"]), max(asked(q)[1] for q in bank[lp]["questions"])))
+        plan = []
+        for lp in focus[: config.get("count", 2)]:
+            question = min(bank[lp]["questions"], key=lambda q: (asked(q)[0], asked(q)[1], rng.random()))
+            plan.append({"lp": lp, "id": question["id"], "question": question["q"], "followups": question["followups"],
+                         "signals": bank[lp]["signals"], "look_for": bank[lp]["look_for"]})
+            history[question["id"]] = [asked(question)[0] + 1, self.clock()]
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+        return plan
 
     def pause(self, interview: Interview) -> Dict[str, Any]:
         with LOCK:
@@ -137,8 +169,9 @@ class Sessions:
             if not state:
                 return {"started": False}
             elapsed = self.elapsed(state)
-            change_at = interview.meta.get("change_at_minutes", 30) * 60
-            if state["status"] == "running" and elapsed >= change_at:
+            change_minutes = interview.meta.get("change_at_minutes", 30)
+            change_at = change_minutes * 60 if change_minutes is not None else None  # a round can have no change
+            if state["status"] == "running" and change_at is not None and elapsed >= change_at:
                 self.reveal_change(interview, state, "scheduled")
             minutes = elapsed / 60
             phases = interview.phases()
@@ -228,6 +261,10 @@ class Sessions:
     def _flow(self, state: Dict[str, Any]) -> Dict[str, Any]:
         return state.setdefault("behavioral", {"question": -1, "followup": 0, "awaiting": False, "answers": []})
 
+    @staticmethod
+    def behavioral_questions(interview: Interview, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return state.get("behavioral", {}).get("plan") or interview.behavioral()
+
     def record_answer(self, interview: Interview, text: str) -> None:
         """Part of the candidate's answer to the behavioral prompt being asked. Before or after the questions, it is think-aloud."""
         text = " ".join(text.split())[:6000]
@@ -236,7 +273,7 @@ class Sessions:
         with LOCK:
             state = self._require(interview.id)
             flow = self._flow(state)
-            if flow["answers"] and 0 <= flow["question"] < len(interview.behavioral()):
+            if flow["answers"] and 0 <= flow["question"] < len(self.behavioral_questions(interview, state)):
                 flow["answers"][-1]["parts"].append({"at": round(self.elapsed(state), 1), "text": text})
                 flow["awaiting"] = False
                 self.save(state)
@@ -246,10 +283,10 @@ class Sessions:
     def behavioral_next(self, interview: Interview) -> Optional[Dict[str, Any]]:
         """The next behavioral prompt: a follow-up on the current story, or the next question. None while an answer is
         still owed, or when every question has been asked."""
-        questions = interview.behavioral()
         with LOCK:
             state = self._require(interview.id)
             flow = self._flow(state)
+            questions = self.behavioral_questions(interview, state)
             if flow["awaiting"] or flow["question"] >= len(questions):
                 return None
             current = questions[flow["question"]] if flow["question"] >= 0 else None
@@ -264,7 +301,7 @@ class Sessions:
                     self.save(state)
                     return None
                 current = questions[flow["question"]]
-                flow["answers"].append({"question": current["question"], "lp": current.get("lp"), "prompts": [], "parts": []})
+                flow["answers"].append({"question": current["question"], "lp": current.get("lp"), "id": current.get("id"), "prompts": [], "parts": []})
                 text = current["question"]
                 kind = "behavioral:question"
             flow["answers"][-1]["prompts"].append(text)
@@ -272,6 +309,12 @@ class Sessions:
             entry = self._interviewer_message(state, text, kind)
             self.save(state)
             return entry
+
+    def record_code_run(self, interview: Interview, ok: bool) -> None:
+        with LOCK:
+            state = self._require(interview.id)
+            state.setdefault("code_runs", []).append({"at": round(self.elapsed(state), 1), "ok": ok})
+            self.save(state)
 
     def set_note(self, interview: Interview, field: str, text: str) -> Dict[str, Any]:
         if field not in NOTE_FIELDS:

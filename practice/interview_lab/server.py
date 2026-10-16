@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import subprocess
+import tempfile
 import threading
 import webbrowser
 from http import HTTPStatus
@@ -80,6 +83,10 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 if url.path == "/api/report":
                     report, _ = grading.latest_report(self._interview(query.get("interview")), lab.home)
                     return self._json(200, {"report": report})
+                if url.path == "/api/file":
+                    interview = self._interview(query.get("interview"))
+                    path = self._editor_file(interview, query.get("path", ""))
+                    return self._json(200, {"path": query.get("path"), "content": path.read_text(encoding="utf-8"), "mtime": path.stat().st_mtime})
                 if url.path == "/api/packet":
                     return self._json(200, {"text": self._packet(self._interview(query.get("interview")), query.get("kind", ""))})
                 return self._error(HTTPStatus.NOT_FOUND, "Not found.")
@@ -125,6 +132,18 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     return self._json(200, {"saved": True})
                 elif action == "/api/cue":
                     return self._json(200, {"entry": sessions.cue(interview, str(body.get("cue", "")))})
+                elif action == "/api/file":
+                    path = self._editor_file(interview, str(body.get("path", "")))
+                    base = body.get("mtime")
+                    if base is not None and abs(path.stat().st_mtime - float(base)) > 1e-6 and not body.get("force"):
+                        return self._json(409, {"error": "The file changed on disk (in your other editor). Reload it, or save again to overwrite.", "content": path.read_text(encoding="utf-8"), "mtime": path.stat().st_mtime})
+                    content = str(body.get("content", ""))
+                    if len(content) > 500_000:
+                        raise ValueError("That file is too large.")
+                    path.write_text(content, encoding="utf-8")
+                    return self._json(200, {"saved": True, "mtime": path.stat().st_mtime})
+                elif action == "/api/run":
+                    return self._json(200, self._run_snippet(interview, str(body.get("code", ""))))
                 elif action == "/api/answer":
                     sessions.record_answer(interview, str(body.get("text", "")))
                     return self._json(200, {"saved": True})
@@ -181,6 +200,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 "has_report": report is not None,
                 "workspace": str(workspace),
                 "workspace_exists": bool(read_marker(workspace)),
+                "files": {name: (workspace / name).stat().st_mtime for name in interview.meta.get("editor_files", []) if (workspace / name).is_file()},
                 "commands": {
                     "editor": f'code "{workspace}"',
                     "assistant": f'cd "{workspace}" && claude',
@@ -210,6 +230,37 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             entry["topic"] = local["topic"]
             lab.sessions.record_question(interview, entry)
             return entry
+
+        def _editor_file(self, interview, relative: str) -> Path:
+            """Only the files the interview lets the browser editor open, inside its workspace."""
+            if relative not in interview.meta.get("editor_files", []):
+                raise ValueError("That file can't be opened in the browser editor.")
+            path = (workspace_path(interview, lab.home) / relative).resolve()
+            if not read_marker(workspace_path(interview, lab.home)) or not path.is_file():
+                raise WorkspaceError("Start the interview first, so the workspace exists.")
+            return path
+
+        def _run_snippet(self, interview, code: str) -> Dict[str, Any]:
+            """Runs a few lines of Python against the workspace (custom input), with a time limit."""
+            workspace = workspace_path(interview, lab.home)
+            if not read_marker(workspace):
+                raise WorkspaceError("Start the interview first, so the workspace exists.")
+            if not code.strip():
+                raise ValueError("Write some code to run, for example a print() call.")
+            with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as handle:
+                handle.write(code[:50_000])
+                script = handle.name
+            env = {**os.environ, "PYTHONPATH": str(workspace), "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
+            try:
+                done = subprocess.run([test_python(lab.home), script], cwd=workspace, capture_output=True, text=True, timeout=10, env=env)
+                result = {"ok": done.returncode == 0, "stdout": done.stdout[-20_000:], "stderr": done.stderr[-20_000:], "timed_out": False}
+            except subprocess.TimeoutExpired as error:
+                result = {"ok": False, "stdout": (error.stdout or b"").decode("utf-8", "replace")[-20_000:] if isinstance(error.stdout, bytes) else (error.stdout or ""), "stderr": "Stopped after 10 seconds (an infinite loop?).", "timed_out": True}
+            finally:
+                os.unlink(script)
+            if lab.sessions.load(interview.id):
+                lab.sessions.record_code_run(interview, result["ok"])
+            return result
 
         def _run_visible(self, interview) -> Dict[str, Any]:
             workspace = workspace_path(interview, lab.home)

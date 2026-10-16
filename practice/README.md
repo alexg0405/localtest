@@ -16,8 +16,9 @@ key.
 | `commerce-orders` | An order service with double charges, a missing order in the history, and no cancel. Inspired by high-volume commerce teams such as Amazon. | Idempotency, partial-failure rollback, retries, pagination |
 | `banking-ledger` | A batch ledger over a synthetic transaction feed. Balances are off by a cent, events are applied twice, and bad events slip through. Inspired by banking teams such as Capital One. | Integer-cent money, duplicate events, validation, UTC reporting |
 | `unfamiliar-repo` | You're on call for a nightly import in a codebase nobody on the team wrote, and the job has started failing. | Diagnosis, a focused fix, regression tests, reviewing an AI patch |
-| `amazon-final-1` | Amazon SDE intern final round 1 (45 min, no AI): Ownership and Deliver Results questions with follow-ups, then "top late carriers" with a streaming follow-up. | STAR stories, hash maps and heaps, complexity, dry runs |
-| `amazon-final-2` | Amazon SDE intern final round 2 (45 min, no AI): disagreement and mistake questions with follow-ups, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, dry runs |
+| `amazon-final-1` | Amazon SDE intern final round 1 (45 min, no AI): two Leadership Principles questions with follow-ups, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | STAR stories, hash maps and heaps, complexity, testing |
+| `amazon-final-2` | Amazon SDE intern final round 2 (45 min, no AI): two different Leadership Principles, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, testing |
+| `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
 
 These are original simulations, not reproductions of any company's interviews.
 Each one has:
@@ -108,18 +109,56 @@ These rounds differ from the other three:
 - **No AI.** Amazon asks candidates not to use GenAI tools in interviews unless
   explicitly permitted. The workspace's `CLAUDE.md` tells Claude Code not to
   help, and the AI areas aren't scored.
-- **No running code.** The Run tests button is off. Grading runs your code
-  after you submit, including large-input performance tests.
-- **Behavioral mode.** From minute 2 to 20, the interviewer asks two Leadership
-  Principles questions out loud. Whatever you say or type is your answer, and
-  when you pause it asks a follow-up ("What exactly did you do yourself?",
-  "How did you measure it?") before moving on.
-- **Different scoring.** Seven areas: problem understanding, Leadership
-  Principles (STAR structure, "I" rather than "we", numbers in the result,
-  reflection, how you handled the follow-ups), problem solving and complexity,
-  correctness and edge cases, testing and dry run, code quality, and
-  communication (thinking aloud and asking questions at the end).
-- **A follow-up at minute 33** instead of a requirement change.
+- **A real code editor in the browser.** The solution file opens in the first
+  editor tab, with Python highlighting, line numbers, and bracket matching. It
+  saves to your workspace as you type and stays in sync if you also edit the
+  file in VS Code.
+  - **Run tests** (or ⌘/Ctrl+Enter) runs the example tests.
+  - The **Custom input** console runs any Python you write against your code,
+    with a 10-second limit.
+  - Every run counts as evidence. Grading still runs hidden tests, including
+    large-input performance tests, after you submit.
+- **Leadership Principles tailored to Amazon.** The question bank
+  (`interviews/_amazon/leadership_principles.json`) covers all 16 principles,
+  with two original questions each and three follow-ups per question.
+  - Each session picks different principles, preferring questions you haven't
+    been asked recently, so repeat sessions rotate through the bank.
+  - Round 1 draws from Customer Obsession, Ownership, Deliver Results, Bias for
+    Action, Insist on the Highest Standards, Invent and Simplify, and
+    Frugality.
+  - Round 2 draws from Earn Trust, Have Backbone; Disagree and Commit, Dive
+    Deep, Learn and Be Curious, Are Right, A Lot, Hire and Develop the Best,
+    and Think Big.
+  - The behavioral round draws from all 16.
+  - From minute 2, the interviewer asks out loud. Whatever you say or type is
+    your answer, and when you pause it digs in with the next follow-up.
+- **Graded on everything.** The coding rounds score seven areas:
+  - problem understanding
+  - Leadership Principles, scored story by story
+  - problem solving and complexity
+  - correctness, edge cases, and performance
+  - testing and verification (your test runs, custom runs, tests you wrote, and
+    dry runs)
+  - code quality
+  - communication (thinking aloud and your questions at the end)
+
+  The behavioral round scores six areas: Leadership Principles, STAR structure,
+  ownership and measurable impact, handling follow-ups, self-awareness, and
+  communication and pacing.
+
+  Each story is checked for:
+  - STAR
+  - "I" versus "we"
+  - a number in the result
+  - reflection
+  - whether it shows the principle that was asked about
+  - length (about 2–3 minutes)
+  - whether each follow-up answer adds new detail
+
+  Reusing one story for several principles is marked down, as an interviewer
+  would. The report includes a table with one row per principle.
+- **A follow-up at minute 33** in the coding rounds, instead of a requirement
+  change.
 
 The flow is modeled on candidate reports, not official Amazon material, and
 every loop differs. The questions are original. Sources:

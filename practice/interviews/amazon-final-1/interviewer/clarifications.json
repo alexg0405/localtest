@@ -153,6 +153,6 @@
       "test it",
       "run it"
     ],
-    "answer": "The editor doesn't run code. Walk me through it with the example instead."
+    "answer": "Yes, you can run it: Run tests runs the example, and the Custom input tab runs any Python you write. Walk me through the example by hand too."
   }
 ]

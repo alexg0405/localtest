@@ -50,7 +50,8 @@ def iter_files(root: Path) -> Dict[str, Path]:
 
 def _generated_files(interview: Interview, home: Path) -> Dict[str, str]:
     title = interview.title
-    claude_md = (TEMPLATES_DIR / "CLAUDE.md").read_text(encoding="utf-8").format(title=title, lab_root=LAB_ROOT)
+    template = "CLAUDE.md" if interview.ai_allowed else "CLAUDE_no_ai.md"
+    claude_md = (TEMPLATES_DIR / template).read_text(encoding="utf-8").format(title=title, lab_root=LAB_ROOT)
     lab_dirs = [LAB_ROOT, home / ".lab"]
     deny = [f"{tool}(/{directory}/**)" for directory in lab_dirs for tool in ("Read", "Edit")]
     claude_settings = {"permissions": {"deny": deny}}

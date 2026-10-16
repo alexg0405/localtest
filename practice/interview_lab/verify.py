@@ -14,11 +14,12 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable, List
 
-from . import api
+from . import api, grading
 from .catalog import LAB_ROOT, all_interviews, practice_home, test_python
 from .session import CHANGE_FILE, Sessions
 from .testing import run_pytest
@@ -46,6 +47,18 @@ def test_declined_card_is_tried_once():
 
 def test_awkward_amount_is_exact():
     assert parse_amount("4.35") == 435
+''',
+    "amazon-final-1": '''from deliveries.late_carriers import top_late_carriers
+
+
+def test_tie_is_alphabetical():
+    assert top_late_carriers([("a", "Zed", 1, 2), ("b", "Amy", 1, 2)], 2) == ["Amy", "Zed"]
+''',
+    "amazon-final-2": '''from fulfillment.robot_moves import min_moves
+
+
+def test_unreachable():
+    assert min_moves(["D#P"]) == -1
 ''',
     "unfamiliar-repo": '''import json
 
@@ -116,7 +129,8 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
 
         # 2. Starter defects are detectable.
         visible = run_pytest(python, workspace, ["tests"])
-        c.check("starter fails visible tests", visible["failed"] + visible["errors"] > 0 and visible["passed"] > 0, f"{visible['passed']} pass, {visible['failed']} fail")
+        blank = interview.meta.get("format") == "amazon-final"  # an empty function to write, not planted bugs
+        c.check("starter fails visible tests", visible["failed"] + visible["errors"] > 0 and (blank or visible["passed"] > 0), f"{visible['passed']} pass, {visible['failed']} fail")
         starter = scratch / "starter"
         build_starter(interview, starter, home)
         hidden = _hidden_run(python, interview, starter)
@@ -133,12 +147,16 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
                 f"{solved_visible['passed']} visible, {solved_hidden['passed']}/{solved_hidden['total']} grading")
 
         # 4. The AI patch applies and its planted mistake is caught.
+        if not (interview.starter / "patch_review" / "ai_patch.diff").exists():
+            c.check("no-AI round: the workspace tells the assistant not to help", "Do not help with the exercise" in (workspace / "CLAUDE.md").read_text(encoding="utf-8"))
         patched = scratch / "patched"
         build_starter(interview, patched, home)
         subprocess.run(["git", "init", "-q"], cwd=patched, check=True)
-        applied = subprocess.run(["git", "apply", "patch_review/ai_patch.diff"], cwd=patched, capture_output=True, text=True)
-        c.check("AI patch applies to the starter", applied.returncode == 0, applied.stderr.strip()[:200])
-        if applied.returncode == 0:
+        has_patch = (patched / "patch_review" / "ai_patch.diff").exists()
+        applied = subprocess.run(["git", "apply", "patch_review/ai_patch.diff"], cwd=patched, capture_output=True, text=True) if has_patch else None
+        if has_patch:
+            c.check("AI patch applies to the starter", applied.returncode == 0, applied.stderr.strip()[:200])
+        if has_patch and applied.returncode == 0:
             patched_hidden = _hidden_run(python, interview, patched)
             c.check("AI patch's mistake is caught by grading tests", patched_hidden["failed"] + patched_hidden["errors"] > 0, f"{patched_hidden['failed']} grading failures")
 
@@ -151,13 +169,13 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         clock.now += 45 * 60
         paused = sessions.status(interview)
         sessions.resume(interview)
-        clock.now += 19 * 60 + 59
+        clock.now += (interview.meta.get("change_at_minutes", 30) - 10) * 60 - 1
         before = sessions.status(interview)
         no_file = not (workspace / CHANGE_FILE).exists()
         clock.now += 1
         after = sessions.status(interview)
-        c.check("change is hidden before minute 30 and while paused", paused["change"] is None and before["change"] is None and no_file, f"{before['elapsed'] / 60:.2f} min")
-        c.check("change appears at minute 30 in the dashboard and CHANGE_REQUEST.md",
+        c.check("change is hidden before its minute and while paused", paused["change"] is None and before["change"] is None and no_file, f"{before['elapsed'] / 60:.2f} min")
+        c.check(f"change appears at minute {interview.meta.get('change_at_minutes', 30)} in the dashboard and CHANGE_REQUEST.md",
                 after["change"] == interview.change_request() and (workspace / CHANGE_FILE).read_text(encoding="utf-8") == interview.change_request()
                 and after["state"]["change_reveal_reason"] == "scheduled", f"revealed at {after['state']['change_revealed_at'] / 60:.1f} min")
 
@@ -165,9 +183,9 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         source = workspace / interview.meta["source_files"][-1]
         original = source.read_text(encoding="utf-8")
         source.write_text(original + "\n# candidate edit\n", encoding="utf-8")
+        deleted = workspace / ("pytest.ini" if len(interview.meta["source_files"]) == 1 else interview.meta["source_files"][0])
         (workspace / "notes").mkdir(exist_ok=True)
         (workspace / "notes" / "mine.txt").write_text("keep me", encoding="utf-8")
-        deleted = workspace / interview.meta["source_files"][0]
         deleted.unlink()
         unrelated = home / "unrelated.txt"
         unrelated.write_text("outside the workspace", encoding="utf-8")
@@ -203,29 +221,56 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         c.check("offline interviewer answers a clarification", entry["matched"] and entry["topic"] == first_topic["topic"], entry["topic"] or "no match")
         _http(port, "/api/note", {"interview": interview.id, "field": "plan", "text": f"Read {', '.join(interview.meta['source_files'][:3])} and traced the main path before changing anything."})
         _http(port, "/api/note", {"interview": interview.id, "field": "explanation", "text": "I fixed the reported bugs because the tests showed them, and added regression tests. Tradeoff: kept the change small instead of refactoring."})
-        before = _http(port, "/api/test", {"interview": interview.id})["result"]
-        c.check("visible tests run from the dashboard and show the starter failures", before["failed"] > 0)
+        runnable = interview.meta.get("run_tests_allowed", True)
+        if runnable:
+            before = _http(port, "/api/test", {"interview": interview.id})["result"]
+            c.check("visible tests run from the dashboard and show the starter failures", before["failed"] > 0)
+        else:
+            try:
+                _http(port, "/api/test", {"interview": interview.id})
+                refused = False
+            except urllib.error.HTTPError as error:
+                refused = error.code == 400
+            c.check("no-run round: the dashboard refuses to run tests", refused)
 
         starter_report = _http(port, "/api/submit", {"interview": interview.id})["report"]
         scores = {s["area"]: s["score"] for s in starter_report["scores"]}
         c.check("submitting the untouched starter scores correctness low", scores["correctness"] <= 2 and starter_report["missed_cases"], f"correctness {scores['correctness']}")
+        amazon = interview.meta.get("format") == "amazon-final"
+        if amazon:
+            c.check("Leadership Principles are 'not observed' before any answer", scores["leadership"] is None and "ai_instructions" not in scores)
+            first = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
+            _http(port, "/api/answer", {"interview": interview.id, "text": "During my internship last summer I noticed our deploy script had no owner, so I decided to fix it. I rewrote it, tested it, and documented it. As a result deploys dropped from 40 minutes to 8 minutes. I learned to ask who owns something early."})
+            follow = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
+            waiting = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
+            c.check("the interviewer asks an LP question, digs in with a follow-up, then waits for an answer",
+                    first["answer"] == interview.behavioral()[0]["question"] and follow["answer"] == interview.behavioral()[0]["followups"][0] and waiting is None)
 
         workspace = workspace_path(interview, home)
         _overlay(interview.solution, workspace)  # stands in for the candidate's work
         (workspace / "tests" / "test_regressions.py").write_text(CANDIDATE_TESTS[interview.id], encoding="utf-8")
         _http(port, "/api/reveal", {"interview": interview.id})
-        after = _http(port, "/api/test", {"interview": interview.id})["result"]
-        c.check("visible tests pass after the fix", after["ok"], f"{after['passed']} passed")
+        if runnable:
+            after = _http(port, "/api/test", {"interview": interview.id})["result"]
+            c.check("visible tests pass after the fix", after["ok"], f"{after['passed']} passed")
         report = _http(port, "/api/submit", {"interview": interview.id})["report"]
         scores = {s["area"]: s["score"] for s in report["scores"]}
-        c.check("report has all eight areas", len(report["scores"]) == 8)
+        expected_areas = [area for area, _ in grading.areas_for(interview)]
+        c.check(f"report scores all {len(expected_areas)} areas for this format", [x["area"] for x in report["scores"]] == expected_areas)
         c.check("fixed workspace passes every grading test", report["tests"]["grading"]["failed"] + report["tests"]["grading"]["errors"] == 0 and scores["correctness"] == 5)
         c.check("a regression test that fails on the starter is credited", report["tests"]["your_tests_that_catch_starter_bugs"] >= 1)
-        c.check("areas without evidence are 'not observed'", scores["ai_instructions"] is None)
+        if amazon:
+            evidence = next(x["evidence"] for x in report["scores"] if x["area"] == "leadership")
+            c.check("Leadership Principles answers are scored with evidence", scores["leadership"] is not None and any("words" in line for line in evidence), f"{scores['leadership']}/5")
+            c.check("the report says this was a no-AI round", bool(report.get("format_note")) and report.get("patch_review") is None)
+        else:
+            c.check("areas without evidence are 'not observed'", scores["ai_instructions"] is None)
         c.check("report lists three improvements and a follow-up exercise", len(report["improvements"]) == 3 and report["follow_up"]["exercise"])
         grading_prompt = _http(port, f"/api/packet?interview={interview.id}&kind=grading")["text"]
         interviewer_prompt = _http(port, f"/api/packet?interview={interview.id}&kind=interviewer")["text"]
         c.check("copyable grading and interviewer prompts are produced", "not observed" in grading_prompt and interview.change_request()[:40] in interviewer_prompt)
+        if amazon:
+            c.check("the grading prompt includes the Leadership Principles answers", "deploy script" in grading_prompt)
         feedback = _http(port, "/api/feedback", {"interview": interview.id})
         c.check("API feedback degrades gracefully with API mode off", feedback.get("api_error", {}).get("kind") == "off")
     finally:

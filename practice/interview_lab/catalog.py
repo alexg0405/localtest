@@ -12,7 +12,18 @@ from typing import Any, Dict, List
 LAB_ROOT = Path(__file__).resolve().parent.parent
 INTERVIEWS_DIR = LAB_ROOT / "interviews"
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo"]
+ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-final-1", "amazon-final-2"]
+
+# The default 60-minute AI-assisted flow. An interview can define its own "phases" in interview.json.
+# "cue" names the interviewer's line at the start of the phase; "nudge" lets it ask follow-ups when you pause;
+# "kind": "behavioral" turns what you say into answers to its Leadership Principles questions.
+DEFAULT_PHASES = [
+    {"start": 0, "end": 5, "name": "Read the task and clarify requirements", "cue": "start"},
+    {"start": 5, "end": 15, "name": "Explore the repository and explain a plan", "cue": "plan", "nudge": "plan"},
+    {"start": 15, "end": 40, "name": "Implement with AI assistance and run tests", "cue": "build"},
+    {"start": 40, "end": 50, "name": "Check edge cases and review the AI patch", "cue": "edge"},
+    {"start": 50, "end": 60, "name": "Explain your implementation and tradeoffs", "cue": "explain", "nudge": "explain"},
+]
 
 
 def practice_home() -> Path:
@@ -92,13 +103,28 @@ class Interview:
                 items[-1] += " " + line.strip()
         return [re.sub(r"\s*\([^()]*\)\s*$", "", item).strip() for item in items]
 
+    def phases(self) -> List[Dict[str, Any]]:
+        return self.meta.get("phases") or DEFAULT_PHASES
+
+    @property
+    def ai_allowed(self) -> bool:
+        return self.meta.get("ai_allowed", True)
+
+    def behavioral(self) -> List[Dict[str, Any]]:
+        """Leadership Principles questions with their follow-ups (interviewer-only: which principle each probes)."""
+        return self._json("behavioral.json", [])
+
     def task(self) -> str:
         return (self.starter / "README.md").read_text(encoding="utf-8")
 
     def public(self) -> Dict[str, Any]:
         """What the dashboard may show before submission: nothing from the interviewer folder."""
-        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes")
-        return {key: self.meta.get(key) for key in keys}
+        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes", "company", "format", "note_tabs", "tags")
+        public = {key: self.meta.get(key) for key in keys}
+        public["ai_allowed"] = self.ai_allowed
+        public["run_tests_allowed"] = self.meta.get("run_tests_allowed", True)
+        public["phases"] = [{k: p[k] for k in ("start", "end", "name", "kind") if k in p} for p in self.phases()]
+        return public
 
 
 def all_interviews() -> List[Interview]:

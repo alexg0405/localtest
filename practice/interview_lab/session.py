@@ -12,16 +12,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from . import interviewer
-from .catalog import Interview
+from .catalog import DEFAULT_PHASES, Interview
 from .workspace import create_workspace, reset_workspace, workspace_path
 
-PHASES = [
-    {"start": 0, "end": 5, "name": "Read the task and clarify requirements"},
-    {"start": 5, "end": 15, "name": "Explore the repository and explain a plan"},
-    {"start": 15, "end": 40, "name": "Implement with AI assistance and run tests"},
-    {"start": 40, "end": 50, "name": "Check edge cases and review the AI patch"},
-    {"start": 50, "end": 60, "name": "Explain your implementation and tradeoffs"},
-]
+PHASES = DEFAULT_PHASES
 NOTE_FIELDS = ("plan", "assumptions", "patch_review", "explanation", "transcript")
 CHANGE_FILE = "CHANGE_REQUEST.md"
 LOCK = threading.RLock()
@@ -147,7 +141,8 @@ class Sessions:
             if state["status"] == "running" and elapsed >= change_at:
                 self.reveal_change(interview, state, "scheduled")
             minutes = elapsed / 60
-            phase = next((i for i, p in enumerate(PHASES) if p["start"] <= minutes < p["end"]), len(PHASES))
+            phases = interview.phases()
+            phase = next((i for i, p in enumerate(phases) if p["start"] <= minutes < p["end"]), len(phases))
             revealed = state.get("change_revealed_at") is not None
             return {
                 "started": True,
@@ -156,8 +151,8 @@ class Sessions:
                 "duration": interview.meta.get("duration_minutes", 60) * 60,
                 "change_at": change_at,
                 "phase": phase,
-                "phases": PHASES,
-                "overtime": minutes >= 60,
+                "phases": phases,
+                "overtime": minutes >= interview.meta.get("duration_minutes", 60),
                 "change": interview.change_request() if revealed else None,
                 "workspace": str(workspace_path(interview, self.home)),
             }
@@ -201,14 +196,15 @@ class Sessions:
 
     def cue(self, interview: Interview, name: str) -> Optional[Dict[str, Any]]:
         """The interviewer's line for a point in the session, said once per session."""
-        if name not in interviewer.CUES:
+        lines = interviewer.cues_for(interview)
+        if name not in lines:
             raise SessionError(f"Unknown cue {name!r}.")
         with LOCK:
             state = self._require(interview.id)
             if name in state.setdefault("cues", []):
                 return None
             state["cues"].append(name)
-            entry = self._interviewer_message(state, interviewer.CUES[name], f"cue:{name}")
+            entry = self._interviewer_message(state, lines[name], f"cue:{name}")
             self.save(state)
             return entry
 
@@ -224,6 +220,56 @@ class Sessions:
                 return None
             asked[phase] = index + 1
             entry = self._interviewer_message(state, prompts[index], f"followup:{phase}")
+            self.save(state)
+            return entry
+
+    # Leadership Principles questions: the interviewer asks one, digs in with follow-ups, then moves on.
+
+    def _flow(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return state.setdefault("behavioral", {"question": -1, "followup": 0, "awaiting": False, "answers": []})
+
+    def record_answer(self, interview: Interview, text: str) -> None:
+        """Part of the candidate's answer to the behavioral prompt being asked. Before or after the questions, it is think-aloud."""
+        text = " ".join(text.split())[:6000]
+        if not text:
+            return
+        with LOCK:
+            state = self._require(interview.id)
+            flow = self._flow(state)
+            if flow["answers"] and 0 <= flow["question"] < len(interview.behavioral()):
+                flow["answers"][-1]["parts"].append({"at": round(self.elapsed(state), 1), "text": text})
+                flow["awaiting"] = False
+                self.save(state)
+                return
+        self.record_speech(interview, text)
+
+    def behavioral_next(self, interview: Interview) -> Optional[Dict[str, Any]]:
+        """The next behavioral prompt: a follow-up on the current story, or the next question. None while an answer is
+        still owed, or when every question has been asked."""
+        questions = interview.behavioral()
+        with LOCK:
+            state = self._require(interview.id)
+            flow = self._flow(state)
+            if flow["awaiting"] or flow["question"] >= len(questions):
+                return None
+            current = questions[flow["question"]] if flow["question"] >= 0 else None
+            if current and flow["followup"] < len(current.get("followups", [])):
+                text = current["followups"][flow["followup"]]
+                flow["followup"] += 1
+                kind = "behavioral:followup"
+            else:
+                flow["question"] += 1
+                flow["followup"] = 0
+                if flow["question"] >= len(questions):
+                    self.save(state)
+                    return None
+                current = questions[flow["question"]]
+                flow["answers"].append({"question": current["question"], "lp": current.get("lp"), "prompts": [], "parts": []})
+                text = current["question"]
+                kind = "behavioral:question"
+            flow["answers"][-1]["prompts"].append(text)
+            flow["awaiting"] = True
+            entry = self._interviewer_message(state, text, kind)
             self.save(state)
             return entry
 

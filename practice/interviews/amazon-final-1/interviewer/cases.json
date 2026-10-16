@@ -1,0 +1,15 @@
+{
+  "test_example_from_the_problem": {"area": "core", "description": "The example from the problem"},
+  "test_example": {"area": "core", "description": "The example from the problem"},
+  "test_ties_are_alphabetical": {"area": "edge", "description": "Ties are broken alphabetically", "topic": "Ties between carriers"},
+  "test_last_record_for_a_package_wins": {"area": "edge", "description": "Only a package's last record counts", "topic": "Repeated records for the same package"},
+  "test_corrected_record_can_move_a_package_to_another_carrier": {"area": "edge", "description": "A corrected record can move a package to another carrier", "topic": "Repeated records for the same package"},
+  "test_delivered_on_the_promised_day_is_on_time": {"area": "edge", "description": "Delivered on the promised day is on time", "topic": "What counts as late"},
+  "test_k_out_of_range": {"area": "edge", "description": "k larger than the carriers returns all; k of zero or less returns nothing", "topic": "When k is out of range"},
+  "test_empty_input": {"area": "edge", "description": "An empty list returns nothing"},
+  "test_large_input_is_fast": {"area": "performance", "description": "200,000 records finish within 3 seconds", "topic": "Input size and performance"},
+  "test_change_tracker_matches_the_batch_answer": {"area": "change", "description": "Follow-up: the tracker gives the batch answer"},
+  "test_change_tracker_applies_corrections": {"area": "change", "description": "Follow-up: corrections un-late a package or move it to another carrier"},
+  "test_change_tracker_matches_batch_on_random_records": {"area": "change", "description": "Follow-up: the tracker matches the batch answer on random streams"},
+  "test_change_tracker_top_is_fast_after_many_records": {"area": "performance", "description": "Follow-up: 50,000 records with frequent top() calls finish within 4 seconds"}
+}

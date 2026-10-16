@@ -16,6 +16,8 @@ key.
 | `commerce-orders` | An order service with double charges, a missing order in the history, and no cancel. Inspired by high-volume commerce teams such as Amazon. | Idempotency, partial-failure rollback, retries, pagination |
 | `banking-ledger` | A batch ledger over a synthetic transaction feed. Balances are off by a cent, events are applied twice, and bad events slip through. Inspired by banking teams such as Capital One. | Integer-cent money, duplicate events, validation, UTC reporting |
 | `unfamiliar-repo` | You're on call for a nightly import in a codebase nobody on the team wrote, and the job has started failing. | Diagnosis, a focused fix, regression tests, reviewing an AI patch |
+| `amazon-final-1` | Amazon SDE intern final round 1 (45 min, no AI): Ownership and Deliver Results questions with follow-ups, then "top late carriers" with a streaming follow-up. | STAR stories, hash maps and heaps, complexity, dry runs |
+| `amazon-final-2` | Amazon SDE intern final round 2 (45 min, no AI): disagreement and mistake questions with follow-ups, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, dry runs |
 
 These are original simulations, not reproductions of any company's interviews.
 Each one has:
@@ -92,6 +94,39 @@ Keep the two roles apart:
 
 Claude Code usage counts toward your Claude subscription's limits. The lab never
 reads, stores, or proxies your Claude login, and it doesn't measure that usage.
+
+## Amazon final-round mode
+
+The two `amazon-final` rounds simulate the final round Amazon SDE intern
+candidates describe for the Summer 2026 and Winter 2027 cycles. That's usually
+two back-to-back 45–60 minute rounds. Each round has 15–30 minutes of Leadership
+Principles questions with probing follow-ups, then one business-framed coding
+problem at about LeetCode-medium difficulty in a plain shared editor, where you
+explain your approach, give the complexity, and dry-run your code by hand.
+
+These rounds differ from the other three:
+- **No AI.** Amazon asks candidates not to use GenAI tools in interviews unless
+  explicitly permitted. The workspace's `CLAUDE.md` tells Claude Code not to
+  help, and the AI areas aren't scored.
+- **No running code.** The Run tests button is off. Grading runs your code
+  after you submit, including large-input performance tests.
+- **Behavioral mode.** From minute 2 to 20, the interviewer asks two Leadership
+  Principles questions out loud. Whatever you say or type is your answer, and
+  when you pause it asks a follow-up ("What exactly did you do yourself?",
+  "How did you measure it?") before moving on.
+- **Different scoring.** Seven areas: problem understanding, Leadership
+  Principles (STAR structure, "I" rather than "we", numbers in the result,
+  reflection, how you handled the follow-ups), problem solving and complexity,
+  correctness and edge cases, testing and dry run, code quality, and
+  communication (thinking aloud and asking questions at the end).
+- **A follow-up at minute 33** instead of a requirement change.
+
+The flow is modeled on candidate reports, not official Amazon material, and
+every loop differs. The questions are original. Sources:
+- [Amazon 2026 SDE intern virtual onsite write-up](https://dev.to/net_programhelp_e160eef28/amazon-2026-sde-intern-vo-interview-experience-two-technical-rounds-breakdown-11da)
+- [Amazon SDE intern 2026 interview experiences on takeUforward](https://takeuforward.org/community/interview-experiences/amazon-sde-intern-interview-experience-2026-hackon-6-month-internship-selected)
+- [Glassdoor: Amazon SDE intern interviews](https://www.glassdoor.com/Interview/Amazon-Software-Development-Engineer-Intern-Interview-Questions-EI_IE6036.0,6_KO7,43.htm)
+- [IT Pro on Amazon's GenAI interview policy](https://itpro.com/business/careers-and-training/amazon-bans-ai-tools-during-job-interviews)
 
 ## Session flow (60 minutes)
 

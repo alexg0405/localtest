@@ -1,0 +1,105 @@
+{
+  "id": "amazon-final-2",
+  "title": "Amazon SDE intern final round 2: Leadership Principles + warehouse robot path",
+  "company": "amazon",
+  "format": "amazon-final",
+  "inspired_by": "Modeled on candidate reports of Amazon's Summer 2026 and Winter 2027 SDE intern final rounds: Leadership Principles questions with deep follow-ups, then one business-framed coding problem in a plain editor, with no AI. An original simulation, not a real Amazon question.",
+  "level": "SDE intern final round",
+  "summary": "Two Leadership Principles questions with follow-ups, then a coding problem: the fewest moves for a fulfillment-center robot to reach a pick station, plus the interviewer's follow-up twist. No AI, and the editor doesn't run code.",
+  "tags": [
+    "python",
+    "45 min",
+    "no AI",
+    "LPs + DSA"
+  ],
+  "package": "fulfillment",
+  "duration_minutes": 45,
+  "change_at_minutes": 33,
+  "ai_allowed": false,
+  "run_tests_allowed": false,
+  "note_tabs": {
+    "plan": "approach.md",
+    "assumptions": "assumptions.md",
+    "explanation": "dry_run.md"
+  },
+  "source_files": [
+    "fulfillment/robot_moves.py"
+  ],
+  "approach_keywords": [
+    "bfs",
+    "breadth",
+    "queue",
+    "deque",
+    "visited",
+    "graph",
+    "shortest path",
+    "state"
+  ],
+  "change_keywords": [
+    "clears",
+    "forklift",
+    "state",
+    "follow-up",
+    "remaining"
+  ],
+  "phases": [
+    {
+      "start": 0,
+      "end": 2,
+      "name": "Introductions",
+      "cue": "amz_intro",
+      "kind": "intro"
+    },
+    {
+      "start": 2,
+      "end": 20,
+      "name": "Leadership Principles questions",
+      "cue": "amz_behavioral",
+      "kind": "behavioral"
+    },
+    {
+      "start": 20,
+      "end": 24,
+      "name": "Read and clarify the coding problem",
+      "cue": "amz_clarify",
+      "kind": "coding"
+    },
+    {
+      "start": 24,
+      "end": 40,
+      "name": "Code it and talk it through",
+      "cue": "amz_code",
+      "kind": "coding"
+    },
+    {
+      "start": 40,
+      "end": 45,
+      "name": "Dry run, complexity, and your questions",
+      "cue": "amz_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "cues": {
+    "amz_intro": "Hi, thanks for joining. I'm an engineer on the team, and I'll be your interviewer today. We'll spend about twenty minutes on questions about your past experience, then do a coding problem. There's no AI in this round, and the editor doesn't run code, so talk me through your thinking. To start, tell me a little about yourself.",
+    "amz_behavioral": "Thanks. Let's start with a few questions about your experience. Use specific examples, and tell me what you personally did.",
+    "amz_clarify": "Thanks for those answers. Let's switch to coding. The problem is in the Problem tab and in README.md in your workspace. Take a minute to read it, and ask me anything that's unclear before you start.",
+    "amz_code": "Whenever you're ready, go ahead and code it in fulfillment slash robot moves dot py. Keep talking me through your approach as you go.",
+    "change": "Good. Let's extend it. I've added a follow-up to the Change tab: a forklift can now clear up to k shelves out of the robot's way. How does that change your search?",
+    "amz_wrap": "We're almost out of time. Walk me through your solution with the example, and tell me the time and space complexity. Then I'm happy to take any questions you have for me."
+  },
+  "closing_prompts": [
+    "What's the time and space complexity of your solution?",
+    "What edge cases would you test?",
+    "Do you have any questions for me?"
+  ],
+  "followups": {
+    "problem_understanding": "For the next grid problem you practice, ask about movement (4 or 8 directions), multiple targets, unreachable cases, and grid size before writing anything.",
+    "leadership": "Write five STAR stories (Have Backbone; Disagree and Commit, Learn and Be Curious, Dive Deep, Earn Trust, Ownership). Say each aloud in under 2.5 minutes, with one number in the result and one sentence on what you learned.",
+    "problem_solving": "Explain out loud why BFS finds the shortest path on an unweighted grid and DFS doesn't, then extend the state to (row, col, clears_left) and state the new complexity.",
+    "correctness": "Dry-run your BFS by hand on a 3x3 grid with no path, a grid with two pick stations, and a grid where the dock is next to the station.",
+    "testing": "Without running code, write the five tests you'd add for min_moves, each with the expected answer worked out by hand.",
+    "code_quality": "Rewrite your BFS with a neighbors helper and a single visited structure, in under 25 lines.",
+    "communication": "Record yourself solving a BFS problem in 25 minutes while narrating; check that you stated the complexity before coding."
+  }
+}

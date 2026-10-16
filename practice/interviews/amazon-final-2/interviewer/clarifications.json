@@ -1,0 +1,163 @@
+[
+  {
+    "topic": "How the robot moves",
+    "important": true,
+    "keywords": [
+      "diagonal",
+      "direction",
+      "directions",
+      "move",
+      "moves",
+      "adjacent",
+      "neighbors",
+      "up down"
+    ],
+    "answer": "One move is one step up, down, left, or right. No diagonals, and it can't leave the grid."
+  },
+  {
+    "topic": "More than one pick station",
+    "important": true,
+    "keywords": [
+      "multiple p",
+      "more than one p",
+      "several",
+      "multiple pick",
+      "more than one pick",
+      "two pick",
+      "closest",
+      "any p",
+      "nearest"
+    ],
+    "answer": "There can be several pick stations. Return the moves to the nearest one."
+  },
+  {
+    "topic": "No way to reach a station",
+    "important": true,
+    "keywords": [
+      "unreachable",
+      "can't reach",
+      "cannot reach",
+      "no path",
+      "blocked",
+      "impossible",
+      "return -1",
+      "no way"
+    ],
+    "answer": "If the robot can't reach any pick station, return -1."
+  },
+  {
+    "topic": "Docks and missing cells",
+    "important": true,
+    "keywords": [
+      "no dock",
+      "multiple d",
+      "more than one d",
+      "missing",
+      "two docks",
+      "no station",
+      "no p",
+      "start"
+    ],
+    "answer": "There is exactly one dock. If there are no pick stations, return -1. Raise ValueError if the grid has no dock."
+  },
+  {
+    "topic": "Grid size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how big",
+      "large",
+      "dimensions",
+      "constraints",
+      "rows",
+      "performance",
+      "efficient"
+    ],
+    "answer": "Up to 500 by 500 cells. It should finish in about a second."
+  },
+  {
+    "topic": "What cells block the robot",
+    "important": false,
+    "keywords": [
+      "shelf",
+      "shelves",
+      "#",
+      "wall",
+      "obstacle",
+      "walk through",
+      "pass through",
+      "dock cell",
+      "station cell"
+    ],
+    "answer": "Shelves ('#') block the robot. It can move through floor, the dock, and pick stations."
+  },
+  {
+    "topic": "Input format",
+    "important": false,
+    "keywords": [
+      "format",
+      "valid",
+      "malformed",
+      "type",
+      "characters",
+      "ragged",
+      "rectangular",
+      "same length"
+    ],
+    "answer": "Assume the grid is a non-empty list of equal-length strings using only '.', '#', 'D', and 'P'."
+  },
+  {
+    "topic": "Behavioral examples",
+    "important": false,
+    "keywords": [
+      "school",
+      "class",
+      "example from",
+      "personal",
+      "project",
+      "club",
+      "hackathon",
+      "doesn't have to be work"
+    ],
+    "answer": "School projects, internships, clubs, hackathons, or part-time jobs all count. Pick the example where you personally did the most."
+  },
+  {
+    "topic": "Length of answers",
+    "important": false,
+    "keywords": [
+      "how long",
+      "too long",
+      "detail",
+      "should i keep"
+    ],
+    "answer": "Two to three minutes per story is about right. I'll ask follow-ups if I want more."
+  },
+  {
+    "topic": "The team and internship",
+    "important": false,
+    "keywords": [
+      "team",
+      "intern",
+      "day to day",
+      "typical day",
+      "work on",
+      "mentor",
+      "culture",
+      "favorite",
+      "advice"
+    ],
+    "answer": "On my team, interns own a small project end to end with a mentor, write a design doc, ship it, and present it at the end. What would you most like to learn this summer?"
+  },
+  {
+    "topic": "Running the code",
+    "important": false,
+    "keywords": [
+      "run",
+      "execute",
+      "compile",
+      "test it",
+      "run it"
+    ],
+    "answer": "The editor doesn't run code. Walk me through it with the example instead."
+  }
+]

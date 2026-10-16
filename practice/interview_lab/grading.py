@@ -31,7 +31,22 @@ AREAS = [
     ("code_quality", "Code quality"),
     ("communication", "Communication and tradeoffs"),
 ]
-LABELS = dict(AREAS)
+# Amazon's final rounds have no AI assistant (candidates are told not to use GenAI unless explicitly permitted),
+# so the two AI areas give way to the Leadership Principles and to problem solving and complexity.
+AMAZON_AREAS = [
+    ("problem_understanding", "Problem understanding"),
+    ("leadership", "Leadership Principles"),
+    ("problem_solving", "Problem solving and complexity"),
+    ("correctness", "Correctness and edge cases"),
+    ("testing", "Testing and dry run"),
+    ("code_quality", "Code quality"),
+    ("communication", "Communication"),
+]
+LABELS = {**dict(AREAS), **dict(AMAZON_AREAS)}
+
+
+def areas_for(interview: Interview):
+    return AMAZON_AREAS if interview.meta.get("format") == "amazon-final" else AREAS
 NOT_SOURCE_PREFIXES = ("tests/", "patch_review/", ".claude/", ".vscode/", "examples/out/")
 NOT_SOURCE_FILES = {CHANGE_FILE, "CLAUDE.md", "README.md", ".gitignore", "pytest.ini"}
 DISCLAIMER = (
@@ -377,6 +392,105 @@ def _score_communication(interview, notes):
     return max(1, len(present)), evidence, missing
 
 
+STAR = [
+    ("situation", "set the scene", r"\b(when i was|at my|during (my|a|the|our)|in my|last (year|summer|semester|spring|fall)|internship|project|class|course|club|hackathon|startup|job)\b"),
+    ("task", "said what you had to do", r"\b(my (role|job|task|responsibility|goal|part)|i was (responsible|asked|assigned|supposed|in charge)|we needed to|i needed to|the goal|deadline|had to)\b"),
+    ("action", "said what you did yourself", None),
+    ("result", "said how it turned out", r"\b(as a result|result(ed|s)?|outcome|in the end|eventually|ended up|shipped|launched|delivered|reduced|increased|improved|saved|cut|grew|won|finished|on time|so we)\b"),
+    ("numbers", "put a number on the result", r"\d+(\.\d+)?\s*(%|percent|x\b|times|hours?|days?|weeks?|users|people|customers|ms|seconds|minutes|bugs|points)"),
+    ("reflection", "said what you learned or would change", r"\b(learned|learnt|would do differently|next time|in hindsight|looking back|lesson|i realized|i'd change|now i)\b"),
+]
+ACTION = r"\bi (decided|built|wrote|created|led|proposed|talked|asked|reached out|set up|implemented|designed|fixed|organized|scheduled|researched|analyzed|took|started|changed|pushed|split|prioritized|automated|tested|met|presented|learned|figured|suggested|volunteered|stayed|rewrote|debugged|measured|documented|explained|convinced|escalated|cut|dropped|focused)\b"
+
+
+def _score_leadership(interview, state):
+    answers = [a for a in state.get("behavioral", {}).get("answers", []) if a.get("parts")]
+    if not answers:
+        return None, ["No Leadership Principles answers were recorded. Answer out loud with the mic, or type in the chat, while the interviewer asks its questions."], []
+    evidence, scores, missing_all = [], [], set()
+    for answer in answers:
+        text = " ".join(part["text"] for part in answer["parts"])
+        lowered = text.lower()
+        words = len(text.split())
+        hits, missing = [], []
+        for key, label, pattern in STAR:
+            ok = len(re.findall(ACTION, lowered)) >= 2 if key == "action" else re.search(pattern, lowered) is not None
+            (hits if ok else missing).append(label)
+        i_count, we_count = len(re.findall(r"\bi\b", lowered)), len(re.findall(r"\bwe\b", lowered))
+        owned = i_count >= we_count
+        if owned:
+            hits.append("owned it")
+        else:
+            missing.append("used “I” more than “we”")
+        if words >= 150:
+            hits.append("enough detail")
+        else:
+            missing.append("enough detail (150+ words across the story and follow-ups)")
+        prompts = len(answer.get("prompts", [])) or 1
+        handled = min(prompts, len(answer["parts"]))
+        score = _clamp(1 + 4 * len(hits) / 8)
+        scores.append(score)
+        missing_all.update(missing)
+        lp = f" ({answer['lp']})" if answer.get("lp") else ""
+        evidence.append(f"{_quote(answer['question'], 80)}{lp}: {score}/5 · {words} words · “I” {i_count} vs “we” {we_count} · answered {handled} of {prompts} prompts. "
+                        + (f"Missing: {'; '.join(missing)}." if missing else "Hit every STAR signal.") + f" You said: {_quote(text, 120)}")
+    asked = len(interview.behavioral())
+    if len(answers) < asked:
+        evidence.append(f"Answered {len(answers)} of {asked} Leadership Principles questions.")
+    return _clamp(sum(scores) / len(scores) - (0.5 if len(answers) < asked else 0)), evidence, sorted(missing_all)
+
+
+def _score_problem_solving(interview, notes, runs):
+    text = "\n".join([notes["plan"], notes["explanation"], notes["spoken"]]).lower()
+    perf = [c for c in runs["hidden"]["cases"] if interview.cases().get(c["base"], {}).get("area") == "performance"]
+    if not text.strip() and not perf:
+        return None, ["No approach or complexity was written or said."], []
+    checks = [
+        ("stated the time complexity", re.search(r"\bo\(|big[- ]o|\blinear\b|\blog(arithmic)?\b|n log|quadratic|constant time", text)),
+        ("named a fitting data structure or algorithm", any(k in text for k in interview.meta.get("approach_keywords", []))),
+        ("compared it with a simpler or brute-force approach", re.search(r"\b(brute[- ]force|naive|simpler|optimi[sz]|better|faster|alternative|instead of|trade-?offs?)\b", text)),
+        ("discussed space or memory", re.search(r"\bspace\b|\bmemory\b", text)),
+    ]
+    present = [label for label, ok in checks if ok]
+    missing = [label for label, ok in checks if not ok]
+    evidence = []
+    if present:
+        evidence.append("You " + "; ".join(present) + ".")
+    if missing:
+        evidence.append("Not seen in what you wrote or said: " + "; ".join(missing) + ".")
+    points = len(present)
+    if perf:
+        fast = all(c["outcome"] == "passed" for c in perf)
+        points += 1 if fast else 0
+        evidence.append("Your solution passes the large-input performance tests." if fast else "Your solution fails the large-input performance tests: " + perf[0]["message"])
+    return _clamp(1 + points * 4 / (len(checks) + (1 if perf else 0))), evidence, missing
+
+
+def _score_amazon_communication(interview, state, notes):
+    phases = interview.phases()
+    coding = [p for p in phases if p.get("kind") == "coding"]
+    start, end = (coding[0]["start"] * 60, coding[-1]["end"] * 60) if coding else (0, 10 ** 9)
+    narrated = " ".join(s["text"] for s in state.get("spoken", []) if start <= s["at"] < end)
+    last = phases[-1]["start"] * 60 if phases else 0
+    their_questions = [q for q in state.get("questions", []) if q.get("source") != "interviewer" and q["at"] >= last]
+    if not narrated.strip() and not notes["explanation"].strip() and not their_questions:
+        return None, ["Nothing was said aloud while coding, no walkthrough was written, and you asked no questions at the end."], []
+    checks = [
+        ("thought out loud while coding (100+ words)", len(narrated.split()) >= 100),
+        ("explained the approach before coding", re.search(r"\b(my approach|i('ll| will| am going to| want to)|the idea is|plan is|first i|i think we can)\b", (narrated + " " + notes["plan"]).lower())),
+        ("walked through an example or dry run", re.search(r"\b(dry run|walk(ing)? through|trace|let's try|for example|example)\b", (narrated + " " + notes["explanation"]).lower())),
+        ("asked the interviewer questions at the end", bool(their_questions)),
+    ]
+    present = [label for label, ok in checks if ok]
+    missing = [label for label, ok in checks if not ok]
+    evidence = [f"You said {len(narrated.split())} words while coding and wrote {len(notes['explanation'].split())} in your walkthrough."]
+    if present:
+        evidence.append("You " + "; ".join(present) + ".")
+    if missing:
+        evidence.append("Missing: " + "; ".join(missing) + ".")
+    return _clamp(1 + len(present)), evidence, missing
+
+
 def _improvement(area: str, context: Dict[str, Any]) -> str:
     if area == "problem_understanding":
         missed = context["coverage"]["missed"][:3]
@@ -401,6 +515,15 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
         return f"Make each regression test fail on the original code first: {len(context['tests']['detecting'])} of your {len(context['tests']['added'])} new tests did. Reset a copy of the workspace to check."
     if area == "code_quality":
         return ("Clean up before submitting: " + "; ".join(context["smells"]) + ".") if context["smells"] else "Keep the diff focused: small helpers, clear names, and no unrelated changes."
+    if area == "leadership":
+        missing = context.get("leadership_missing", [])
+        return ("Tighten your STAR stories: " + "; ".join(missing[:3]) + ". Keep each story about what you did (“I”), end with a measurable result, and close with what you learned.") if missing else "Prepare 8–12 STAR stories mapped to different Leadership Principles, since each round asks for new ones."
+    if area == "problem_solving":
+        missing = context.get("solving_missing", [])
+        return ("Before you code, say your approach and its complexity, and how it beats brute force. You never: " + "; ".join(missing[:3]) + ".") if missing else "Practice stating time and space complexity in one sentence before writing any code."
+    if area == "communication" and context["interview"].meta.get("format") == "amazon-final":
+        missing = context["communication_missing"]
+        return ("Narrate while you code: " + "; ".join(missing[:3]) + ".") if missing else "Prepare two or three questions about the team to ask at the end."
     if area == "communication":
         missing = context["communication_missing"]
         return ("In your final explanation, also cover " + "; ".join(missing) + ".") if missing else "Practice saying your explanation out loud in under two minutes."
@@ -408,6 +531,8 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
 
 
 NOT_OBSERVED_HELP = {
+    "leadership": "Answer the interviewer's Leadership Principles questions out loud (mic) or in the chat, so they can be assessed.",
+    "problem_solving": "Say or write your approach and its time and space complexity, so problem solving can be assessed.",
     "problem_understanding": "Ask clarification questions in the dashboard and record your assumptions, so problem understanding can be assessed.",
     "repository_exploration": "Write your plan in the dashboard (which files, which call path, what you will change), so exploration can be assessed.",
     "ai_instructions": "Paste your Claude Code transcript into the Transcript box (Claude Code's /export copies it), so your instructions to the assistant can be assessed.",
@@ -455,11 +580,20 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         "code_quality": (cq_score, cq_evidence),
         "communication": (cm_score, cm_evidence),
     }
-
     context = {"interview": interview, "coverage": coverage, "prompt_missing": prompt_missing, "patch": patch, "tests": tests, "smells": smells, "communication_missing": communication_missing}
-    observed = sorted((area for area, _ in AREAS if scores[area][0] is not None), key=lambda a: (scores[a][0], [x for x, _ in AREAS].index(a)))
+    amazon = interview.meta.get("format") == "amazon-final"
+    if amazon:
+        lp_score, lp_evidence, context["leadership_missing"] = _score_leadership(interview, state)
+        ps_score, ps_evidence, context["solving_missing"] = _score_problem_solving(interview, notes, runs)
+        cm_score, cm_evidence, context["communication_missing"] = _score_amazon_communication(interview, state, notes)
+        dry_run = re.search(r"\b(dry run|walk(ing)? through|trace|let's try|for example|edge case)", (notes["spoken"] + " " + notes["explanation"]).lower())
+        te_score = _clamp((te_score or 1) + (1 if dry_run else 0))
+        te_evidence = te_evidence + (["You walked through an example or edge case by hand."] if dry_run else ["No dry run by hand was said or written; Amazon's editor doesn't run code, so interviewers expect one."])
+        scores.update({"leadership": (lp_score, lp_evidence), "problem_solving": (ps_score, ps_evidence), "communication": (cm_score, cm_evidence), "testing": (te_score, te_evidence)})
+    areas = areas_for(interview)
+    observed = sorted((area for area, _ in areas if scores[area][0] is not None), key=lambda a: (scores[a][0], [x for x, _ in areas].index(a)))
     improvements = [_improvement(area, context) for area in observed if scores[area][0] < 5][:3]
-    for area, _ in AREAS:
+    for area, _ in areas:
         if len(improvements) >= 3:
             break
         if scores[area][0] is None and area in NOT_OBSERVED_HELP:
@@ -480,7 +614,7 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
     for path in diff["data_edits"]:
         assumptions.append(f"Edited {path}, assuming the input data could be changed; real supplier or customer data usually cannot.")
     if revealed_at is None:
-        assumptions.append("Submitted before the requirement change was revealed, so the change was not addressed.")
+        assumptions.append("Submitted before the interviewer's follow-up was revealed, so it was not addressed." if amazon else "Submitted before the requirement change was revealed, so the change was not addressed.")
     elif tests["by_area"].get("change", {}).get("passed", 0) == 0 and tests["by_area"].get("change"):
         assumptions.append("The requirement change was revealed but none of its cases pass.")
 
@@ -499,12 +633,13 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
             "your_tests_that_catch_starter_bugs": len(tests["detecting"]),
             "grading_output": runs["hidden"]["output"][-3000:],
         },
-        "scores": [{"area": area, "label": label, "score": scores[area][0], "evidence": scores[area][1]} for area, label in AREAS],
+        "scores": [{"area": area, "label": label, "score": scores[area][0], "evidence": scores[area][1]} for area, label in areas],
         "missed_cases": [f"[{m['area']}] {m['description']}" for m in tests["missed"]],
         "questionable_assumptions": assumptions,
         "improvements": improvements,
         "follow_up": follow_up,
-        "patch_review": {"found": patch["found"], "needed": patch["needed"], "answer": patch["expected"]},
+        "patch_review": {"found": patch["found"], "needed": patch["needed"], "answer": patch["expected"]} if patch["expected"] else None,
+        "format_note": "No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon else None,
         "changed_files": [{"path": f["path"], "status": f["status"], "added": len(f["added_lines"]), "removed": len(f["removed_lines"])} for f in raw_diff["files"]],
         "ai_usage_note": "Coding-assistant usage through the Claude Code app counts toward your Claude subscription and is not measured or scored here.",
         "disclaimer": DISCLAIMER,
@@ -549,7 +684,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
     lines += ["", "## Questionable assumptions", ""] + ([f"- {a}" for a in report["questionable_assumptions"]] or ["- None found."])
     lines += ["", "## Three improvements", ""] + [f"{i}. {text}" for i, text in enumerate(report["improvements"], 1)]
     follow = report["follow_up"]
-    lines += ["", f"## Follow-up exercise ({follow['label']})", "", follow["exercise"], "", "## AI patch review", "", report["patch_review"]["answer"], "", "---", report["disclaimer"], ""]
+    lines += ["", f"## Follow-up exercise ({follow['label']})", "", follow["exercise"], ""]
+    if report.get("patch_review"):
+        lines += ["## AI patch review", "", report["patch_review"]["answer"], ""]
+    if report.get("format_note"):
+        lines += [report["format_note"], ""]
+    lines += ["---", report["disclaimer"], ""]
     return "\n".join(lines)
 
 
@@ -560,14 +700,23 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
     questions = "\n".join(f"- [{q['at'] / 60:.0f} min] Interviewer: {q['answer']}" if q.get("source") == "interviewer" else f"- [{q['at'] / 60:.0f} min] Q: {q['question']}\n  A: {q['answer']}" for q in state.get("questions", [])) or "(none)"
     spoken = "\n".join(f"- [{s['at'] / 60:.0f} min] {s['text']}" for s in state.get("spoken", [])) or "(none)"
     auto = "\n".join(f"- {s['label']}: {s['score'] if s['score'] is not None else 'not observed'}" for s in report["scores"])
-    return f"""You are grading a 60-minute practice software engineering interview ("{interview.title}"). The candidate used an AI coding assistant (Claude Code), which is allowed and expected.
+    amazon = interview.meta.get("format") == "amazon-final"
+    area_names = ", ".join(label for _, label in areas_for(interview))
+    setting = ("This is a simulated Amazon SDE intern final-round interview with no AI assistant (Amazon tells candidates not to use GenAI during interviews). It has Leadership Principles questions with follow-ups, then a coding problem in a plain editor without running code."
+               if amazon else "The candidate used an AI coding assistant (Claude Code), which is allowed and expected.")
+    ai_rule = "- Judge Leadership Principles answers on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon else "- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant."
+    behavioral = "\n".join(f"- Q: {a['question']}" + (f" [{a['lp']}]" if a.get("lp") else "") + "".join(f"\n  Prompt: {p}" for p in a.get("prompts", [])[1:]) + "\n  Answer: " + " ".join(part["text"] for part in a.get("parts", [])) for a in state.get("behavioral", {}).get("answers", [])) or "(none)"
+    return f"""You are grading a {interview.meta.get('duration_minutes', 60)}-minute practice software engineering interview ("{interview.title}"). {setting}
 
-Score each area from 1 to 5: Problem understanding, Repository exploration, Quality of AI instructions, Verification of AI output, Correctness and edge cases, Testing, Code quality, Communication and tradeoffs.
+Score each area from 1 to 5: {area_names}.
 Rules:
-- Ground every score in the evidence below (test results, the diff, the candidate's notes, the transcript). Quote or cite it.
+- Ground every score in the evidence below (test results, the diff, the candidate's notes, what they said). Quote or cite it.
 - If there is no evidence for an area, say "not observed" instead of guessing.
-- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant.
+{ai_rule}
 Then list: missed cases, questionable assumptions, three concrete improvements, and one short follow-up exercise for the weakest observed skill.
+
+=== Leadership Principles answers ===
+{clip(behavioral, 40000)}
 
 === Rubric ===
 {interview.rubric()}

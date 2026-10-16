@@ -1,0 +1,73 @@
+{
+  "test_example_from_the_problem": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_example": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_station_next_to_the_dock": {
+    "area": "edge",
+    "description": "A station right next to the dock is one move"
+  },
+  "test_unreachable_station_returns_minus_one": {
+    "area": "edge",
+    "description": "An unreachable station returns -1",
+    "topic": "No way to reach a station"
+  },
+  "test_no_station_returns_minus_one": {
+    "area": "edge",
+    "description": "A grid with no station returns -1",
+    "topic": "Docks and missing cells"
+  },
+  "test_nearest_of_several_stations": {
+    "area": "edge",
+    "description": "With several stations, the nearest counts",
+    "topic": "More than one pick station"
+  },
+  "test_no_diagonal_moves": {
+    "area": "edge",
+    "description": "Diagonal moves are not allowed",
+    "topic": "How the robot moves"
+  },
+  "test_path_must_go_around_shelves": {
+    "area": "core",
+    "description": "The robot goes around shelves on the shortest route"
+  },
+  "test_missing_dock_raises_value_error": {
+    "area": "edge",
+    "description": "A grid without a dock raises ValueError",
+    "topic": "Docks and missing cells"
+  },
+  "test_large_open_grid_is_fast": {
+    "area": "performance",
+    "description": "A 500x500 open grid finishes within 4 seconds",
+    "topic": "Grid size"
+  },
+  "test_large_maze_is_fast": {
+    "area": "performance",
+    "description": "A 301x301 maze finishes within 10 seconds",
+    "topic": "Grid size"
+  },
+  "test_change_one_clear_opens_a_wall": {
+    "area": "change",
+    "description": "Follow-up: one clear opens a one-shelf wall"
+  },
+  "test_change_clears_take_the_shortcut_through_shelves": {
+    "area": "change",
+    "description": "Follow-up: clears take the shortcut through shelves"
+  },
+  "test_change_each_shelf_uses_a_clear": {
+    "area": "change",
+    "description": "Follow-up: each shelf passed through uses a clear"
+  },
+  "test_change_extra_clears_never_hurt": {
+    "area": "change",
+    "description": "Follow-up: extra clears never make the answer worse"
+  },
+  "test_change_large_grid_with_clears_is_fast": {
+    "area": "performance",
+    "description": "Follow-up: a 120x120 grid with 3 clears finishes within 10 seconds"
+  }
+}

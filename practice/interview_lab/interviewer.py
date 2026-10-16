@@ -107,5 +107,12 @@ CLOSING_PROMPTS = [
 ]
 
 
+def cues_for(interview: Interview) -> Dict[str, str]:
+    """The interviewer's scripted lines: the defaults, plus or replaced by the interview's own "cues"."""
+    return {**CUES, **interview.meta.get("cues", {})}
+
+
 def prompts_for(interview: Interview, phase: str) -> List[str]:
-    return PLAN_PROMPTS if phase == "plan" else interview.followups() + CLOSING_PROMPTS
+    if phase == "plan":
+        return interview.meta.get("plan_prompts", PLAN_PROMPTS)
+    return interview.followups() + interview.meta.get("closing_prompts", CLOSING_PROMPTS)

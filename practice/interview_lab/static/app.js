@@ -21,7 +21,13 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"] };
+const AMAZON_NOTES = {
+  plan: { hint: "<b>Before you code.</b> Your approach: data structures, time and space complexity, and the edge cases you'll handle. Say it out loud too.", placeholder: "## Approach\n- \n\n## Complexity\n- Time: \n- Space: \n\n## Edge cases\n- " },
+  assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },
+  explanation: { hint: "<b>40–45 min.</b> Dry-run your code on the example by hand: the state after each step, then the answer.", placeholder: "## Dry run on the example\n1. \n\n## Complexity\n- " },
+};
+const notesFor = () => (latest && latest.interview.format === "amazon-final" ? { ...NOTES, ...AMAZON_NOTES } : NOTES);
 
 function remember(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable */ } }
 function recall(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
@@ -105,7 +111,7 @@ function renderCards() {
       <div class="card-top"><span class="domain ${cls}"><i></i>${label}</span>${status}</div>
       <h3>${escapeHtml(i.title)}</h3>
       <p>${escapeHtml(i.summary)}</p>
-      <div class="card-meta"><span class="tag">python</span><span class="tag">pytest</span><span class="tag">${i.duration_minutes} min</span><span class="tag">junior</span></div>
+      <div class="card-meta">${(i.tags || ["python", "pytest", `${i.duration_minutes} min`, "AI-assisted"]).map(t => `<span class="tag${t === "no AI" ? " tag-warn" : ""}">${escapeHtml(t)}</span>`).join("")}</div>
     </button>`;
   }).join("");
   document.querySelectorAll(".card").forEach(card => card.onclick = () => select(card.dataset.id));
@@ -170,19 +176,56 @@ function renderTimer() {
   }
 }
 
+function renderFlow(info) {
+  const items = info.phases.map(p => `<li><b>${p.start}–${p.end}</b><span>${escapeHtml(p.name)}</span></li>`);
+  const at = info.change_at_minutes;
+  const index = info.phases.findIndex(p => p.start <= at && at < p.end);
+  items.splice(index + 1, 0, `<li class="flow-change"><b>${at}:00</b><span>${info.format === "amazon-final" ? "Interviewer's follow-up" : "Requirement change"}</span></li>`);
+  document.querySelector(".flow").innerHTML = items.join("");
+  document.querySelector(".flow").style.setProperty("--flow-cols", items.length);
+}
+
+let formatFor = null;
+function applyFormat(info) {
+  if (formatFor === info.id) return;
+  formatFor = info.id;
+  const amazon = info.format === "amazon-final";
+  document.querySelector("#timer .of").textContent = `/ ${info.duration_minutes}:00`;
+  $("run-tests").hidden = !info.run_tests_allowed;
+  document.querySelector('[data-copy="cmd-assistant"]').parentElement.hidden = !info.ai_allowed;
+  document.querySelector("#change-tab").childNodes[1].textContent = amazon ? "Follow-up" : "Change";
+  document.querySelector("#change-locked h3").textContent = `Unlocks at ${info.change_at_minutes}:00`;
+  document.querySelector("#change-locked p").textContent = amazon ? "Partway through the coding problem, the interviewer adds a follow-up, as Amazon interviewers usually do. Keep going." : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
+  document.querySelector(".change-banner").lastChild.textContent = amazon ? "Follow-up from the interviewer" : "Requirement change from the interviewer";
+  const labels = info.note_tabs;
+  document.querySelectorAll("[data-note-tab]").forEach(tab => {
+    const key = tab.dataset.noteTab;
+    tab.hidden = !!labels && !(key in labels);
+    tab.firstChild.textContent = labels && labels[key] ? labels[key] : { plan: "plan.md", assumptions: "assumptions.md", patch_review: "patch_review.md", explanation: "explanation.md", transcript: "transcript.txt" }[key];
+  });
+  if (labels && !(activeNote in labels)) showNote(Object.keys(labels)[0]); else showNote(activeNote);
+  if (!info.run_tests_allowed) {
+    $("test-result").className = "test-empty";
+    $("test-result").innerHTML = "This round simulates Amazon's interview editor, which doesn't run code. Reason about correctness and <b>dry-run your code by hand</b> on the example. Grading runs your code after you submit.";
+  }
+  $("question").placeholder = amazon ? "Answer the interviewer, or ask a clarifying question…" : "Ask the interviewer a clarifying question…";
+}
+
 function renderQuestions(questions, spoken = []) {
   const asked = questions.filter(q => q.source !== "interviewer");
   $("q-count").hidden = !asked.length;
   $("q-count").textContent = asked.length;
-  if (!questions.length && !spoken.length) {
+  if (!questions.length && !spoken.length && !(latest && latest.session.state.behavioral)) {
     $("questions").innerHTML = `<div class="chat-empty"><h3>Ask before you build</h3><p>Press the mic and talk, or type. The interviewer answers clarifying questions about requirements. Strong candidates ask a few in the first five minutes.</p><div class="suggest">${SUGGESTED.map(s => `<button type="button">${escapeHtml(s)}</button>`).join("")}</div></div>`;
     document.querySelectorAll(".suggest button").forEach(b => b.onclick = () => { $("question").value = b.textContent; $("question").focus(); });
     return;
   }
-  const items = questions.map(q => ({ at: q.at, q })).concat(spoken.map(s => ({ at: s.at, said: s.text }))).sort((a, b) => a.at - b.at);
+  const answers = ((latest && latest.session.state.behavioral) || { answers: [] }).answers.flatMap(a => a.parts.map(p => ({ at: p.at, answer: p.text })));
+  const items = questions.map(q => ({ at: q.at, q })).concat(spoken.map(s => ({ at: s.at, said: s.text })), answers).sort((a, b) => a.at - b.at);
   const you = (text, at, extra = "", label = "") => `<div class="msg you ${extra}"><div class="avatar">You</div><div><div class="bubble">${escapeHtml(text)}</div><div class="meta">${label}${clock(at)}</div></div></div>`;
   const them = (text, meta, extra = "") => `<div class="msg them ${extra}"><div class="avatar">IV</div><div><div class="bubble">${escapeHtml(text)}</div><div class="meta">${meta}</div></div></div>`;
-  $("questions").innerHTML = items.map(({ at, q, said }) => {
+  $("questions").innerHTML = items.map(({ at, q, said, answer }) => {
+    if (answer) return you(answer, at, "", "answer · ");
     if (said) return you(said, at, "said", "said aloud · ");
     if (q.source === "interviewer") return them(q.answer, `Interviewer · ${clock(at)}`, "cue");
     return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, `${q.source === "api" ? "API interviewer" : "Interviewer"}${q.topic ? " · " + escapeHtml(q.topic) : ""}`);
@@ -211,8 +254,8 @@ function showNote(name) {
   document.querySelectorAll("[data-note-tab]").forEach(tab => tab.classList.toggle("active", tab.dataset.noteTab === name));
   document.querySelectorAll("[data-note]").forEach(area => { area.hidden = area.dataset.note !== name; });
   const area = document.querySelector(`[data-note="${name}"]`);
-  area.placeholder = NOTES[name].placeholder;
-  $("editor-hint").innerHTML = NOTES[name].hint;
+  area.placeholder = notesFor()[name].placeholder;
+  $("editor-hint").innerHTML = notesFor()[name].hint;
   $("status-note").textContent = name === "transcript" ? "Plain text" : "Markdown";
   updateGutter();
 }
@@ -237,6 +280,8 @@ function render(data) {
   $("intro-level").textContent = `${info.level} · ${info.duration_minutes} minutes`;
   $("intro-title").textContent = info.title;
   $("intro-inspired").textContent = info.inspired_by;
+  renderFlow(info);
+  applyFormat(info);
   const session = data.session;
   const started = session.started;
   $("start").textContent = started ? (session.state.status === "submitted" ? "Open interview" : "Continue interview") : "Start interview";
@@ -247,7 +292,9 @@ function render(data) {
   if (renderedFor !== current) {
     $("task").innerHTML = markdown(data.task);
     $("test-result").className = "test-empty";
-    $("test-result").innerHTML = "You haven't run the tests yet. Press <b>Run tests</b>; every run counts as evidence of how you checked your work.";
+    $("test-result").innerHTML = info.run_tests_allowed
+      ? "You haven't run the tests yet. Press <b>Run tests</b>; every run counts as evidence of how you checked your work."
+      : "This round simulates Amazon's interview editor, which doesn't run code. Reason about correctness and <b>dry-run your code by hand</b> on the example. Grading runs your code after you submit.";
     $("console-summary").textContent = "";
   }
   $("workspace").textContent = data.workspace;
@@ -329,6 +376,14 @@ function pickVoice() {
 
 function say(text) {
   if (!$("speak-replies").checked || !("speechSynthesis" in window) || !text) return;
+  voice.queue = voice.queue || [];
+  voice.queue.push(text);
+  if (!voice.speaking) speakNext();
+}
+
+function speakNext() {
+  const text = (voice.queue || []).shift();
+  if (!text) return;
   const utterance = new SpeechSynthesisUtterance(text.replace(/`/g, "").replace(/_/g, " "));
   const chosen = pickVoice();
   if (chosen) utterance.voice = chosen;
@@ -340,11 +395,12 @@ function say(text) {
   };
   const done = () => {
     voice.speaking = false;
+    if ((voice.queue || []).length) { speakNext(); return; }
     if (voice.on) { setTimeout(listen, 250); setVoiceUi("Listening…", "Go ahead, I'm listening."); } else setVoiceUi("Talk to your interviewer");
   };
   utterance.onend = done;
   utterance.onerror = done;
-  speechSynthesis.cancel();
+  voice.speaking = true;
   speechSynthesis.speak(utterance);
 }
 
@@ -353,9 +409,43 @@ function listen() {
   try { voice.rec.start(); } catch (e) { /* already started */ }
 }
 
+const phaseNow = () => (latest && latest.session.started ? latest.session.phases[latest.session.phase] || {} : {});
+const behavioralNow = () => phaseNow().kind === "behavioral";
+
+// While the interviewer asks Leadership Principles questions, what you say is your answer. After a pause it digs in.
+async function behavioralNext() {
+  try {
+    const { entry } = await call("/api/behavioral", {});
+    await refresh();
+    if (entry) { if (voice.on) say(entry.answer); return; }
+    if (!behavioralNext.done && latest.session.state.behavioral && latest.session.state.behavioral.question >= 0) {
+      behavioralNext.done = true;
+      const line = "Thanks, that's all the behavioral questions I have. We'll move to the coding problem shortly.";
+      toast(line);
+      if (voice.on) say(line);
+    }
+  } catch (e) { toast(e.message); }
+}
+
+async function answerBehavioral(text, typed) {
+  try { await call("/api/answer", { text }); await refresh(); } catch (e) { toast(e.message); return; }
+  if (typed) { behavioralNext(); return; }
+  clearTimeout(voice.nudgeTimer);
+  const spokeAt = voice.spokeAt;
+  voice.nudgeTimer = setTimeout(() => {
+    if (voice.spokeAt !== spokeAt || voice.speaking) return;   // still talking
+    behavioralNext();
+  }, 3500);
+}
+
 async function handleUtterance(text) {
   text = text.trim();
   if (text.split(/\s+/).length < 2 || !latest || !latest.session.started) return;
+  if (behavioralNow() && !(isQuestion(text) && text.split(/\s+/).length < 20)) {
+    setVoiceUi("Listening…", `“${text}”`);
+    answerBehavioral(text, false);
+    return;
+  }
   if (isQuestion(text)) {
     setVoiceUi("Thinking…", `“${text}”`);
     try {
@@ -370,8 +460,7 @@ async function handleUtterance(text) {
   try { await call("/api/speech", { text }); refresh(); } catch (e) { toast(e.message); }
   setVoiceUi("Listening…", `Noted: “${text}”`);
   // While you plan or explain, the interviewer asks a follow-up when you pause after saying something substantial.
-  const phase = latest.session.phase;
-  const kind = phase === 1 ? "plan" : phase >= 4 ? "explain" : null;
+  const kind = phaseNow().nudge || null;
   if (!kind || text.split(/\s+/).length < 12 || Date.now() - voice.lastNudge < 40000) return;
   clearTimeout(voice.nudgeTimer);
   const spokeAt = voice.spokeAt;
@@ -431,7 +520,7 @@ function stopVoice() {
   voice.on = false;
   clearTimeout(voice.silence); clearTimeout(voice.nudgeTimer);
   try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
-  voice.rec = null; voice.finals = "";
+  voice.rec = null; voice.finals = ""; voice.queue = [];
   if ("speechSynthesis" in window) speechSynthesis.cancel();
   voice.speaking = false;
   $("voice-bar").classList.remove("hearing");
@@ -439,18 +528,22 @@ function stopVoice() {
 }
 
 // The interviewer speaks up at each phase and when the requirement changes. The server says each line once.
-const PHASE_CUES = ["start", "plan", "build", "edge", "explain"];
 async function cues(session) {
   if (session.state.status !== "running") return;
   const wanted = [];
-  if (session.phase < PHASE_CUES.length) wanted.push(PHASE_CUES[session.phase]);
+  const phase = session.phases[session.phase];
+  if (phase && phase.cue) wanted.push(phase.cue);
   if (session.change) wanted.push("change");
   for (const name of wanted) {
     if ((session.state.cues || []).includes(name) || cues.pending.has(name)) continue;
     cues.pending.add(name);
     try {
       const { entry } = await call("/api/cue", { cue: name });
-      if (entry) { if (voice.on) say(entry.answer); refresh(); }
+      if (entry) {
+        if (voice.on) say(entry.answer);
+        await refresh();
+        if (phase && phase.kind === "behavioral" && name === phase.cue) behavioralNext();
+      }
     } catch (e) { /* try again on the next refresh */ }
     cues.pending.delete(name);
   }
@@ -500,8 +593,9 @@ function renderReport(report) {
     <h3 class="section-title">Follow-up exercise</h3>
     <div class="followup"><p class="eyebrow">Targets: ${escapeHtml(report.follow_up.label)}</p><p>${escapeHtml(report.follow_up.exercise)}</p></div>
 
-    <h3 class="section-title">The AI patch</h3>
-    <div class="box spoiler"><details><summary>Show what was wrong with the patch</summary><p>${escapeHtml(report.patch_review.answer)}</p></details></div>
+    ${report.patch_review ? `<h3 class="section-title">The AI patch</h3>
+    <div class="box spoiler"><details><summary>Show what was wrong with the patch</summary><p>${escapeHtml(report.patch_review.answer)}</p></details></div>` : ""}
+    ${report.format_note ? `<p class="foot">${escapeHtml(report.format_note)}</p>` : ""}
 
     <details class="raw"><summary>Grading test output</summary><pre>${escapeHtml(t.grading_output || "")}</pre></details>
     <p class="foot">${escapeHtml(report.ai_usage_note)} ${escapeHtml(report.disclaimer)} Saved to <code>${escapeHtml(report.saved_to || "")}</code>.</p>`;
@@ -526,7 +620,7 @@ function wire() {
     if (latest && latest.session.started) { inLobby = false; showView(); return; }
     try {
       const reset = $("start-reset").checked;
-      inLobby = false; changeSeen = false;
+      inLobby = false; changeSeen = false; behavioralNext.done = false;
       render(await call("/api/start", { reset }));
       showTab("problem");
       toast(reset ? "Workspace reset. The clock is running." : "The clock is running. Good luck!");
@@ -545,7 +639,7 @@ function wire() {
   $("restart").onclick = async () => {
     if (!confirm("Restart the interview? The timer, questions, and notes start over.")) return;
     const reset = confirm("Also reset the workspace to the starter? Your changed and added files are moved to .practice-backup in the workspace, not deleted.\n\nOK = reset the workspace, Cancel = keep your files.");
-    try { changeSeen = false; render.announced = null; render(await call("/api/start", { reset })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
+    try { changeSeen = false; render.announced = null; behavioralNext.done = false; render(await call("/api/start", { reset })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
   };
   $("pause").onclick = async () => { try { render(await call("/api/pause", {})); toast("Paused. Paused time doesn't count."); } catch (e) { toast(e.message); } };
   $("resume").onclick = async () => { try { render(await call("/api/resume", {})); } catch (e) { toast(e.message); } };
@@ -569,6 +663,13 @@ function wire() {
     const question = $("question").value.trim();
     if (!question) return;
     $("question").disabled = true;
+    if (behavioralNow() && !(isQuestion(question) && question.split(/\s+/).length < 20)) {
+      $("question").value = "";
+      await answerBehavioral(question, true);
+      $("question").disabled = false;
+      $("question").focus();
+      return;
+    }
     try {
       const data = await call("/api/ask", { question, use_api: $("use-api").checked });
       if (data.entry.api_error) toast(`API: ${data.entry.api_error.message} Answered offline instead.`);

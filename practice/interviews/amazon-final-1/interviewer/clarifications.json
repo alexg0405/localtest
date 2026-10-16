@@ -1,0 +1,158 @@
+[
+  {
+    "topic": "Ties between carriers",
+    "important": true,
+    "keywords": [
+      "tie",
+      "ties",
+      "same number",
+      "same count",
+      "equal",
+      "alphabetical",
+      "order"
+    ],
+    "answer": "If two carriers have the same number of late packages, put them in alphabetical order by name."
+  },
+  {
+    "topic": "Repeated records for the same package",
+    "important": true,
+    "keywords": [
+      "duplicate",
+      "same package",
+      "package_id",
+      "package id",
+      "twice",
+      "rescan",
+      "repeated",
+      "unique"
+    ],
+    "answer": "A package can show up more than once when a scan is corrected. Only its last record in the list counts."
+  },
+  {
+    "topic": "When k is out of range",
+    "important": true,
+    "keywords": [
+      "k is",
+      "k larger",
+      "k bigger",
+      "bigger than",
+      "more than the number",
+      "k =",
+      "k of 0",
+      "k is 0",
+      "negative",
+      "fewer carriers"
+    ],
+    "answer": "If k is larger than the number of carriers with late packages, return all of them. If k is zero or negative, return an empty list."
+  },
+  {
+    "topic": "Carriers with no late packages",
+    "important": true,
+    "keywords": [
+      "no late",
+      "zero late",
+      "never late",
+      "on time carriers",
+      "include carriers"
+    ],
+    "answer": "Only return carriers that have at least one late package."
+  },
+  {
+    "topic": "What counts as late",
+    "important": true,
+    "keywords": [
+      "same day",
+      "on time",
+      "equal day",
+      "promised",
+      "delivered on",
+      "strictly",
+      "counts as late",
+      "considered late"
+    ],
+    "answer": "Late means delivered_day is strictly greater than promised_day. Delivered on the promised day is on time."
+  },
+  {
+    "topic": "Input size and performance",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "scale",
+      "big",
+      "performance",
+      "efficient",
+      "constraints",
+      "million"
+    ],
+    "answer": "Up to about two hundred thousand records and a few thousand carriers, and k is usually small, like five or ten. It should run in well under a second."
+  },
+  {
+    "topic": "Input format",
+    "important": false,
+    "keywords": [
+      "format",
+      "valid",
+      "malformed",
+      "type",
+      "negative day",
+      "empty"
+    ],
+    "answer": "Assume every record is well formed: two strings and two non-negative integers. The list can be empty."
+  },
+  {
+    "topic": "Behavioral examples",
+    "important": false,
+    "keywords": [
+      "school",
+      "class",
+      "example from",
+      "personal",
+      "project",
+      "club",
+      "hackathon",
+      "doesn't have to be work"
+    ],
+    "answer": "School projects, internships, clubs, hackathons, or part-time jobs all count. Pick the example where you personally did the most."
+  },
+  {
+    "topic": "Length of answers",
+    "important": false,
+    "keywords": [
+      "how long",
+      "too long",
+      "detail",
+      "should i keep"
+    ],
+    "answer": "Two to three minutes per story is about right. I'll ask follow-ups if I want more."
+  },
+  {
+    "topic": "The team and internship",
+    "important": false,
+    "keywords": [
+      "team",
+      "intern",
+      "day to day",
+      "typical day",
+      "work on",
+      "mentor",
+      "culture",
+      "favorite",
+      "advice"
+    ],
+    "answer": "On my team, interns own a small project end to end with a mentor, write a design doc, ship it, and present it at the end. What would you most like to learn this summer?"
+  },
+  {
+    "topic": "Running the code",
+    "important": false,
+    "keywords": [
+      "run",
+      "execute",
+      "compile",
+      "test it",
+      "run it"
+    ],
+    "answer": "The editor doesn't run code. Walk me through it with the example instead."
+  }
+]

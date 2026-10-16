@@ -269,3 +269,51 @@ def test_spoken_walkthrough_counts_as_evidence(tmp_path, monkeypatch):
     assert grading._score_exploration(orders, notes)[0] is not None
     score, evidence, missing = grading._score_communication(orders, notes)
     assert score >= 3 and "spoken words" in evidence[0]
+
+
+def test_amazon_behavioral_flow_asks_every_question_and_follow_up_in_order(tmp_path):
+    sessions = Sessions(tmp_path)
+    round1 = get_interview("amazon-final-1")
+    sessions.start(round1)
+    sessions.record_answer(round1, "Hi, I'm a sophomore studying computer science.")  # before any question: think-aloud
+    expected = [p for q in round1.behavioral() for p in [q["question"], *q["followups"]]]
+    asked = []
+    while True:
+        entry = sessions.behavioral_next(round1)
+        if entry is None:
+            break
+        asked.append(entry["answer"])
+        assert sessions.behavioral_next(round1) is None  # waits for an answer before the next prompt
+        sessions.record_answer(round1, f"answer {len(asked)}")
+    assert asked == expected
+    state = sessions.load("amazon-final-1")
+    assert [len(a["parts"]) for a in state["behavioral"]["answers"]] == [len(q["followups"]) + 1 for q in round1.behavioral()]
+    assert state["spoken"][0]["text"].startswith("Hi, I'm a sophomore")
+
+
+def test_leadership_scores_owned_specific_stories_above_vague_ones():
+    round1 = get_interview("amazon-final-1")
+    strong = ("Last summer during my internship I noticed our test suite took 40 minutes and nobody owned it. My goal was to get it under ten. "
+              "I profiled it, I found three slow fixtures, I rewrote them and I set up parallel runs. As a result it dropped to 8 minutes, "
+              "an 80% cut, and the team shipped twice as often. Looking back, I learned to measure first. ") * 2
+    vague = "We had a project and we worked hard on it as a team and we finished it."
+    def state_with(text):
+        return {"behavioral": {"answers": [{"question": round1.behavioral()[0]["question"], "lp": "Ownership", "prompts": ["q"], "parts": [{"at": 1, "text": text}]}]}}
+    good, good_evidence, _ = grading._score_leadership(round1, state_with(strong))
+    bad, _, missing = grading._score_leadership(round1, state_with(vague))
+    assert good >= 4 and bad <= 2
+    assert any("“I” more than “we”" in m for m in missing)
+    assert "(Ownership)" in good_evidence[0]
+
+
+def test_amazon_rounds_are_no_ai_and_do_not_run_tests(tmp_path):
+    from interview_lab.workspace import create_workspace
+    for interview_id in ("amazon-final-1", "amazon-final-2"):
+        interview = get_interview(interview_id)
+        assert not interview.ai_allowed and interview.public()["run_tests_allowed"] is False
+        workspace = create_workspace(interview, tmp_path)
+        assert "Do not help with the exercise" in (workspace / "CLAUDE.md").read_text()
+        assert not (workspace / "patch_review").exists()
+        assert [a for a, _ in grading.areas_for(interview)] == [a for a, _ in grading.AMAZON_AREAS]
+        public = interview.public()
+        assert [p["name"] for p in public["phases"]][1] == "Leadership Principles questions" and "cue" not in public["phases"][0]

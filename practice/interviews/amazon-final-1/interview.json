@@ -1,0 +1,44 @@
+{
+  "id": "amazon-final-1",
+  "title": "Amazon SDE intern final round 1: Leadership Principles + top late carriers",
+  "company": "amazon",
+  "format": "amazon-final",
+  "inspired_by": "Modeled on candidate reports of Amazon's Summer 2026 and Winter 2027 SDE intern final rounds: Leadership Principles questions with deep follow-ups, then one business-framed coding problem in a plain editor, with no AI. An original simulation, not a real Amazon question.",
+  "level": "SDE intern final round",
+  "summary": "Two Leadership Principles questions with follow-ups, then a coding problem: find the delivery carriers with the most late packages, plus the interviewer's follow-up twist. No AI, and the editor doesn't run code.",
+  "tags": ["python", "45 min", "no AI", "LPs + DSA"],
+  "package": "deliveries",
+  "duration_minutes": 45,
+  "change_at_minutes": 33,
+  "ai_allowed": false,
+  "run_tests_allowed": false,
+  "note_tabs": {"plan": "approach.md", "assumptions": "assumptions.md", "explanation": "dry_run.md"},
+  "source_files": ["deliveries/late_carriers.py"],
+  "approach_keywords": ["heap", "priority queue", "nsmallest", "nlargest", "counter", "hash map", "hashmap", "dictionary", "dict", "sort", "bucket"],
+  "change_keywords": ["tracker", "stream", "record(", "top(", "follow-up", "update"],
+  "phases": [
+    {"start": 0, "end": 2, "name": "Introductions", "cue": "amz_intro", "kind": "intro"},
+    {"start": 2, "end": 20, "name": "Leadership Principles questions", "cue": "amz_behavioral", "kind": "behavioral"},
+    {"start": 20, "end": 24, "name": "Read and clarify the coding problem", "cue": "amz_clarify", "kind": "coding"},
+    {"start": 24, "end": 40, "name": "Code it and talk it through", "cue": "amz_code", "kind": "coding"},
+    {"start": 40, "end": 45, "name": "Dry run, complexity, and your questions", "cue": "amz_wrap", "kind": "wrap", "nudge": "explain"}
+  ],
+  "cues": {
+    "amz_intro": "Hi, thanks for joining. I'm an engineer on the team, and I'll be your interviewer today. We'll spend about twenty minutes on questions about your past experience, then do a coding problem. There's no AI in this round, and the editor doesn't run code, so talk me through your thinking. To start, tell me a little about yourself.",
+    "amz_behavioral": "Thanks. Let's start with a few questions about your experience. Use specific examples, and tell me what you personally did.",
+    "amz_clarify": "Thanks for those answers. Let's switch to coding. The problem is in the Problem tab and in README.md in your workspace. Take a minute to read it, and ask me anything that's unclear before you start.",
+    "amz_code": "Whenever you're ready, go ahead and code it in deliveries slash late carriers dot py. Keep talking me through your approach as you go.",
+    "change": "Nice. Let's extend it. I've added a follow-up to the Change tab: the records now stream in one at a time, and the dashboard asks for the top carriers after every update. How would you change your design?",
+    "amz_wrap": "We're almost out of time. Walk me through your solution with the example, and tell me the time and space complexity. Then I'm happy to take any questions you have for me."
+  },
+  "closing_prompts": ["What's the time and space complexity of your solution?", "What edge cases would you test?", "Do you have any questions for me?"],
+  "followups": {
+    "problem_understanding": "Before writing code for any problem this week, list the three ambiguities you would ask about (ties, duplicates, bounds) and the answer you'd assume for each.",
+    "leadership": "Write five STAR stories (Ownership, Deliver Results, Bias for Action, Customer Obsession, Learn and Be Curious). Say each aloud in under 2.5 minutes, with one number in the result and one sentence on what you'd do differently.",
+    "problem_solving": "Re-solve top-k without looking: say the brute-force complexity, then the heap approach in O(n + m log k), and explain when a full sort is just as good.",
+    "correctness": "List every edge case of top_late_carriers (ties, duplicates, k = 0, k larger than the carriers, on-time equality, empty input) and dry-run your code on each by hand.",
+    "testing": "Without running code, dry-run your solution on a 5-record example out loud, tracking the counts after each record, then write those as tests.",
+    "code_quality": "Rewrite your solution in under 15 lines with clear names and a helper for the counting step, and explain each line in one sentence.",
+    "communication": "Record yourself solving a LeetCode medium in 25 minutes while narrating continuously; listen back for silent stretches longer than 20 seconds."
+  }
+}

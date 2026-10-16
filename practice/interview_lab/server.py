@@ -125,6 +125,11 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     return self._json(200, {"saved": True})
                 elif action == "/api/cue":
                     return self._json(200, {"entry": sessions.cue(interview, str(body.get("cue", "")))})
+                elif action == "/api/answer":
+                    sessions.record_answer(interview, str(body.get("text", "")))
+                    return self._json(200, {"saved": True})
+                elif action == "/api/behavioral":
+                    return self._json(200, {"entry": sessions.behavioral_next(interview)})
                 elif action == "/api/followup":
                     return self._json(200, {"entry": sessions.follow_up(interview, str(body.get("phase", "")))})
                 elif action == "/api/test":
@@ -210,6 +215,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             workspace = workspace_path(interview, lab.home)
             if not read_marker(workspace):
                 raise WorkspaceError("Start the interview first, so the workspace exists.")
+            if not interview.meta.get("run_tests_allowed", True):
+                raise ValueError("This round simulates an editor that can't run code: dry-run your solution by hand. Grading runs it after you submit.")
             result = run_pytest(test_python(lab.home), workspace, ["tests"])
             if lab.sessions.load(interview.id):
                 lab.sessions.record_test_run(interview, summary(result))

@@ -1,0 +1,22 @@
+[
+  {
+    "lp": "Have Backbone; Disagree and Commit / Earn Trust",
+    "question": "Tell me about a time you disagreed with a teammate or a manager about a technical decision.",
+    "followups": [
+      "How did you make your case? What data did you use?",
+      "What happened in the end, and how did you feel about the outcome?",
+      "If the decision went against you, how did you commit to it?"
+    ],
+    "good": "Respectful, evidence-based disagreement; listened to the other view; committed fully once decided; the relationship survived."
+  },
+  {
+    "lp": "Learn and Be Curious / Dive Deep",
+    "question": "Tell me about a mistake you made on a project. How did you find it, and what did you change afterwards?",
+    "followups": [
+      "How did you track down the root cause?",
+      "What did you change so it wouldn't happen again?",
+      "What did you learn from it that you still use?"
+    ],
+    "good": "Owns the mistake without deflecting, digs to the root cause with specifics, adds a mechanism to prevent it, and shows a lasting lesson."
+  }
+]

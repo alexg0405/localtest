@@ -1,0 +1,5 @@
+[
+  "Scan the grid. When you find land you haven't counted yet, that's a new island. What do you need to do so you don't count its other cells again?",
+  "From that cell, visit every connected land cell (BFS with a queue, or DFS) and mark each one as seen or turn it to \"0\".",
+  "Loop over every cell; if it's unvisited land, count += 1 and flood-fill it. Use a queue (collections.deque) rather than recursion: a 200x200 island is 40,000 cells deep for recursive DFS, far past Python's default recursion limit of 1,000."
+]

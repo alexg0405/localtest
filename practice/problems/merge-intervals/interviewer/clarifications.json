@@ -1,0 +1,60 @@
+[
+  {
+    "topic": "Touching intervals",
+    "important": true,
+    "keywords": [
+      "touch",
+      "touching",
+      "endpoint",
+      "share",
+      "adjacent",
+      "[1, 2] and [2, 3]",
+      "inclusive",
+      "exclusive"
+    ],
+    "answer": "Yes, intervals that touch at an endpoint overlap and should merge."
+  },
+  {
+    "topic": "Sorted input",
+    "important": true,
+    "keywords": [
+      "sorted",
+      "order",
+      "already sorted",
+      "unsorted"
+    ],
+    "answer": "The input isn't sorted. Return the merged intervals sorted by start."
+  },
+  {
+    "topic": "Empty input",
+    "important": true,
+    "keywords": [
+      "empty",
+      "no intervals"
+    ],
+    "answer": "The list can be empty; return an empty list."
+  },
+  {
+    "topic": "Modifying the input",
+    "important": false,
+    "keywords": [
+      "modify",
+      "in place",
+      "mutate",
+      "new list"
+    ],
+    "answer": "Return a new list; it's fine if you sort a copy."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "constraints",
+      "efficient"
+    ],
+    "answer": "Up to a few hundred thousand intervals."
+  }
+]

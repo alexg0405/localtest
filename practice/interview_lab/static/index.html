@@ -25,6 +25,7 @@
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 9l3 3-3 3M12 15h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </svg>
 
@@ -44,7 +45,24 @@
         <h1>Pick your interview.</h1>
         <p class="lede">Clarify the problem, find your way around unfamiliar code, direct your AI assistant, and defend your decisions on a real clock. You're graded on evidence, not on how little AI you used.</p>
       </section>
+      <h2 class="lobby-h">Mock interviews</h2>
       <div class="cards" id="lobby-cards" role="list"></div>
+      <section class="problems">
+        <div class="problems-head">
+          <div>
+            <h2 class="lobby-h">Problem practice</h2>
+            <p class="muted small">One problem per session with the live interviewer: clarify, explain, code, test, then follow-ups. About 35 minutes.</p>
+          </div>
+          <div class="mode-pick">
+            <div class="mode-toggle" role="radiogroup" aria-label="Interviewer mode">
+              <button type="button" data-mode="real" role="radio">Real interviewer</button>
+              <button type="button" data-mode="coach" role="radio">Coach</button>
+            </div>
+            <p class="muted small" id="mode-help"></p>
+          </div>
+        </div>
+        <div class="problem-grid" id="problem-cards" role="list"></div>
+      </section>
       <section class="launch">
         <div class="launch-info">
           <p class="eyebrow" id="intro-level"></p>
@@ -52,6 +70,7 @@
           <p class="muted small" id="intro-inspired"></p>
         </div>
         <div class="launch-actions">
+          <span class="mode-chip" id="launch-mode" hidden></span>
           <button class="btn btn-green btn-lg" id="start">Start interview</button>
           <label class="check"><input type="checkbox" id="start-reset"> Reset the workspace to the starter first</label>
         </div>
@@ -85,9 +104,15 @@
         <button class="pill live-pill" id="mic-pill" hidden title="The interviewer is listening. Click to stop."><i></i>Listening</button>
       </div>
       <div class="tb-right">
+        <div class="mode-toggle mode-sm" id="ide-mode" role="radiogroup" aria-label="Interviewer mode" hidden>
+          <button type="button" data-mode="real" role="radio">Real</button>
+          <button type="button" data-mode="coach" role="radio">Coach</button>
+        </div>
+        <button class="btn btn-ghost" id="hint" hidden title="Ask the interviewer for a hint"><svg><use href="#i-bulb"/></svg>Hint</button>
         <div class="menu">
           <button class="icon-btn" id="menu-button" aria-haspopup="true" aria-expanded="false" title="More"><svg><use href="#i-more"/></svg></button>
           <div class="menu-list" id="menu" hidden>
+            <button id="show-approach" hidden>Show the approach (coach)</button>
             <button id="reveal">Reveal the requirement change now</button>
             <button id="restart">Restart the interview…</button>
             <button id="reset-workspace">Reset the workspace to the starter…</button>

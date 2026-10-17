@@ -1,0 +1,60 @@
+[
+  {
+    "topic": "Ties and short answers",
+    "important": true,
+    "keywords": [
+      "several",
+      "multiple",
+      "tie",
+      "ties",
+      "same length",
+      "any",
+      "which one"
+    ],
+    "answer": "If several are equally long, return any of them."
+  },
+  {
+    "topic": "Substring or subsequence",
+    "important": true,
+    "keywords": [
+      "substring",
+      "subsequence",
+      "contiguous",
+      "skip"
+    ],
+    "answer": "Contiguous: a substring."
+  },
+  {
+    "topic": "Which characters",
+    "important": false,
+    "keywords": [
+      "case",
+      "uppercase",
+      "characters",
+      "spaces",
+      "letters"
+    ],
+    "answer": "Any characters, compared exactly (case matters)."
+  },
+  {
+    "topic": "Empty input",
+    "important": false,
+    "keywords": [
+      "empty"
+    ],
+    "answer": "The string has at least one character."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how long",
+      "large",
+      "constraints",
+      "length",
+      "efficient"
+    ],
+    "answer": "Up to a couple of thousand characters, so O(n²) is fine but O(n³) is not."
+  }
+]

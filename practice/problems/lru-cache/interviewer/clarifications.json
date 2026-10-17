@@ -1,0 +1,66 @@
+[
+  {
+    "topic": "What counts as a use",
+    "important": true,
+    "keywords": [
+      "use",
+      "used",
+      "recently",
+      "get count",
+      "does get",
+      "access",
+      "read"
+    ],
+    "answer": "Both get and put count as using the key."
+  },
+  {
+    "topic": "Updating a key",
+    "important": true,
+    "keywords": [
+      "update",
+      "existing",
+      "already",
+      "overwrite",
+      "same key"
+    ],
+    "answer": "Putting an existing key updates its value, makes it the most recently used, and doesn't evict anything."
+  },
+  {
+    "topic": "Performance",
+    "important": true,
+    "keywords": [
+      "o(1)",
+      "constant",
+      "fast",
+      "performance",
+      "complexity",
+      "efficient",
+      "how many"
+    ],
+    "answer": "Both operations should be O(1) on average. Expect hundreds of thousands of calls."
+  },
+  {
+    "topic": "Capacity",
+    "important": false,
+    "keywords": [
+      "capacity",
+      "zero",
+      "size",
+      "how big"
+    ],
+    "answer": "Capacity is at least 1."
+  },
+  {
+    "topic": "Libraries",
+    "important": false,
+    "keywords": [
+      "ordereddict",
+      "library",
+      "built-in",
+      "builtin",
+      "allowed to use",
+      "collections"
+    ],
+    "answer": "You can use OrderedDict, but be ready to explain how you'd build it with a dict and a doubly linked list."
+  }
+]

@@ -1,0 +1,5 @@
+[
+  "The sum of nums[i..j] can be written using two prefix sums. Which two?",
+  "sum(nums[i..j]) = prefix[j + 1] - prefix[i]. So a subarray ending at j sums to k exactly when some earlier prefix equals prefix[j + 1] - k.",
+  "Walk through nums keeping the running prefix and a counter of prefixes seen so far, starting with {0: 1}. At each step add counts[prefix - k] to the answer, then counts[prefix] += 1. A sliding window fails here because of negative numbers."
+]

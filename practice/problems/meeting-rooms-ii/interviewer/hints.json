@@ -1,0 +1,5 @@
+[
+  "Process meetings in order of start time. When a meeting starts, which room is the best candidate to reuse?",
+  "The room that frees up earliest. Keep the end times of rooms in use in a min-heap: if the earliest end is at or before the new start, reuse that room; otherwise open a new one.",
+  "Sort meetings by start. For each: if heap and heap[0] <= start, heapreplace(heap, end), else heappush(heap, end). The answer is len(heap). Alternatively, sort all starts and all ends separately and sweep with two pointers."
+]

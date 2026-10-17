@@ -1,0 +1,34 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_back_to_back_meetings_share_a_room": {
+    "area": "edge",
+    "description": "A meeting ending at t frees its room for one starting at t",
+    "topic": "Back-to-back meetings"
+  },
+  "test_no_meetings": {
+    "area": "edge",
+    "description": "No meetings needs no rooms",
+    "topic": "Empty input"
+  },
+  "test_all_overlapping": {
+    "area": "edge",
+    "description": "Every meeting overlaps every other"
+  },
+  "test_unsorted_input": {
+    "area": "edge",
+    "description": "Meetings that aren't sorted",
+    "topic": "Sorted input"
+  },
+  "test_matches_brute_force_on_random_inputs": {
+    "area": "core",
+    "description": "Matches brute force on 200 random inputs"
+  },
+  "test_many_meetings_are_fast": {
+    "area": "performance",
+    "description": "200,000 meetings in under 3 seconds (needs O(n log n))",
+    "topic": "Input size"
+  }
+}

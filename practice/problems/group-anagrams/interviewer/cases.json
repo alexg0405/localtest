@@ -1,0 +1,33 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_example": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_empty_strings_group_together": {
+    "area": "edge",
+    "description": "Empty strings are anagrams of each other",
+    "topic": "Empty words"
+  },
+  "test_duplicate_words_stay_in_one_group": {
+    "area": "edge",
+    "description": "Duplicate words both appear in the group",
+    "topic": "Duplicates"
+  },
+  "test_same_letters_different_counts_are_not_anagrams": {
+    "area": "edge",
+    "description": "Same letters with different counts are not anagrams"
+  },
+  "test_empty_list": {
+    "area": "edge",
+    "description": "An empty list returns no groups"
+  },
+  "test_many_words_are_fast": {
+    "area": "performance",
+    "description": "100,000 words in under 3 seconds",
+    "topic": "Input size"
+  }
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "topic": "Which characters",
+    "important": true,
+    "keywords": [
+      "characters",
+      "lowercase",
+      "uppercase",
+      "case",
+      "letters",
+      "unicode",
+      "spaces"
+    ],
+    "answer": "Only lowercase English letters."
+  },
+  {
+    "topic": "Duplicates",
+    "important": true,
+    "keywords": [
+      "duplicate",
+      "same word",
+      "repeat",
+      "twice"
+    ],
+    "answer": "The same word can appear twice; keep both in its group."
+  },
+  {
+    "topic": "Empty words",
+    "important": true,
+    "keywords": [
+      "empty string",
+      "empty word",
+      "blank",
+      "\\\"\\\""
+    ],
+    "answer": "Empty strings can appear and form their own group."
+  },
+  {
+    "topic": "Output order",
+    "important": false,
+    "keywords": [
+      "order",
+      "sorted",
+      "which order",
+      "format"
+    ],
+    "answer": "Any order of groups and words is fine."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "constraints",
+      "efficient",
+      "long"
+    ],
+    "answer": "Up to about 100,000 words, each up to 100 letters."
+  }
+]

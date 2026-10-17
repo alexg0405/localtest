@@ -389,3 +389,21 @@ def test_reused_stories_and_repeated_follow_ups_lose_points(tmp_path):
     rows = grading.lp_breakdown(round_, sessions.load("amazon-behavioral"))
     assert all(row["score"] <= 2 for row in rows[1:]) and any("reuses your" in m for m in rows[1]["missing"])
     assert any("repeated what you'd already said" in m for m in rows[0]["missing"])
+
+
+def test_practice_problems_are_listed_in_the_weekend_order():
+    numbers = [i.meta["number"] for i in all_interviews() if i.meta.get("format") == "problem"]
+    assert numbers == [146, 200, 767, 1, 3, 5, 875, 56, 49, 560, 994, 210, 33, 236, 253]
+    for interview in all_interviews():
+        if interview.meta.get("format") == "problem":
+            assert len(interview.hints()) == 3 and interview.approach() and interview.meta["editor_files"] == ["solution.py"]
+            assert "leetcode.com/problems/" in interview.meta["leetcode"]
+
+
+def test_coach_mode_explains_concepts_and_real_mode_does_not():
+    problem = get_interview("koko-eating-bananas")
+    assert not interviewer.answer(problem, "How does binary search work?", False, "real")["matched"]
+    coached = interviewer.answer(problem, "How does binary search work?", False, "coach")
+    assert coached["matched"] and "O(log n)" in coached["answer"]
+    assert interviewer.answer(problem, "Is h always at least the number of piles?", False, "coach")["answer"].startswith("Good question")
+    assert interviewer.cues_for(problem, "coach")["p_intro"].startswith("Hey!") and interviewer.cues_for(problem, "real")["p_intro"].startswith("Hi!")

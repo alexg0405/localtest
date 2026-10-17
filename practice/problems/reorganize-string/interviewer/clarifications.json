@@ -1,0 +1,53 @@
+[
+  {
+    "topic": "When it's impossible",
+    "important": true,
+    "keywords": [
+      "impossible",
+      "can't",
+      "cannot",
+      "no answer",
+      "no valid",
+      "return empty"
+    ],
+    "answer": "If no arrangement works, return the empty string."
+  },
+  {
+    "topic": "Which answer",
+    "important": true,
+    "keywords": [
+      "which",
+      "any",
+      "multiple",
+      "several",
+      "unique",
+      "specific"
+    ],
+    "answer": "Any valid arrangement is fine."
+  },
+  {
+    "topic": "Which characters",
+    "important": false,
+    "keywords": [
+      "characters",
+      "lowercase",
+      "uppercase",
+      "letters",
+      "alphabet"
+    ],
+    "answer": "Any characters; expect mostly lowercase letters."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how long",
+      "large",
+      "constraints",
+      "length",
+      "efficient"
+    ],
+    "answer": "Up to a few hundred thousand characters."
+  }
+]

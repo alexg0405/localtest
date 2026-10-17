@@ -1,0 +1,29 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_single_and_empty": {
+    "area": "edge",
+    "description": "One character, and an empty string"
+  },
+  "test_exactly_half_plus_one_is_possible": {
+    "area": "edge",
+    "description": "A letter filling (n + 1) / 2 places is still possible",
+    "topic": "When it's impossible"
+  },
+  "test_impossible_cases": {
+    "area": "edge",
+    "description": "Impossible inputs return \"\"",
+    "topic": "When it's impossible"
+  },
+  "test_many_distinct_letters": {
+    "area": "core",
+    "description": "Many letters with equal counts"
+  },
+  "test_long_input_is_fast": {
+    "area": "performance",
+    "description": "200,000 characters in under 3 seconds",
+    "topic": "Input size"
+  }
+}

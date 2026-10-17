@@ -1,0 +1,5 @@
+[
+  "Every palindrome has a center. How many possible centers does a string of length n have?",
+  "There are 2n - 1 centers: each character (odd lengths) and each gap between two characters (even lengths). From each center, expand outwards while the ends match.",
+  "For center c: left = c // 2, right = left + c % 2. While both are in range and s[left] == s[right], move them outwards. The palindrome is s[left + 1:right]; keep the longest."
+]

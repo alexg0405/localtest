@@ -1,0 +1,102 @@
+{
+  "id": "merge-intervals",
+  "title": "56. Merge Intervals",
+  "format": "problem",
+  "number": 56,
+  "difficulty": "Medium",
+  "tags": [
+    "Array",
+    "Sorting",
+    "Intervals"
+  ],
+  "leetcode": "https://leetcode.com/problems/merge-intervals/",
+  "order": 7,
+  "inspired_by": "Practice for LeetCode #56 (Merge Intervals). The statement and examples here are written for this lab; see LeetCode for the official version.",
+  "level": "Practice problem · Medium",
+  "summary": "Array, Sorting, Intervals. Write merge(intervals).",
+  "duration_minutes": 35,
+  "change_at_minutes": null,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "editor_files": [
+    "solution.py"
+  ],
+  "source_files": [
+    "solution.py"
+  ],
+  "note_tabs": {
+    "plan": "approach.md",
+    "explanation": "dry_run.md"
+  },
+  "custom_input": "from solution import merge\n\nprint(merge([[6, 8], [1, 3], [2, 4], [9, 10]]))\n",
+  "approach_keywords": [
+    "sort",
+    "sorted",
+    "sweep",
+    "intervals",
+    "max end",
+    "greedy"
+  ],
+  "complexity": "O(n log n) time, O(n) space",
+  "phases": [
+    {
+      "start": 0,
+      "end": 3,
+      "name": "Read the problem and clarify",
+      "cue": "p_intro",
+      "kind": "clarify"
+    },
+    {
+      "start": 3,
+      "end": 8,
+      "name": "Explain your approach",
+      "cue": "p_approach",
+      "kind": "approach",
+      "nudge": "plan"
+    },
+    {
+      "start": 8,
+      "end": 28,
+      "name": "Code it and test it",
+      "cue": "p_code",
+      "kind": "coding"
+    },
+    {
+      "start": 28,
+      "end": 35,
+      "name": "Walk through it and follow-ups",
+      "cue": "p_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "cues": {
+    "p_intro": "Hi! Today's problem is Merge Intervals. It's in the Problem tab. Take a minute to read it, and ask me anything that's unclear.",
+    "p_approach": "Before you code, walk me through your approach. What's the brute-force solution, can you do better, and what are the time and space complexities?",
+    "p_code": "Sounds good. Go ahead and code it in solution dot py. You can run the tests whenever you like. Keep talking me through it.",
+    "p_wrap": "Let's wrap up. Walk me through your code on an example and tell me the final time and space complexity. Then I have a follow-up question."
+  },
+  "coach_cues": {
+    "p_intro": "Hey! I'm your coach for Merge Intervals. No pressure: we'll work through it together. Read the problem, then tell me in your own words what it's asking. Ask me anything, and ask for a hint whenever you want one.",
+    "p_approach": "Nice. Let's think before coding. What's the simplest solution that works, even if it's slow? Then we'll look for something faster. If you're stuck, just ask for a hint.",
+    "p_code": "Great. Go ahead and code it. Run the tests as often as you like, and I'll help you read any failures.",
+    "p_wrap": "Nice work. Let's review: walk me through your code on the example and tell me the time and space complexity. Then I'll ask how interviewers usually extend this problem."
+  },
+  "plan_prompts": [
+    "What's the brute-force approach, and what's its complexity?",
+    "Can you do better? What would let you avoid repeated work?",
+    "What edge cases are you worried about?"
+  ],
+  "closing_prompts": [
+    "What's the final time and space complexity?",
+    "Which edge cases did you test?"
+  ],
+  "followups": {
+    "problem_understanding": "Before re-solving Merge Intervals, write down three clarifying questions (input size, edge cases, output format) and the answer you'd assume for each.",
+    "problem_solving": "Re-solve Merge Intervals from scratch in real mode: say the brute force and its complexity first, then the optimal approach (O(n log n) time, O(n) space), before writing code.",
+    "correctness": "List the edge cases for Merge Intervals (empty input, one element, duplicates, extremes) and run each in Custom input before you submit.",
+    "testing": "Before pressing Run tests, dry-run your code by hand on the example out loud, then try two edge cases in Custom input.",
+    "code_quality": "Rewrite your Merge Intervals solution as cleanly as you can in under 15 lines, then explain each line in one sentence.",
+    "communication": "Redo Merge Intervals with the mic on and narrate continuously; state the complexity before you start coding."
+  }
+}

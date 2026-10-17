@@ -15,7 +15,7 @@ If macOS blocks the microphone, open the site in Chrome and allow microphone acc
 
 ## Interview practice lab
 
-`practice/` is a separate, local practice environment for AI-assisted coding interviews in Python. It has three timed interviews (commerce orders, a banking ledger, and an unfamiliar repository), a dashboard with a 60-minute clock and an offline interviewer, a requirement change at minute 30, and evidence-based grading. You use Claude Code on your own subscription as the coding assistant, and no API key is needed. Run `python3 practice/lab.py setup` once. After that, `npm start` runs both: Roomside at http://127.0.0.1:5173/ and Interview Lab at http://127.0.0.1:5173/practice/. Click **Practice** in Roomside's top bar to switch, and **Roomside** in the lab to switch back. See [practice/README.md](practice/README.md).
+`practice/` is a separate, local practice environment for AI-assisted coding interviews in Python. It has timed AI-assisted interviews (commerce orders, a banking ledger, an unfamiliar repository), Amazon SDE intern final rounds and a behavioral round, 15 classic practice problems with a real-interviewer or coach mode, a dashboard with a 60-minute clock and an offline interviewer, a requirement change at minute 30, and evidence-based grading. You use Claude Code on your own subscription as the coding assistant, and no API key is needed. Run `python3 practice/lab.py setup` once. After that, `npm start` runs both: Roomside at http://127.0.0.1:5173/ and Interview Lab at http://127.0.0.1:5173/practice/. Click **Practice** in Roomside's top bar to switch, and **Roomside** in the lab to switch back. See [practice/README.md](practice/README.md).
 
 ## Tests
 

@@ -1,0 +1,64 @@
+[
+  {
+    "topic": "Is there always an answer?",
+    "important": true,
+    "keywords": [
+      "always",
+      "exactly one",
+      "no answer",
+      "guaranteed",
+      "no solution",
+      "more than one"
+    ],
+    "answer": "Yes, every input has exactly one answer."
+  },
+  {
+    "topic": "Duplicates",
+    "important": true,
+    "keywords": [
+      "duplicate",
+      "same value",
+      "repeat",
+      "same number",
+      "twice",
+      "same element"
+    ],
+    "answer": "Values can repeat, but you can't use the same index twice. Two equal values at different indices are fine."
+  },
+  {
+    "topic": "Negative numbers",
+    "important": true,
+    "keywords": [
+      "negative",
+      "zero",
+      "range",
+      "values"
+    ],
+    "answer": "Numbers can be negative or zero."
+  },
+  {
+    "topic": "Order of the answer",
+    "important": false,
+    "keywords": [
+      "order",
+      "which index first",
+      "sorted",
+      "return format"
+    ],
+    "answer": "Return the smaller index first."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "constraints",
+      "length",
+      "efficient",
+      "performance"
+    ],
+    "answer": "Up to about 200,000 numbers, so aim for better than checking every pair."
+  }
+]

@@ -96,6 +96,56 @@ Keep the two roles apart:
 Claude Code usage counts toward your Claude subscription's limits. The lab never
 reads, stores, or proxies your Claude login, and it doesn't measure that usage.
 
+## Problem practice
+
+The lobby's **Problem practice** section has 15 classic interview problems:
+LRU Cache (#146), Number of Islands (#200), Reorganize String (#767), Two Sum
+(#1), Longest Substring Without Repeating Characters (#3), Longest Palindromic
+Substring (#5), Koko Eating Bananas (#875), Merge Intervals (#56), Group
+Anagrams (#49), Subarray Sum Equals K (#560), Rotting Oranges (#994), Course
+Schedule II (#210), Search in Rotated Sorted Array (#33), Lowest Common
+Ancestor of a Binary Tree (#236), and Meeting Rooms II (#253).
+
+Each one is a 35-minute session with the live interviewer (voice or chat):
+- **0–3 min:** clarify the problem.
+- **3–8 min:** explain your approach.
+- **8–28 min:** code it in the browser editor, with Run tests and Custom input.
+- **28–35 min:** walk through your code and answer follow-ups.
+
+Each problem has its own examples, hidden tests (including speed tests that
+catch brute-force solutions), clarification answers, three hints, a reference
+approach, and follow-up questions. The statements and examples are written for
+this lab; each links to LeetCode's official version.
+
+Pick a mode before you start, or switch at any time in the interview's top
+bar:
+- **Real interviewer:** answers only questions about the problem. A hint is a
+  short nudge that lowers your problem-solving score. Nothing is explained
+  until you submit.
+- **Coach:** a friendly tutor that helps you learn.
+  - Ask for a hint any time (the Hint button, or just say "can I get a hint?").
+    You get three progressively stronger hints.
+  - Ask about concepts ("what's a heap?", "how does binary search work?").
+  - It praises good clarifying questions.
+  - After every test run, it tells you what failed and what to try, or which
+    edge cases to check next.
+  - It checks in if you go quiet for two minutes while coding.
+  - It can show the full approach from the menu. That caps your
+    problem-solving score at 3.
+
+  Hints in coach mode are noted but not penalized.
+
+Problems are graded on six areas:
+- problem understanding
+- problem solving and complexity
+- correctness, edge cases, and performance
+- testing and verification
+- code quality
+- communication
+
+Every report ends with **How to solve it**. The lobby tile shows your last
+score and which mode you used.
+
 ## Amazon final-round mode
 
 The two `amazon-final` rounds simulate the final round Amazon SDE intern

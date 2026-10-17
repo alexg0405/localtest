@@ -1,0 +1,37 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_example": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_updating_a_key_refreshes_it_and_does_not_evict": {
+    "area": "edge",
+    "description": "Updating an existing key refreshes it and evicts nothing",
+    "topic": "Updating a key"
+  },
+  "test_get_counts_as_a_use": {
+    "area": "edge",
+    "description": "get() makes a key the most recently used",
+    "topic": "What counts as a use"
+  },
+  "test_missing_key_returns_minus_one": {
+    "area": "edge",
+    "description": "A missing key returns -1"
+  },
+  "test_capacity_one": {
+    "area": "edge",
+    "description": "Capacity of one"
+  },
+  "test_matches_a_reference_on_random_operations": {
+    "area": "core",
+    "description": "Matches a simple reference on 3,000 random operations"
+  },
+  "test_many_operations_are_fast": {
+    "area": "performance",
+    "description": "600,000 operations with capacity 5,000 in under 4 seconds (needs O(1) per operation)",
+    "topic": "Performance"
+  }
+}

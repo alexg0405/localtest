@@ -1,0 +1,29 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_zeros_count_every_subarray": {
+    "area": "edge",
+    "description": "All zeros with k = 0 count every subarray",
+    "topic": "Zero and negatives"
+  },
+  "test_negative_numbers_rule_out_sliding_window": {
+    "area": "edge",
+    "description": "Negative numbers (a sliding window doesn't work)",
+    "topic": "Zero and negatives"
+  },
+  "test_single_element": {
+    "area": "edge",
+    "description": "A single element"
+  },
+  "test_matches_brute_force_on_random_inputs": {
+    "area": "core",
+    "description": "Matches brute force on 200 random inputs"
+  },
+  "test_long_input_is_fast": {
+    "area": "performance",
+    "description": "40,000 numbers in under 2 seconds (needs O(n))",
+    "topic": "Input size"
+  }
+}

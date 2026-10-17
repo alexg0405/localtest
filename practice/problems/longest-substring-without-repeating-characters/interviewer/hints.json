@@ -1,0 +1,5 @@
+[
+  "Think of a window [start, i] that never contains a repeat. When you add s[i], what has to happen to start?",
+  "Keep a map from each character to the last index where you saw it. If s[i] was last seen inside the window, move start just past that index.",
+  "start = max(start, last[s[i]] + 1) when s[i] was seen before; then last[s[i]] = i and best = max(best, i - start + 1). The max() keeps start from moving backwards (try \"abba\")."
+]

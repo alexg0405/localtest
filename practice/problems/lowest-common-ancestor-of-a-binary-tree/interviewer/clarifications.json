@@ -1,0 +1,66 @@
+[
+  {
+    "topic": "Descendant of itself",
+    "important": true,
+    "keywords": [
+      "itself",
+      "own ancestor",
+      "ancestor of the other",
+      "one is ancestor",
+      "is p",
+      "parent of"
+    ],
+    "answer": "Yes, a node counts as a descendant of itself, so if p is an ancestor of q, the answer is p."
+  },
+  {
+    "topic": "Both nodes exist",
+    "important": true,
+    "keywords": [
+      "exist",
+      "in the tree",
+      "missing",
+      "not in",
+      "guaranteed",
+      "null"
+    ],
+    "answer": "Both p and q are always in the tree."
+  },
+  {
+    "topic": "Duplicate values",
+    "important": true,
+    "keywords": [
+      "duplicate",
+      "unique",
+      "same value",
+      "distinct",
+      "values repeat"
+    ],
+    "answer": "Values may repeat, so compare node objects, not values."
+  },
+  {
+    "topic": "Search tree",
+    "important": false,
+    "keywords": [
+      "bst",
+      "binary search",
+      "sorted",
+      "ordered"
+    ],
+    "answer": "It's a general binary tree, not a search tree, so you can't use value comparisons to pick a side."
+  },
+  {
+    "topic": "Tree size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "constraints",
+      "deep",
+      "depth",
+      "efficient",
+      "balanced"
+    ],
+    "answer": "Up to about 100,000 nodes."
+  }
+]

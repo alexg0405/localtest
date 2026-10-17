@@ -1,0 +1,64 @@
+[
+  {
+    "topic": "Which characters",
+    "important": true,
+    "keywords": [
+      "character",
+      "characters",
+      "letters",
+      "ascii",
+      "unicode",
+      "spaces",
+      "symbols",
+      "case",
+      "uppercase"
+    ],
+    "answer": "Any characters, including spaces and symbols. Uppercase and lowercase are different characters."
+  },
+  {
+    "topic": "Empty input",
+    "important": true,
+    "keywords": [
+      "empty",
+      "blank",
+      "no characters"
+    ],
+    "answer": "The string can be empty; return 0."
+  },
+  {
+    "topic": "Substring or subsequence",
+    "important": true,
+    "keywords": [
+      "substring",
+      "subsequence",
+      "contiguous",
+      "consecutive",
+      "skip"
+    ],
+    "answer": "It must be contiguous, a substring, not a subsequence."
+  },
+  {
+    "topic": "What to return",
+    "important": false,
+    "keywords": [
+      "return",
+      "length",
+      "the string itself",
+      "which one"
+    ],
+    "answer": "Just the length."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how long",
+      "large",
+      "constraints",
+      "length of",
+      "efficient"
+    ],
+    "answer": "Up to a few hundred thousand characters, so aim for one pass."
+  }
+]

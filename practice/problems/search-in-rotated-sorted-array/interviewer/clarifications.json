@@ -1,0 +1,50 @@
+[
+  {
+    "topic": "Duplicates",
+    "important": true,
+    "keywords": [
+      "duplicate",
+      "repeat",
+      "distinct",
+      "unique",
+      "same value"
+    ],
+    "answer": "All values are distinct."
+  },
+  {
+    "topic": "Rotation",
+    "important": true,
+    "keywords": [
+      "rotated",
+      "not rotated",
+      "rotation",
+      "how much",
+      "pivot",
+      "zero times"
+    ],
+    "answer": "It may be rotated by any amount, including not at all."
+  },
+  {
+    "topic": "Complexity",
+    "important": true,
+    "keywords": [
+      "log",
+      "o(log",
+      "binary",
+      "linear",
+      "complexity",
+      "how fast",
+      "efficient",
+      "size"
+    ],
+    "answer": "It must be O(log n): the list can have a million elements and you'll search it many times."
+  },
+  {
+    "topic": "Empty input",
+    "important": false,
+    "keywords": [
+      "empty"
+    ],
+    "answer": "The list has at least one element."
+  }
+]

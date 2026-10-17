@@ -1,0 +1,25 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_duplicate_values": {
+    "area": "edge",
+    "description": "Duplicate values (two equal numbers make the pair)",
+    "topic": "Duplicates"
+  },
+  "test_negative_numbers_and_zero": {
+    "area": "edge",
+    "description": "Negative numbers and a target of zero",
+    "topic": "Negative numbers"
+  },
+  "test_pair_at_the_ends": {
+    "area": "edge",
+    "description": "The pair is the first and last element"
+  },
+  "test_large_input_is_fast": {
+    "area": "performance",
+    "description": "200,000 numbers in under 2 seconds (needs better than O(n²))",
+    "topic": "Input size"
+  }
+}

@@ -113,8 +113,43 @@ async function loadInterviews() {
   renderCards();
 }
 
+let lobbyMode = recall("lab.mode") === "coach" ? "coach" : "real";
+const MODE_HELP = {
+  real: "Real interviewer: answers clarifications only, hints cost points, and nothing is explained until you submit.",
+  coach: "Coach: a friendly tutor. Ask for hints any time, get help reading failing tests, ask about concepts, and see the approach when you want it.",
+};
+
+function renderModeToggles() {
+  const mode = latest && latest.session.started && latest.interview.format === "problem" && !inLobby ? latest.session.state.mode || "real" : lobbyMode;
+  document.querySelectorAll(".mode-toggle button").forEach(button => {
+    const group = button.closest(".mode-toggle");
+    const value = group.id === "ide-mode" ? (latest && latest.session.started ? latest.session.state.mode || "real" : lobbyMode) : lobbyMode;
+    button.setAttribute("aria-checked", String(button.dataset.mode === value));
+  });
+  $("mode-help").textContent = MODE_HELP[lobbyMode];
+  document.body.classList.toggle("coach-mode", mode === "coach" && !!latest && latest.interview.format === "problem");
+}
+
+function renderProblemTiles() {
+  $("problem-cards").innerHTML = interviews.filter(i => i.format === "problem").map(i => {
+    const score = i.last_score;
+    const status = i.status === "running" || i.status === "paused" ? `<span class="mid">● In progress</span>${i.mode === "coach" ? " · coach" : ""}`
+      : score !== null && score !== undefined ? `<span class="${score === 100 ? "done" : score >= 60 ? "mid" : "low"}">${score === 100 ? "✓" : "●"} Last: <b>${score}%</b></span>${i.last_mode === "coach" ? " · coach" : " · real"}`
+      : "Not tried yet";
+    return `<button class="ptile${i.id === current ? " selected" : ""}" role="listitem" data-id="${escapeHtml(i.id)}">
+      <div class="ptile-top"><span class="pnum">#${i.number}</span><span class="diff ${escapeHtml(i.difficulty)}">${escapeHtml(i.difficulty)}</span></div>
+      <h3>${escapeHtml(i.title.replace(/^\d+\.\s*/, ""))}</h3>
+      <div class="ptags">${escapeHtml((i.tags || []).join(" · "))}</div>
+      <div class="pstatus">${status}</div>
+    </button>`;
+  }).join("");
+  document.querySelectorAll(".ptile").forEach(tile => tile.onclick = () => { select(tile.dataset.id); document.querySelector(".launch").scrollIntoView({ behavior: "smooth", block: "center" }); });
+}
+
 function renderCards() {
-  $("lobby-cards").innerHTML = interviews.map(i => {
+  renderProblemTiles();
+  renderModeToggles();
+  $("lobby-cards").innerHTML = interviews.filter(i => i.format !== "problem").map(i => {
     const [cls, label] = DOMAINS[i.id] || ["repo", "Interview"];
     const status = i.status === "running" || i.status === "paused" ? `<span class="status running">${i.status === "paused" ? "Paused" : "In progress"}</span>` : i.status === "submitted" ? `<span class="status submitted">Submitted</span>` : "";
     return `<button class="card${i.id === current ? " selected" : ""}" role="listitem" data-id="${escapeHtml(i.id)}">
@@ -251,7 +286,11 @@ function renderQuestions(questions, spoken = []) {
   $("q-count").hidden = !asked.length;
   $("q-count").textContent = asked.length;
   if (!questions.length && !spoken.length && !(latest && latest.session.state.behavioral)) {
-    $("questions").innerHTML = `<div class="chat-empty"><h3>Ask before you build</h3><p>Press the mic and talk, or type. The interviewer answers clarifying questions about requirements. Strong candidates ask a few in the first five minutes.</p><div class="suggest">${SUGGESTED.map(s => `<button type="button">${escapeHtml(s)}</button>`).join("")}</div></div>`;
+    const coach = latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
+    const problem = latest && latest.interview.format === "problem";
+    const ideas = coach ? ["Can I get a hint?", "How should I start a problem like this?", "What edge cases should I think about?"] : problem ? ["How large can the input be?", "Can the input be empty?", "Can there be duplicates?"] : SUGGESTED;
+    const intro = coach ? "Your coach is here to help you learn. Think out loud, ask about concepts (\"what's a heap?\"), or ask for a hint whenever you're stuck." : "Press the mic and talk, or type. The interviewer answers clarifying questions about requirements. Strong candidates ask a few in the first five minutes.";
+    $("questions").innerHTML = `<div class="chat-empty"><h3>${coach ? "Let's work through it together" : "Ask before you build"}</h3><p>${intro}</p><div class="suggest">${ideas.map(s => `<button type="button">${escapeHtml(s)}</button>`).join("")}</div></div>`;
     document.querySelectorAll(".suggest button").forEach(b => b.onclick = () => { $("question").value = b.textContent; $("question").focus(); });
     return;
   }
@@ -262,8 +301,12 @@ function renderQuestions(questions, spoken = []) {
   $("questions").innerHTML = items.map(({ at, q, said, answer }) => {
     if (answer) return you(answer, at, "", "answer · ");
     if (said) return you(said, at, "said", "said aloud · ");
-    if (q.source === "interviewer") return them(q.answer, `Interviewer · ${clock(at)}`, "cue");
-    return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, `${q.source === "api" ? "API interviewer" : "Interviewer"}${q.topic ? " · " + escapeHtml(q.topic) : ""}`);
+    if (q.source === "interviewer") {
+      const kind = (q.kind || "").startsWith("hint") ? "hint" : (q.kind || "").startsWith("coach") || q.kind === "approach" ? "coach" : "cue";
+      const label = kind === "hint" ? "Hint" : q.kind === "approach" ? "Approach" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer";
+      return q.kind === "approach" ? `<div class="msg them coach"><div class="avatar">IV</div><div><div class="bubble md">${markdown(q.answer)}</div><div class="meta">${label} · ${clock(at)}</div></div></div>` : them(q.answer, `${label} · ${clock(at)}`, kind);
+    }
+    return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, `${q.source === "api" ? "API interviewer" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer"}${q.topic ? " · " + escapeHtml(q.topic) : ""}`);
   }).join("");
   $("questions").scrollTop = $("questions").scrollHeight;
 }
@@ -351,6 +394,7 @@ async function openCode(path) {
 
 function codeChanged() {
   if (code.loading || !code.path) return;
+  active();
   code.dirty = true;
   markCodeTab();
   $("saved").textContent = "Saving…";
@@ -386,6 +430,33 @@ async function syncCode(files) {
   } catch (e) { /* try again on the next refresh */ }
 }
 
+const HINT_ASK = /\b(hint|i'?m stuck|stuck|give me a clue|clue|nudge|help me out|can you help)\b/i;
+const problemNow = () => latest && latest.session.started && latest.interview.format === "problem";
+let lastActivity = Date.now(), lastNudge = 0;
+const active = () => { lastActivity = Date.now(); };
+
+async function askForHint() {
+  if (!problemNow()) return;
+  if (latest.session.state.mode !== "coach" && !askForHint.confirmed) {
+    if (!confirm("In real mode a hint lowers your problem-solving score, like leaning on a real interviewer would. Get a hint?")) return;
+    askForHint.confirmed = true;
+  }
+  active();
+  try {
+    const { entry } = await call("/api/hint", {});
+    showTab("interviewer");
+    await refresh();
+    if (voice.on) say(entry.answer); else toast("Hint added to the Interviewer chat.");
+  } catch (e) { toast(e.message); }
+}
+
+async function coachSays(entry) {
+  if (!entry) return;
+  await refresh();
+  if (voice.on) say(entry.answer);
+  else toast((latest.session.state.mode === "coach" ? "Coach: " : "") + entry.answer.slice(0, 140) + (entry.answer.length > 140 ? "…" : ""));
+}
+
 function showTab(name) {
   document.querySelectorAll("[data-tab]").forEach(tab => tab.classList.toggle("active", tab.dataset.tab === name));
   document.querySelectorAll("[data-panel]").forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
@@ -406,6 +477,14 @@ function render(data) {
   $("intro-level").textContent = `${info.level} · ${info.duration_minutes} minutes`;
   $("intro-title").textContent = info.title;
   $("intro-inspired").textContent = info.inspired_by;
+  const isProblem = info.format === "problem";
+  $("launch-mode").hidden = !isProblem;
+  $("launch-mode").className = "mode-chip" + (lobbyMode === "coach" ? " coach" : "");
+  $("launch-mode").textContent = lobbyMode === "coach" ? "Coach mode" : "Real interviewer";
+  $("ide-mode").hidden = !isProblem;
+  $("hint").hidden = !isProblem || !info.hint_count;
+  $("show-approach").hidden = !isProblem || !(data.session.started && data.session.state.mode === "coach");
+  renderModeToggles();
   renderFlow(info);
   applyFormat(info);
   const session = data.session;
@@ -570,6 +649,7 @@ async function answerBehavioral(text, typed) {
 async function handleUtterance(text) {
   text = text.trim();
   if (text.split(/\s+/).length < 2 || !latest || !latest.session.started) return;
+  if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
   if (behavioralNow() && !(isQuestion(text) && text.split(/\s+/).length < 20)) {
     setVoiceUi("Listening…", `“${text}”`);
     answerBehavioral(text, false);
@@ -621,6 +701,7 @@ async function startVoice() {
       if (event.results[i].isFinal) voice.finals += " " + piece; else interim += piece;
     }
     voice.spokeAt = Date.now();
+    active();
     $("voice-bar").classList.add("hearing");
     setVoiceUi("Listening…", (voice.finals + " " + interim).trim());
     clearTimeout(voice.silence);
@@ -741,6 +822,7 @@ function renderReport(report) {
 
     ${report.patch_review ? `<h3 class="section-title">The AI patch</h3>
     <div class="box spoiler"><details><summary>Show what was wrong with the patch</summary><p>${escapeHtml(report.patch_review.answer)}</p></details></div>` : ""}
+    ${report.approach ? `<h3 class="section-title">How to solve it</h3><div class="solve md">${markdown(report.approach)}</div>` : ""}
     ${report.format_note ? `<p class="foot">${escapeHtml(report.format_note)}</p>` : ""}
 
     ${report.behavioral_only ? "" : `<details class="raw"><summary>Grading test output</summary><pre>${escapeHtml(t.grading_output || "")}</pre></details>`}
@@ -767,7 +849,7 @@ function wire() {
     try {
       const reset = $("start-reset").checked;
       inLobby = false; changeSeen = false; behavioralNext.done = false;
-      render(await call("/api/start", { reset }));
+      render(await call("/api/start", { reset, mode: lobbyMode }));
       showTab("problem");
       toast(reset ? "Workspace reset. The clock is running." : "The clock is running. Good luck!");
       loadInterviews();
@@ -785,7 +867,7 @@ function wire() {
   $("restart").onclick = async () => {
     if (!confirm("Restart the interview? The timer, questions, and notes start over.")) return;
     const reset = confirm("Also reset the workspace to the starter? Your changed and added files are moved to .practice-backup in the workspace, not deleted.\n\nOK = reset the workspace, Cancel = keep your files.");
-    try { changeSeen = false; render.announced = null; behavioralNext.done = false; render(await call("/api/start", { reset })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
+    try { changeSeen = false; render.announced = null; behavioralNext.done = false; render(await call("/api/start", { reset, mode: latest && latest.session.state.mode || lobbyMode })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
   };
   $("pause").onclick = async () => { try { render(await call("/api/pause", {})); toast("Paused. Paused time doesn't count."); } catch (e) { toast(e.message); } };
   $("resume").onclick = async () => { try { render(await call("/api/resume", {})); } catch (e) { toast(e.message); } };
@@ -809,6 +891,13 @@ function wire() {
     const question = $("question").value.trim();
     if (!question) return;
     $("question").disabled = true;
+    active();
+    if (problemNow() && HINT_ASK.test(question) && question.split(/\s+/).length < 15) {
+      $("question").value = "";
+      $("question").disabled = false;
+      await askForHint();
+      return;
+    }
     if (behavioralNow() && !(isQuestion(question) && question.split(/\s+/).length < 20)) {
       $("question").value = "";
       await answerBehavioral(question, true);
@@ -850,7 +939,7 @@ function wire() {
     await saveCode();
     showConsole("tests");
     $("console-summary").innerHTML = `<span class="muted">running…</span>`;
-    try { const { result } = await call("/api/test", {}); renderTests(result); refresh(); }
+    try { const { result, coach } = await call("/api/test", {}); renderTests(result); active(); if (coach) coachSays(coach); else refresh(); }
     catch (e) { toast(e.message); $("console-summary").textContent = ""; }
     button.disabled = false; button.lastChild.textContent = "Run tests";
   };
@@ -903,6 +992,33 @@ function wire() {
     } catch (e) { toast(e.message); }
     button.disabled = false;
   };
+  document.querySelectorAll(".mode-toggle button").forEach(button => {
+    button.onclick = async () => {
+      const mode = button.dataset.mode;
+      if (button.closest(".mode-toggle").id === "ide-mode" && latest && latest.session.started) {
+        try { render(await call("/api/mode", { mode })); const last = latest.session.state.questions.slice(-1)[0]; if (last && voice.on) say(last.answer); } catch (e) { toast(e.message); }
+      } else {
+        lobbyMode = mode;
+        remember("lab.mode", mode);
+        if (latest) render(latest);
+      }
+      renderModeToggles();
+    };
+  });
+  $("hint").onclick = () => askForHint();
+  $("show-approach").onclick = async () => {
+    $("menu").hidden = true;
+    if (!confirm("Show the full approach? Try one more hint first if you haven't. The problem-solving score is capped at 3 once you've seen it.")) return;
+    try { const { entry } = await call("/api/approach", {}); showTab("interviewer"); await refresh(); if (voice.on) say("I've put the approach in the chat. Read it, then try writing it yourself without looking."); } catch (e) { toast(e.message); }
+  };
+  ["keydown", "pointerdown"].forEach(type => document.addEventListener(type, active, { passive: true }));
+  setInterval(async () => {
+    // The coach checks in when you've been quiet for two minutes while coding.
+    if (!problemNow() || latest.session.state.mode !== "coach" || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
+    if (Date.now() - lastActivity < 120000 || Date.now() - lastNudge < 180000 || voice.speaking) return;
+    lastNudge = Date.now();
+    try { const { entry } = await call("/api/nudge", {}); coachSays(entry); } catch (e) { /* try later */ }
+  }, 15000);
   $("mic").onclick = () => { if (voice.on) stopVoice(); else { showTab("interviewer"); startVoice(); } };
   $("mic-pill").onclick = () => stopVoice();
   $("speak-replies").checked = recall("lab.voice") !== "off";

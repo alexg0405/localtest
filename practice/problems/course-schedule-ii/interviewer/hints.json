@@ -1,0 +1,5 @@
+[
+  "This is ordering a directed graph so every edge points forwards. What's that called, and when is it impossible?",
+  "Topological sort. With Kahn's algorithm: count each course's unmet prerequisites (its in-degree); start with every course that has none.",
+  "Build adjacency lists from prerequisite to course and an in-degree array. Queue every course with in-degree 0; pop one, append it to the order, and decrement its neighbors' in-degrees, queuing any that reach 0. If the order has fewer than num_courses courses, there's a cycle: return []."
+]

@@ -1,0 +1,5 @@
+[
+  "Split the range at mid. In a rotated sorted array, at least one of the two halves is always fully sorted. Can you tell which one?",
+  "If nums[low] <= nums[mid], the left half is sorted; otherwise the right half is. In the sorted half you can check with two comparisons whether the target is inside it.",
+  "Left half sorted: if nums[low] <= target < nums[mid], go left (high = mid - 1), else go right. Right half sorted: if nums[mid] < target <= nums[high], go right (low = mid + 1), else go left. Stop when nums[mid] == target or low > high."
+]

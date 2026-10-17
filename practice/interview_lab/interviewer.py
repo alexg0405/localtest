@@ -33,11 +33,22 @@ def best_entry(entries: List[Dict[str, Any]], text: str) -> Dict[str, Any]:
     return best or {}
 
 
-def answer(interview: Interview, question: str, change_revealed: bool) -> Dict[str, Any]:
-    entry = best_entry(interview.clarifications(), question)
+COACH_NO_ANSWER = (
+    "Good question. I don't have a specific answer for that one, so make a reasonable assumption and say it out loud. "
+    "If you're stuck on the approach, ask me for a hint."
+)
+
+
+def answer(interview: Interview, question: str, change_revealed: bool, mode: str = "real") -> Dict[str, Any]:
+    from .catalog import concepts
+    coach = mode == "coach"
+    # The coach also explains general concepts (heaps, BFS, big-O); a real interviewer only clarifies the problem.
+    entry = best_entry(interview.clarifications() + (concepts() if coach else []), question)
     if not entry:
-        return {"topic": None, "answer": NO_ANSWER, "matched": False}
+        return {"topic": None, "answer": COACH_NO_ANSWER if coach else NO_ANSWER, "matched": False}
     text = entry.get("answer_after_change") if change_revealed and entry.get("answer_after_change") else entry["answer"]
+    if coach and entry.get("important"):
+        text = "Good question, that's exactly the kind of thing to clarify. " + text
     return {"topic": entry["topic"], "answer": text, "matched": True}
 
 
@@ -109,9 +120,12 @@ CLOSING_PROMPTS = [
 ]
 
 
-def cues_for(interview: Interview) -> Dict[str, str]:
-    """The interviewer's scripted lines: the defaults, plus or replaced by the interview's own "cues"."""
-    return {**CUES, **interview.meta.get("cues", {})}
+def cues_for(interview: Interview, mode: str = "real") -> Dict[str, str]:
+    """The interviewer's scripted lines: the defaults, plus or replaced by the interview's own "cues" (or "coach_cues")."""
+    lines = {**CUES, **interview.meta.get("cues", {})}
+    if mode == "coach":
+        lines.update(interview.meta.get("coach_cues", {}))
+    return lines
 
 
 def prompts_for(interview: Interview, phase: str) -> List[str]:

@@ -1,0 +1,108 @@
+{
+  "id": "number-of-islands",
+  "title": "200. Number of Islands",
+  "format": "problem",
+  "number": 200,
+  "difficulty": "Medium",
+  "tags": [
+    "Graph",
+    "BFS",
+    "DFS",
+    "Grid"
+  ],
+  "leetcode": "https://leetcode.com/problems/number-of-islands/",
+  "order": 1,
+  "inspired_by": "Practice for LeetCode #200 (Number of Islands). The statement and examples here are written for this lab; see LeetCode for the official version.",
+  "level": "Practice problem · Medium",
+  "summary": "Graph, BFS, DFS, Grid. Write num_islands(grid).",
+  "duration_minutes": 35,
+  "change_at_minutes": null,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "editor_files": [
+    "solution.py"
+  ],
+  "source_files": [
+    "solution.py"
+  ],
+  "note_tabs": {
+    "plan": "approach.md",
+    "explanation": "dry_run.md"
+  },
+  "custom_input": "from solution import num_islands\n\ngrid = [[\"1\", \"1\", \"0\", \"0\"], [\"0\", \"1\", \"0\", \"1\"], [\"1\", \"0\", \"0\", \"1\"]]\nprint(num_islands(grid))\n",
+  "approach_keywords": [
+    "bfs",
+    "dfs",
+    "breadth",
+    "depth",
+    "flood",
+    "queue",
+    "deque",
+    "stack",
+    "visited",
+    "union find",
+    "union-find"
+  ],
+  "complexity": "O(R·C) time and space",
+  "phases": [
+    {
+      "start": 0,
+      "end": 3,
+      "name": "Read the problem and clarify",
+      "cue": "p_intro",
+      "kind": "clarify"
+    },
+    {
+      "start": 3,
+      "end": 8,
+      "name": "Explain your approach",
+      "cue": "p_approach",
+      "kind": "approach",
+      "nudge": "plan"
+    },
+    {
+      "start": 8,
+      "end": 28,
+      "name": "Code it and test it",
+      "cue": "p_code",
+      "kind": "coding"
+    },
+    {
+      "start": 28,
+      "end": 35,
+      "name": "Walk through it and follow-ups",
+      "cue": "p_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "cues": {
+    "p_intro": "Hi! Today's problem is Number of Islands. It's in the Problem tab. Take a minute to read it, and ask me anything that's unclear.",
+    "p_approach": "Before you code, walk me through your approach. What's the brute-force solution, can you do better, and what are the time and space complexities?",
+    "p_code": "Sounds good. Go ahead and code it in solution dot py. You can run the tests whenever you like. Keep talking me through it.",
+    "p_wrap": "Let's wrap up. Walk me through your code on an example and tell me the final time and space complexity. Then I have a follow-up question."
+  },
+  "coach_cues": {
+    "p_intro": "Hey! I'm your coach for Number of Islands. No pressure: we'll work through it together. Read the problem, then tell me in your own words what it's asking. Ask me anything, and ask for a hint whenever you want one.",
+    "p_approach": "Nice. Let's think before coding. What's the simplest solution that works, even if it's slow? Then we'll look for something faster. If you're stuck, just ask for a hint.",
+    "p_code": "Great. Go ahead and code it. Run the tests as often as you like, and I'll help you read any failures.",
+    "p_wrap": "Nice work. Let's review: walk me through your code on the example and tell me the time and space complexity. Then I'll ask how interviewers usually extend this problem."
+  },
+  "plan_prompts": [
+    "What's the brute-force approach, and what's its complexity?",
+    "Can you do better? What would let you avoid repeated work?",
+    "What edge cases are you worried about?"
+  ],
+  "closing_prompts": [
+    "What's the final time and space complexity?",
+    "Which edge cases did you test?"
+  ],
+  "followups": {
+    "problem_understanding": "Before re-solving Number of Islands, write down three clarifying questions (input size, edge cases, output format) and the answer you'd assume for each.",
+    "problem_solving": "Re-solve Number of Islands from scratch in real mode: say the brute force and its complexity first, then the optimal approach (O(R·C) time and space), before writing code.",
+    "correctness": "List the edge cases for Number of Islands (empty input, one element, duplicates, extremes) and run each in Custom input before you submit.",
+    "testing": "Before pressing Run tests, dry-run your code by hand on the example out loud, then try two edge cases in Custom input.",
+    "code_quality": "Rewrite your Number of Islands solution as cleanly as you can in under 15 lines, then explain each line in one sentence.",
+    "communication": "Redo Number of Islands with the mic on and narrate continuously; state the complexity before you start coding."
+  }
+}

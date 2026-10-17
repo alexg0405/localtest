@@ -1,0 +1,30 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_no_fresh_oranges_is_zero_minutes": {
+    "area": "edge",
+    "description": "No fresh oranges takes 0 minutes",
+    "topic": "No fresh oranges"
+  },
+  "test_fresh_with_no_rotten_never_rots": {
+    "area": "edge",
+    "description": "Fresh oranges with no rotten ones return -1",
+    "topic": "Impossible"
+  },
+  "test_several_rotten_oranges_spread_at_the_same_time": {
+    "area": "core",
+    "description": "Several rotten oranges spread at the same time (multi-source BFS)",
+    "topic": "Several rotten oranges"
+  },
+  "test_diagonals_do_not_spread": {
+    "area": "edge",
+    "description": "Rot doesn't spread diagonally"
+  },
+  "test_large_grid_is_fast": {
+    "area": "performance",
+    "description": "A 300x300 grid in under 4 seconds",
+    "topic": "Grid size"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_one_hour_per_pile_means_the_biggest_pile": {
+    "area": "edge",
+    "description": "h equal to the number of piles needs the largest pile's size",
+    "topic": "Hours"
+  },
+  "test_plenty_of_time_means_speed_one": {
+    "area": "edge",
+    "description": "Lots of hours gives speed 1"
+  },
+  "test_single_pile": {
+    "area": "edge",
+    "description": "A single pile (rounding up the hours)",
+    "topic": "Rounding"
+  },
+  "test_answer_is_the_minimum_on_random_inputs": {
+    "area": "core",
+    "description": "The answer is the true minimum on 200 random inputs"
+  },
+  "test_huge_piles_are_fast": {
+    "area": "performance",
+    "description": "10,000 piles of up to 10⁹ bananas in under 3 seconds (needs binary search)",
+    "topic": "Input size"
+  }
+}

@@ -1,0 +1,65 @@
+[
+  {
+    "topic": "No fresh oranges",
+    "important": true,
+    "keywords": [
+      "no fresh",
+      "already",
+      "none fresh",
+      "all rotten",
+      "zero fresh"
+    ],
+    "answer": "If there are no fresh oranges at the start, return 0."
+  },
+  {
+    "topic": "Impossible",
+    "important": true,
+    "keywords": [
+      "impossible",
+      "never",
+      "unreachable",
+      "can't rot",
+      "isolated",
+      "-1"
+    ],
+    "answer": "If any fresh orange can never rot, return -1."
+  },
+  {
+    "topic": "Several rotten oranges",
+    "important": true,
+    "keywords": [
+      "several rotten",
+      "multiple rotten",
+      "more than one rotten",
+      "same time",
+      "simultaneous",
+      "all at once"
+    ],
+    "answer": "Every rotten orange spreads at the same time each minute."
+  },
+  {
+    "topic": "Which neighbors",
+    "important": false,
+    "keywords": [
+      "diagonal",
+      "neighbors",
+      "neighbours",
+      "adjacent",
+      "directions"
+    ],
+    "answer": "Only up, down, left, and right."
+  },
+  {
+    "topic": "Grid size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how big",
+      "large",
+      "constraints",
+      "dimensions",
+      "efficient"
+    ],
+    "answer": "Up to a few hundred rows and columns."
+  }
+]

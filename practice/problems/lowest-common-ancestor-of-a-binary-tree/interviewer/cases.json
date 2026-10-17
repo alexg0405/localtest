@@ -1,0 +1,33 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_a_node_can_be_its_own_ancestor": {
+    "area": "edge",
+    "description": "One node is the ancestor of the other",
+    "topic": "Descendant of itself"
+  },
+  "test_same_node_twice": {
+    "area": "edge",
+    "description": "p and q are the same node"
+  },
+  "test_returns_the_node_not_just_the_value": {
+    "area": "core",
+    "description": "Returns the node object itself"
+  },
+  "test_works_when_values_repeat_across_the_tree": {
+    "area": "edge",
+    "description": "Repeated values: compare nodes, not values",
+    "topic": "Duplicate values"
+  },
+  "test_two_node_tree": {
+    "area": "edge",
+    "description": "A two-node tree"
+  },
+  "test_large_balanced_tree_is_fast": {
+    "area": "performance",
+    "description": "A 65,535-node tree in under 4 seconds",
+    "topic": "Tree size"
+  }
+}

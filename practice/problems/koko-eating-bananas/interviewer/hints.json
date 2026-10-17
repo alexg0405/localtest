@@ -1,0 +1,5 @@
+[
+  "If Koko can finish at speed k, can she also finish at speed k + 1? What does that tell you about the set of speeds that work?",
+  "Speeds that work form a range: everything from the answer upward. So you can binary search the speed between 1 and max(piles).",
+  "For a candidate speed, the hours needed are sum(ceil(p / speed)) = sum((p + speed - 1) // speed). If that's <= h, try slower (high = speed); otherwise go faster (low = speed + 1)."
+]

@@ -130,6 +130,9 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         if interview.meta.get("format") == "amazon-behavioral":
             verify_behavioral_round(interview, home, workspace, scratch, c)
             return
+        if interview.meta.get("format") == "problem":
+            verify_problem(interview, home, python, workspace, scratch, c)
+            return
 
         # 2. Starter defects are detectable.
         visible = run_pytest(python, workspace, ["tests"])
@@ -208,6 +211,77 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         unrelated.unlink()
 
 
+def verify_problem(interview, home: Path, python: str, workspace: Path, scratch: Path, c: Checker) -> None:
+    """A practice problem: the stub fails, the reference passes, and the coach has hints and an approach."""
+    visible = run_pytest(python, workspace, ["tests"])
+    starter = scratch / "starter"
+    build_starter(interview, starter, home)
+    hidden = _hidden_run(python, interview, starter)
+    solved = scratch / "solved"
+    build_starter(interview, solved, home)
+    _overlay(interview.solution, solved)
+    solved_hidden = _hidden_run(python, interview, solved)
+    c.check("starter fails and the reference solution passes every test", visible["failed"] + visible["errors"] > 0 and hidden["passed"] == 0 and solved_hidden["ok"] and solved_hidden["total"] >= 6,
+            f"reference {solved_hidden['passed']}/{solved_hidden['total']}")
+    c.check("three hints, an approach, clarifications, and a speed test", len(interview.hints()) == 3 and interview.approach() and interview.clarifications()
+            and any(info.get("area") == "performance" for info in interview.cases().values()))
+
+
+def verify_problem_workflow(interview, home: Path, c: Checker) -> None:
+    """One problem end to end, in real mode and then in coach mode."""
+    from .server import Lab, make_server
+    print(f"\nPractice problem workflow, real and coach modes [{interview.id}]")
+    server = make_server(Lab(home, api_config=api.ApiConfig(env={})), port=0)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        state = _http(port, "/api/start", {"interview": interview.id, "reset": True, "mode": "real"})
+        c.check("starts in real mode", state["session"]["state"]["mode"] == "real")
+        concept = _http(port, "/api/ask", {"interview": interview.id, "question": "What is a heap?"})["entry"]
+        c.check("the real interviewer doesn't teach concepts", not concept["matched"])
+        hint = _http(port, "/api/hint", {"interview": interview.id})["entry"]
+        c.check("a real-mode hint is a nudge, not the whole answer", hint["answer"].startswith("Sure, here's a nudge") and interview.hints()[0] in hint["answer"])
+        path = interview.meta["editor_files"][0]
+        loaded = _http(port, f"/api/file?interview={interview.id}&path={path}")
+        _http(port, "/api/file", {"interview": interview.id, "path": path, "content": (interview.solution / path).read_text(encoding="utf-8"), "mtime": loaded["mtime"]})
+        real = _http(port, "/api/submit", {"interview": interview.id})["report"]
+        scores = {s["area"]: s["score"] for s in real["scores"]}
+        c.check("a solved real-mode problem scores correctness 5 and shows how to solve it", scores["correctness"] == 5 and real["mode"] == "real" and real["hints_used"] == 1 and real["approach"])
+        c.check("problem rounds score their six areas", [s["area"] for s in real["scores"]] == [a for a, _ in grading.PROBLEM_AREAS])
+
+        _http(port, "/api/start", {"interview": interview.id, "reset": True, "mode": "coach"})
+        concept = _http(port, "/api/ask", {"interview": interview.id, "question": "What is a heap?"})["entry"]
+        c.check("the coach explains concepts", concept["matched"] and "heap" in concept["answer"].lower())
+        clarify = _http(port, "/api/ask", {"interview": interview.id, "question": f"Can there be {interview.clarifications()[1]['keywords'][0]}s?"})["entry"]
+        c.check("the coach praises good clarifying questions", clarify["answer"].startswith("Good question"))
+        hints = [_http(port, "/api/hint", {"interview": interview.id})["entry"]["answer"] for _ in range(4)]
+        c.check("the coach gives all three hints in order, then offers the approach", all(h.startswith(f"Hint {i + 1} of 3") for i, h in enumerate(hints[:3])) and "Show the approach" in hints[3])
+        run = _http(port, "/api/test", {"interview": interview.id})
+        c.check("the coach reacts to failing tests", run["coach"] is not None and run["result"]["failed"] + run["result"]["errors"] > 0)
+        approach = _http(port, "/api/approach", {"interview": interview.id})["entry"]
+        c.check("the coach can show the approach", interview.approach()[:30] in approach["answer"])
+        nudge = _http(port, "/api/nudge", {"interview": interview.id})["entry"]
+        c.check("the coach checks in when you go quiet", nudge is not None and "hint" in nudge["answer"])
+        state = _http(port, "/api/mode", {"interview": interview.id, "mode": "real"})
+        c.check("you can switch modes mid-session", state["session"]["state"]["mode"] == "real" and state["session"]["state"]["mode_changes"])
+        try:
+            _http(port, "/api/approach", {"interview": interview.id})
+            blocked = False
+        except urllib.error.HTTPError:
+            blocked = True
+        c.check("the real interviewer won't show the approach", blocked)
+        _http(port, "/api/mode", {"interview": interview.id, "mode": "coach"})
+        coached = _http(port, "/api/submit", {"interview": interview.id})["report"]
+        solving = next(s for s in coached["scores"] if s["area"] == "problem_solving")
+        c.check("coach-mode reports note hints and cap the score after seeing the approach", coached["hints_used"] == 3 and (solving["score"] is None or solving["score"] <= 3) and "Coach mode" in coached["format_note"])
+        listing = _http(port, "/api/interviews")
+        tile = next(i for i in listing if i["id"] == interview.id)
+        c.check("the lobby shows your last score and mode", tile["last_mode"] == "coach" and tile["last_score"] is not None and tile["format"] == "problem")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def verify_behavioral_round(interview, home: Path, workspace: Path, scratch: Path, c: Checker) -> None:
     from .catalog import leadership_bank
     c.check("no-AI round: the workspace tells the assistant not to help", "Do not help with the exercise" in (workspace / "CLAUDE.md").read_text(encoding="utf-8"))
@@ -279,6 +353,10 @@ def verify_behavioral_workflow(interview, home: Path, c: Checker) -> None:
 def verify_workflow(interview, home: Path, c: Checker) -> None:
     if interview.meta.get("format") == "amazon-behavioral":
         return verify_behavioral_workflow(interview, home, c)
+    if interview.meta.get("format") == "problem":
+        if interview.id == "two-sum":  # one problem end to end; the others share the same machinery
+            verify_problem_workflow(interview, home, c)
+        return
     """The whole session through the dashboard's HTTP API, with API mode off and no key."""
     from .server import Lab, make_server
     print(f"\nDashboard workflow without an API key [{interview.id}]")

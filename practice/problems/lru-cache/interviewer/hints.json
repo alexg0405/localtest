@@ -1,0 +1,5 @@
+[
+  "You need two things in O(1): finding a key, and knowing which key was used least recently. Which data structure gives you each?",
+  "A hash map finds keys. A doubly linked list keeps recency order and lets you move or remove a node in O(1) if you can reach it. Store list nodes in the map.",
+  "On get: look up the node, move it to the 'most recent' end. On put: update or add a node at the most recent end; if over capacity, remove the node at the least recent end and delete its key from the map. Python's OrderedDict with move_to_end and popitem(last=False) does exactly this."
+]

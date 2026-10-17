@@ -1,0 +1,28 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_single_characters": {
+    "area": "edge",
+    "description": "No palindrome longer than one character",
+    "topic": "Ties and short answers"
+  },
+  "test_even_length_palindromes": {
+    "area": "edge",
+    "description": "Even-length palindromes (centers between two characters)"
+  },
+  "test_whole_string_and_repeats": {
+    "area": "edge",
+    "description": "The whole string, and runs of one character"
+  },
+  "test_palindrome_at_the_end": {
+    "area": "edge",
+    "description": "The palindrome runs to the end of the string"
+  },
+  "test_long_input_is_fast": {
+    "area": "performance",
+    "description": "2,000 characters in under 4 seconds (O(n³) is too slow)",
+    "topic": "Input size"
+  }
+}

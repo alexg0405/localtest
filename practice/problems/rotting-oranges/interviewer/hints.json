@@ -1,0 +1,5 @@
+[
+  "Rot spreads one step per minute from every rotten orange at once. Which graph traversal naturally moves outwards one layer at a time?",
+  "BFS, starting with all rotten oranges in the queue together (multi-source BFS). Each layer of the BFS is one minute. Count fresh oranges up front.",
+  "Queue every rotten cell first. While the queue isn't empty and fresh > 0: process exactly len(queue) cells (one minute), rotting fresh neighbors, decrementing fresh, and queuing them; then minutes += 1. At the end, return minutes if fresh == 0 else -1."
+]

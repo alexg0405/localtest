@@ -1,0 +1,5 @@
+[
+  "When is it impossible? Think about the most frequent character and how many gaps it needs.",
+  "It's impossible exactly when the most common character appears more than (n + 1) // 2 times. Otherwise, a greedy approach works: always place the most frequent remaining character that's different from the last one you placed.",
+  "Two ways to build it: (1) a max-heap of (-count, char): pop the top, and if it equals the last character pop the next one instead, then push them back with updated counts. (2) Sort by frequency and fill indices 0, 2, 4, … then 1, 3, 5, …"
+]

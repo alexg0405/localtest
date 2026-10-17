@@ -1,0 +1,5 @@
+[
+  "For each number x, which other number would complete the pair? How quickly could you check whether you've already seen it?",
+  "Scan left to right and keep a hash map from each value you've seen to its index.",
+  "For index i, compute need = target - nums[i]. If need is in the map, return [map[need], i]. Otherwise store map[nums[i]] = i and keep going. Checking before storing handles the 'same element twice' rule."
+]

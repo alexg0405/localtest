@@ -1,0 +1,65 @@
+[
+  {
+    "topic": "Which order",
+    "important": true,
+    "keywords": [
+      "which order",
+      "any order",
+      "unique",
+      "multiple orders",
+      "several",
+      "specific"
+    ],
+    "answer": "Any valid order is fine."
+  },
+  {
+    "topic": "Cycles",
+    "important": true,
+    "keywords": [
+      "cycle",
+      "circular",
+      "impossible",
+      "loop",
+      "itself",
+      "can't finish"
+    ],
+    "answer": "If the prerequisites contain a cycle (including a course that requires itself), return an empty list."
+  },
+  {
+    "topic": "Pair direction",
+    "important": true,
+    "keywords": [
+      "[a, b]",
+      "direction",
+      "which way",
+      "a before b",
+      "b before a",
+      "means"
+    ],
+    "answer": "[a, b] means take b first, then a."
+  },
+  {
+    "topic": "Duplicates",
+    "important": false,
+    "keywords": [
+      "duplicate",
+      "same pair",
+      "repeated",
+      "twice"
+    ],
+    "answer": "The same pair can appear more than once."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "constraints",
+      "efficient",
+      "courses"
+    ],
+    "answer": "Up to 100,000 courses and prerequisites."
+  }
+]

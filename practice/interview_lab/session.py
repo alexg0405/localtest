@@ -62,7 +62,7 @@ class Sessions:
         end = state.get("submitted_at") or (state["paused_at"] if state.get("paused_at") else self.clock())
         return max(0.0, end - state["started_at"] - state.get("paused_total", 0.0))
 
-    def start(self, interview: Interview, reset: bool = False) -> Dict[str, Any]:
+    def start(self, interview: Interview, reset: bool = False, mode: str = "real") -> Dict[str, Any]:
         """Starts (or restarts) the session. With reset, the workspace goes back to the starter first."""
         with LOCK:
             workspace = workspace_path(interview, self.home)
@@ -88,6 +88,10 @@ class Sessions:
                 "api_usage": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
                 "submitted_at": None,
                 "restarts": previous.get("restarts", -1) + 1,
+                "mode": "coach" if mode == "coach" else "real",
+                "mode_changes": [],
+                "hints": [],
+                "approach_revealed": False,
             }
             if reset_report:
                 state["last_reset"] = reset_report
@@ -198,7 +202,7 @@ class Sessions:
             raise SessionError("Type a question first.")
         with LOCK:
             state = self._require(interview.id)
-            reply = interviewer.answer(interview, question, state.get("change_revealed_at") is not None)
+            reply = interviewer.answer(interview, question, state.get("change_revealed_at") is not None, state.get("mode", "real"))
             entry = {"at": round(self.elapsed(state), 1), "question": question[:2000], **reply, "source": "offline", "voice": voice}
             state["questions"].append(entry)
             self.save(state)
@@ -229,7 +233,7 @@ class Sessions:
 
     def cue(self, interview: Interview, name: str) -> Optional[Dict[str, Any]]:
         """The interviewer's line for a point in the session, said once per session."""
-        lines = interviewer.cues_for(interview)
+        lines = interviewer.cues_for(interview, (self.load(interview.id) or {}).get("mode", "real"))
         if name not in lines:
             raise SessionError(f"Unknown cue {name!r}.")
         with LOCK:
@@ -307,6 +311,80 @@ class Sessions:
             flow["answers"][-1]["prompts"].append(text)
             flow["awaiting"] = True
             entry = self._interviewer_message(state, text, kind)
+            self.save(state)
+            return entry
+
+    # Real interview or coach: the coach gives hints freely, explains failures, and can show the approach.
+
+    def set_mode(self, interview: Interview, mode: str) -> Dict[str, Any]:
+        mode = "coach" if mode == "coach" else "real"
+        with LOCK:
+            state = self._require(interview.id)
+            if state.get("mode", "real") != mode:
+                state["mode"] = mode
+                state.setdefault("mode_changes", []).append({"at": round(self.elapsed(state), 1), "mode": mode})
+                self._interviewer_message(state, "Switching to coach mode. I'll help you along: ask for hints any time, and I'll help you read failing tests." if mode == "coach"
+                                          else "Switching to real interview mode. From here I'll behave like a real interviewer, and hints will count against you.", f"mode:{mode}")
+                self.save(state)
+            return state
+
+    def hint(self, interview: Interview) -> Dict[str, Any]:
+        hints = interview.hints()
+        with LOCK:
+            state = self._require(interview.id)
+            used = state.setdefault("hints", [])
+            coach = state.get("mode") == "coach"
+            if len(used) >= len(hints):
+                text = ("That's all my hints. If you want, open the menu and choose Show the approach, and I'll walk you through the whole solution." if coach
+                        else "That's as much as I can give you. Try to take it from there, and tell me what you're thinking.")
+                return self._interviewer_message(state, text, "hint:none")
+            level = len(used)
+            used.append({"at": round(self.elapsed(state), 1), "level": level + 1, "mode": state.get("mode", "real")})
+            prefix = f"Hint {level + 1} of {len(hints)}: " if coach else "Sure, here's a nudge. "
+            entry = self._interviewer_message(state, prefix + hints[level], f"hint:{level + 1}")
+            self.save(state)
+            return entry
+
+    def reveal_approach(self, interview: Interview) -> Dict[str, Any]:
+        with LOCK:
+            state = self._require(interview.id)
+            if state.get("mode") != "coach":
+                raise SessionError("Switch to coach mode to see the approach. A real interviewer won't show it.")
+            state["approach_revealed"] = True
+            entry = self._interviewer_message(state, "Here's how I'd solve it. Read it, then try writing it yourself without looking.\n\n" + interview.approach(), "approach")
+            self.save(state)
+            return entry
+
+    def coach_on_tests(self, interview: Interview, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """In coach mode, the interviewer reacts to a test run: what failed and what to try, or what to check next."""
+        with LOCK:
+            state = self._require(interview.id)
+            if state.get("mode") != "coach" or interview.meta.get("format") != "problem":
+                return None
+            cases = interview.cases()
+            failing = [c for c in result.get("cases", []) if c["outcome"] != "passed"]
+            if failing:
+                case = failing[0]
+                about = cases.get(case["base"], {}).get("description", case["base"])
+                if "NotImplementedError" in case["message"]:
+                    text = "The tests fail because the function isn't written yet. Talk me through your plan first, and code the simplest version that handles the example."
+                else:
+                    text = f"{about} failed: {case['message']}. Try that input in Custom input and print what your code returns, then compare it with what you expected by hand. Want a hint?"
+            elif result.get("total"):
+                edges = [info["description"] for info in cases.values() if info.get("area") in ("edge", "performance")][:3]
+                text = "All the example tests pass, nice! Before you submit, think about: " + "; ".join(edges) + "." if edges else "All the tests pass, nice!"
+            else:
+                return None
+            entry = self._interviewer_message(state, text, "coach:tests")
+            self.save(state)
+            return entry
+
+    def coach_nudge(self, interview: Interview) -> Optional[Dict[str, Any]]:
+        with LOCK:
+            state = self._require(interview.id)
+            if state.get("mode") != "coach":
+                return None
+            entry = self._interviewer_message(state, "How's it going? Tell me what you're thinking right now, or ask for a hint if you're stuck. It's fine to start with the slow version.", "coach:nudge")
             self.save(state)
             return entry
 

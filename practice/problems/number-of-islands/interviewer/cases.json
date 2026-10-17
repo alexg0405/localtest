@@ -1,0 +1,38 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_example": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_all_water_and_empty": {
+    "area": "edge",
+    "description": "All water, and an empty grid",
+    "topic": "Empty grid"
+  },
+  "test_one_big_island": {
+    "area": "edge",
+    "description": "The whole grid is one island"
+  },
+  "test_diagonals_do_not_connect": {
+    "area": "edge",
+    "description": "Diagonal neighbors don't connect",
+    "topic": "Which neighbors"
+  },
+  "test_winding_island": {
+    "area": "core",
+    "description": "A winding island counts once"
+  },
+  "test_large_island_does_not_overflow_the_stack": {
+    "area": "edge",
+    "description": "A 200x200 island doesn't overflow Python's recursion limit",
+    "topic": "Grid size"
+  },
+  "test_large_random_grid_is_fast": {
+    "area": "performance",
+    "description": "A 400x400 random grid in under 5 seconds",
+    "topic": "Grid size"
+  }
+}

@@ -1,0 +1,5 @@
+[
+  "Think recursively: what should a call on a subtree tell its parent about whether p or q are inside it?",
+  "Let each call return p or q if it finds one of them (or the answer, if it already found both). If a node gets a non-empty result from both its left and right subtrees, that node is the lowest common ancestor.",
+  "Base case: if root is None or root is p or root is q, return root. Recurse left and right. If both results are non-empty, return root; otherwise return whichever one is non-empty."
+]

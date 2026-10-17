@@ -11,6 +11,8 @@ from typing import Any, Dict, List
 
 LAB_ROOT = Path(__file__).resolve().parent.parent
 INTERVIEWS_DIR = LAB_ROOT / "interviews"
+PROBLEMS_DIR = LAB_ROOT / "problems"  # single-problem practice rounds
+CONCEPTS = PROBLEMS_DIR / "_concepts.json"  # what the coach can explain
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-final-1", "amazon-final-2", "amazon-behavioral"]
 LP_BANK = INTERVIEWS_DIR / "_amazon" / "leadership_principles.json"  # interviewer-only: questions, follow-ups, signals
@@ -119,17 +121,28 @@ class Interview:
         """Leadership Principles questions with their follow-ups (interviewer-only: which principle each probes)."""
         return self._json("behavioral.json", [])
 
+    def hints(self) -> List[str]:
+        return self._json("hints.json", [])
+
+    def approach(self) -> str:
+        return self._text("approach.md")
+
     def task(self) -> str:
         return (self.starter / "README.md").read_text(encoding="utf-8")
 
     def public(self) -> Dict[str, Any]:
         """What the dashboard may show before submission: nothing from the interviewer folder."""
-        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes", "company", "format", "note_tabs", "tags", "editor_files", "custom_input")
+        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes", "company", "format", "note_tabs", "tags", "editor_files", "custom_input", "number", "difficulty", "leetcode")
         public = {key: self.meta.get(key) for key in keys}
         public["ai_allowed"] = self.ai_allowed
         public["run_tests_allowed"] = self.meta.get("run_tests_allowed", True)
         public["phases"] = [{k: p[k] for k in ("start", "end", "name", "kind") if k in p} for p in self.phases()]
+        public["hint_count"] = len(self.hints())
         return public
+
+
+def concepts() -> List[Dict[str, Any]]:
+    return json.loads(CONCEPTS.read_text(encoding="utf-8")) if CONCEPTS.exists() else []
 
 
 def all_interviews() -> List[Interview]:
@@ -137,7 +150,12 @@ def all_interviews() -> List[Interview]:
     for meta_path in INTERVIEWS_DIR.glob("*/interview.json"):
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         found[meta["id"]] = Interview(id=meta["id"], root=meta_path.parent, meta=meta)
-    return [found[i] for i in ORDER if i in found] + [found[i] for i in sorted(found) if i not in ORDER]
+    problems = []
+    for meta_path in PROBLEMS_DIR.glob("*/interview.json"):
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        problems.append(Interview(id=meta["id"], root=meta_path.parent, meta=meta))
+    problems.sort(key=lambda interview: interview.meta.get("order", 0))
+    return [found[i] for i in ORDER if i in found] + [found[i] for i in sorted(found) if i not in ORDER] + problems
 
 
 def get_interview(interview_id: str) -> Interview:

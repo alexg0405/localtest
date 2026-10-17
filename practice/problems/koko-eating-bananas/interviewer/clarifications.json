@@ -1,0 +1,53 @@
+[
+  {
+    "topic": "Hours",
+    "important": true,
+    "keywords": [
+      "h less",
+      "fewer hours",
+      "h >=",
+      "enough hours",
+      "always possible",
+      "h is"
+    ],
+    "answer": "h is always at least the number of piles, so there's always an answer."
+  },
+  {
+    "topic": "Rounding",
+    "important": true,
+    "keywords": [
+      "partial",
+      "rest of the hour",
+      "round",
+      "fewer than k",
+      "leftover",
+      "ceiling"
+    ],
+    "answer": "If a pile has fewer than k left, she finishes it and the rest of that hour is wasted. So a pile takes ceil(pile / k) hours."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how big",
+      "large",
+      "constraints",
+      "max",
+      "efficient",
+      "range"
+    ],
+    "answer": "Up to 10,000 piles, each up to a billion bananas, and h up to a billion."
+  },
+  {
+    "topic": "Speed values",
+    "important": false,
+    "keywords": [
+      "integer",
+      "whole",
+      "fraction",
+      "decimal"
+    ],
+    "answer": "k must be a positive whole number."
+  }
+]

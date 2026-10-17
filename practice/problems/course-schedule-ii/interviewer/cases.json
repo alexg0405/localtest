@@ -1,0 +1,39 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_no_prerequisites": {
+    "area": "edge",
+    "description": "No prerequisites at all",
+    "topic": "Which order"
+  },
+  "test_branching_prerequisites": {
+    "area": "core",
+    "description": "A course with several prerequisites"
+  },
+  "test_self_prerequisite_is_impossible": {
+    "area": "edge",
+    "description": "A course that requires itself is impossible",
+    "topic": "Cycles"
+  },
+  "test_cycle_in_one_part_of_the_graph": {
+    "area": "edge",
+    "description": "A cycle in one part of the graph makes it impossible",
+    "topic": "Cycles"
+  },
+  "test_duplicate_prerequisites": {
+    "area": "edge",
+    "description": "The same prerequisite listed twice",
+    "topic": "Duplicates"
+  },
+  "test_random_dags_have_valid_orders": {
+    "area": "core",
+    "description": "Valid orders for 50 random acyclic graphs"
+  },
+  "test_long_chain_is_fast": {
+    "area": "performance",
+    "description": "A 100,000-course chain in under 4 seconds (and no recursion-limit crash)",
+    "topic": "Input size"
+  }
+}

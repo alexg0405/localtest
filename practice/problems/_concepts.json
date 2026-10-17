@@ -1,0 +1,232 @@
+[
+  {
+    "topic": "Hash maps",
+    "important": false,
+    "keywords": [
+      "hash map",
+      "hashmap",
+      "dictionary",
+      "dict",
+      "hash table",
+      "lookup"
+    ],
+    "answer": "A hash map (a dict in Python) stores key-value pairs with O(1) average lookup, insert, and delete. Reach for it whenever you need to remember what you've seen and find it again quickly, like a value's index or a count."
+  },
+  {
+    "topic": "Sets",
+    "important": false,
+    "keywords": [
+      "set",
+      "membership",
+      "seen set"
+    ],
+    "answer": "A set stores unique items with O(1) average membership checks. Use it for 'have I seen this before?' when you don't need a value attached."
+  },
+  {
+    "topic": "Heaps",
+    "important": false,
+    "keywords": [
+      "heap",
+      "priority queue",
+      "heapq",
+      "min-heap",
+      "max-heap",
+      "min heap",
+      "max heap"
+    ],
+    "answer": "A heap keeps its smallest item at index 0. In Python, heapq.heappush and heapq.heappop are O(log n), and peeking at heap[0] is O(1). For a max-heap, push negated values. Use it when you repeatedly need the smallest or largest item, or the top k."
+  },
+  {
+    "topic": "Sliding window and two pointers",
+    "important": false,
+    "keywords": [
+      "sliding window",
+      "window",
+      "two pointer",
+      "two pointers",
+      "two-pointer"
+    ],
+    "answer": "Two indices move forward through the input: the right one grows the window and the left one shrinks it when a rule breaks. Each index moves at most n times, so it's O(n). It works when extending or shrinking the window changes the condition predictably, which usually means no negative numbers."
+  },
+  {
+    "topic": "Binary search",
+    "important": false,
+    "keywords": [
+      "binary search",
+      "bisect",
+      "log n",
+      "halve",
+      "halving"
+    ],
+    "answer": "Binary search halves the search range each step, so it takes O(log n). It needs something monotonic: a sorted list, or a yes/no question whose answer flips once, like 'can she finish at speed k?'. Watch the loop condition (low <= high versus low < high) and how you move low and high."
+  },
+  {
+    "topic": "BFS",
+    "important": false,
+    "keywords": [
+      "bfs",
+      "breadth first",
+      "breadth-first",
+      "level order",
+      "shortest path"
+    ],
+    "answer": "Breadth-first search explores in layers using a queue (collections.deque). On an unweighted graph or grid, the first time BFS reaches a node is by a shortest path. Mark nodes visited when you add them to the queue, not when you pop them."
+  },
+  {
+    "topic": "DFS and recursion",
+    "important": false,
+    "keywords": [
+      "dfs",
+      "depth first",
+      "depth-first",
+      "recursion",
+      "recursive",
+      "recursion limit",
+      "stack overflow"
+    ],
+    "answer": "Depth-first search goes as deep as possible before backtracking, using recursion or an explicit stack. In Python, the default recursion limit is about 1,000 calls, so for big grids or long chains use an explicit stack or queue instead."
+  },
+  {
+    "topic": "Topological sort",
+    "important": false,
+    "keywords": [
+      "topological",
+      "topo sort",
+      "kahn",
+      "in-degree",
+      "indegree",
+      "dependency order"
+    ],
+    "answer": "A topological order lists a directed graph's nodes so every edge points forwards. Kahn's algorithm repeatedly takes a node with no remaining incoming edges (in-degree 0); if some nodes are never taken, the graph has a cycle. It's O(V + E)."
+  },
+  {
+    "topic": "Prefix sums",
+    "important": false,
+    "keywords": [
+      "prefix sum",
+      "prefix sums",
+      "running sum",
+      "cumulative sum"
+    ],
+    "answer": "A prefix sum P[i] is the sum of the first i elements, so the sum of nums[i..j] is P[j + 1] − P[i]. Pairing prefix sums with a hash map of counts finds subarrays with a given sum in O(n)."
+  },
+  {
+    "topic": "Big-O and complexity",
+    "important": false,
+    "keywords": [
+      "big o",
+      "big-o",
+      "complexity",
+      "time complexity",
+      "space complexity",
+      "o(n)",
+      "o(1)",
+      "o(n^2)",
+      "how fast"
+    ],
+    "answer": "Big-O describes how time or memory grows with input size, ignoring constants. Rough guide for Python: about 10 million simple operations per second, so for n = 100,000, O(n log n) is fine and O(n²) is not. Always give both time and space."
+  },
+  {
+    "topic": "Sorting",
+    "important": false,
+    "keywords": [
+      "sort",
+      "sorting",
+      "sorted",
+      "timsort"
+    ],
+    "answer": "Python's sorted() and list.sort() are O(n log n) and stable. Sorting first often makes a problem easier: overlaps become neighbors, and duplicates end up next to each other."
+  },
+  {
+    "topic": "Deques and queues",
+    "important": false,
+    "keywords": [
+      "deque",
+      "queue",
+      "popleft"
+    ],
+    "answer": "collections.deque gives O(1) appends and pops at both ends. Use it as the queue for BFS; list.pop(0) is O(n)."
+  },
+  {
+    "topic": "Linked lists",
+    "important": false,
+    "keywords": [
+      "linked list",
+      "doubly linked",
+      "node",
+      "pointer"
+    ],
+    "answer": "A doubly linked list lets you remove or move a node in O(1) if you already have a reference to it, which pairs well with a hash map from keys to nodes (as in an LRU cache). Sentinel head and tail nodes remove most edge cases."
+  },
+  {
+    "topic": "OrderedDict",
+    "important": false,
+    "keywords": [
+      "ordereddict",
+      "ordered dict",
+      "move_to_end",
+      "popitem"
+    ],
+    "answer": "collections.OrderedDict remembers insertion order and supports move_to_end(key) and popitem(last=False) in O(1). Under the hood it's a hash map plus a doubly linked list."
+  },
+  {
+    "topic": "Greedy algorithms",
+    "important": false,
+    "keywords": [
+      "greedy",
+      "locally optimal"
+    ],
+    "answer": "A greedy algorithm makes the best-looking choice at each step and never revisits it. It's fast, but you need a reason it's correct; in an interview, explain why the local choice can't hurt."
+  },
+  {
+    "topic": "Dynamic programming",
+    "important": false,
+    "keywords": [
+      "dynamic programming",
+      "dp",
+      "memo",
+      "memoization",
+      "subproblem"
+    ],
+    "answer": "Dynamic programming breaks a problem into overlapping subproblems and stores their answers, top-down with memoization or bottom-up with a table. Define the state, the transition, and the base case out loud before coding."
+  },
+  {
+    "topic": "Edge cases and testing",
+    "important": false,
+    "keywords": [
+      "edge case",
+      "edge cases",
+      "how to test",
+      "what to test",
+      "test cases",
+      "corner case"
+    ],
+    "answer": "Good tests to try: the example, empty input, one element, all elements the same, duplicates, negatives or zero, the largest input, and anything mentioned in the constraints. Run them in Custom input before you submit."
+  },
+  {
+    "topic": "How to start",
+    "important": false,
+    "keywords": [
+      "how do i start",
+      "where do i start",
+      "how should i start",
+      "approach this",
+      "stuck",
+      "don't know where",
+      "no idea"
+    ],
+    "answer": "Start by restating the problem and working through a tiny example by hand. Then describe the brute-force solution and its complexity, find the repeated work, and ask which data structure would avoid it. Talking that out loud is exactly what interviewers want."
+  },
+  {
+    "topic": "What interviewers look for",
+    "important": false,
+    "keywords": [
+      "interviewers look",
+      "what do interviewers",
+      "how am i doing",
+      "tips",
+      "advice"
+    ],
+    "answer": "They look for clarifying questions, a clear plan before code, stated complexity, readable code, and testing with examples, all while you think out loud. Getting stuck is normal; how you reason through it counts."
+  }
+]

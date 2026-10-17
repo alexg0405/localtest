@@ -1,0 +1,33 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_empty_and_single": {
+    "area": "edge",
+    "description": "Empty and one-character strings",
+    "topic": "Empty input"
+  },
+  "test_window_start_never_moves_backwards": {
+    "area": "edge",
+    "description": "\"abba\": the window's start never moves backwards"
+  },
+  "test_restart_in_the_middle": {
+    "area": "edge",
+    "description": "\"dvdf\": restarting right after the repeat, not after the first character"
+  },
+  "test_spaces_and_symbols_count_as_characters": {
+    "area": "edge",
+    "description": "Spaces and symbols are characters too",
+    "topic": "Which characters"
+  },
+  "test_all_distinct": {
+    "area": "edge",
+    "description": "A string with no repeats at all"
+  },
+  "test_long_input_is_fast": {
+    "area": "performance",
+    "description": "200,000 characters with long windows in under 3 seconds (needs O(n))",
+    "topic": "Input size"
+  }
+}

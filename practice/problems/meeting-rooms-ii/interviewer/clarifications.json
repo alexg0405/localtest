@@ -1,0 +1,51 @@
+[
+  {
+    "topic": "Back-to-back meetings",
+    "important": true,
+    "keywords": [
+      "back to back",
+      "back-to-back",
+      "end at",
+      "ends when",
+      "same time",
+      "touch",
+      "inclusive",
+      "exclusive",
+      "end equals"
+    ],
+    "answer": "A room is used from start up to, but not including, end. So a meeting ending at 10 frees the room for one starting at 10."
+  },
+  {
+    "topic": "Sorted input",
+    "important": true,
+    "keywords": [
+      "sorted",
+      "order",
+      "unsorted",
+      "already"
+    ],
+    "answer": "The meetings aren't sorted."
+  },
+  {
+    "topic": "Empty input",
+    "important": true,
+    "keywords": [
+      "empty",
+      "no meetings",
+      "zero"
+    ],
+    "answer": "The list can be empty; return 0."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "constraints",
+      "efficient"
+    ],
+    "answer": "Up to a few hundred thousand meetings."
+  }
+]

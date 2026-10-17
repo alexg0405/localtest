@@ -1,0 +1,5 @@
+[
+  "If the intervals were sorted by start, which intervals could possibly overlap with a given one?",
+  "Sort by start. Then each interval either overlaps the last merged interval or starts a new one.",
+  "After sorting: if start <= merged[-1][1], set merged[-1][1] = max(merged[-1][1], end); otherwise append [start, end]. The max matters when a short interval sits inside a longer one."
+]

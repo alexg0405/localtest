@@ -113,7 +113,15 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 action = urlparse(self.path).path
                 sessions = lab.sessions
                 if action == "/api/start":
-                    sessions.start(interview, reset=bool(body.get("reset")))
+                    sessions.start(interview, reset=bool(body.get("reset")), mode=str(body.get("mode", "real")))
+                elif action == "/api/mode":
+                    sessions.set_mode(interview, str(body.get("mode", "real")))
+                elif action == "/api/hint":
+                    return self._json(200, {"entry": sessions.hint(interview)})
+                elif action == "/api/approach":
+                    return self._json(200, {"entry": sessions.reveal_approach(interview)})
+                elif action == "/api/nudge":
+                    return self._json(200, {"entry": sessions.coach_nudge(interview)})
                 elif action == "/api/pause":
                     sessions.pause(interview)
                 elif action == "/api/resume":
@@ -183,7 +191,11 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
 
         def _summary(self, interview) -> Dict[str, Any]:
             state = lab.sessions.load(interview.id)
+            report, _ = grading.latest_report(interview, lab.home)
+            grading_tests = (report or {}).get("tests", {}).get("grading") or {}
+            best = round(100 * grading_tests["passed"] / grading_tests["total"]) if grading_tests.get("total") else None
             return {**interview.public(), "status": state["status"] if state else "not started",
+                    "mode": (state or {}).get("mode", "real"), "last_score": best, "last_mode": (report or {}).get("mode"),
                     "workspace_exists": bool(read_marker(workspace_path(interview, lab.home)))}
 
         def _state(self, interview) -> Dict[str, Any]:
@@ -269,9 +281,11 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             if not interview.meta.get("run_tests_allowed", True):
                 raise ValueError("This round simulates an editor that can't run code: dry-run your solution by hand. Grading runs it after you submit.")
             result = run_pytest(test_python(lab.home), workspace, ["tests"])
+            coach = None
             if lab.sessions.load(interview.id):
                 lab.sessions.record_test_run(interview, summary(result))
-            return {"result": {**summary(result), "output": result["output"], "cases": [{"name": c["id"].split("::", 1)[-1] if not c["collection_error"] else c["name"], "outcome": c["outcome"], "message": c["message"]} for c in result["cases"]]}}
+                coach = lab.sessions.coach_on_tests(interview, result)
+            return {"coach": coach, "result": {**summary(result), "output": result["output"], "cases": [{"name": c["id"].split("::", 1)[-1] if not c["collection_error"] else c["name"], "outcome": c["outcome"], "message": c["message"]} for c in result["cases"]]}}
 
         def _packet(self, interview, kind: str) -> str:
             if kind == "interviewer":

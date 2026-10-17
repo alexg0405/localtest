@@ -1,0 +1,28 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The examples from the problem"
+  },
+  "test_not_rotated": {
+    "area": "edge",
+    "description": "A list that wasn't rotated at all",
+    "topic": "Rotation"
+  },
+  "test_target_at_the_rotation_point": {
+    "area": "edge",
+    "description": "The target is at the rotation point"
+  },
+  "test_one_and_two_elements": {
+    "area": "edge",
+    "description": "One- and two-element lists"
+  },
+  "test_every_rotation_and_target": {
+    "area": "core",
+    "description": "Every rotation of a 20-element list, every target"
+  },
+  "test_many_searches_on_a_large_list_are_fast": {
+    "area": "performance",
+    "description": "5,000 searches in a million-element list in under 2 seconds (needs O(log n))",
+    "topic": "Input size"
+  }
+}

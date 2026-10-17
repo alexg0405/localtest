@@ -1,0 +1,64 @@
+[
+  {
+    "topic": "Which neighbors",
+    "important": true,
+    "keywords": [
+      "diagonal",
+      "neighbors",
+      "neighbours",
+      "adjacent",
+      "connected",
+      "directions"
+    ],
+    "answer": "Only up, down, left, and right. Diagonals don't connect."
+  },
+  {
+    "topic": "Empty grid",
+    "important": true,
+    "keywords": [
+      "empty",
+      "no rows",
+      "zero rows"
+    ],
+    "answer": "The grid can be empty; return 0."
+  },
+  {
+    "topic": "Modifying the grid",
+    "important": false,
+    "keywords": [
+      "modify",
+      "mutate",
+      "change the grid",
+      "overwrite",
+      "in place"
+    ],
+    "answer": "You may modify the grid, but say so. In real code you'd usually copy it or keep a visited set."
+  },
+  {
+    "topic": "Grid size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how big",
+      "large",
+      "constraints",
+      "dimensions",
+      "rows",
+      "efficient",
+      "recursion"
+    ],
+    "answer": "Up to a few hundred rows and columns, which is big enough to break deep recursion in Python."
+  },
+  {
+    "topic": "Cell values",
+    "important": false,
+    "keywords": [
+      "string",
+      "integer",
+      "char",
+      "values",
+      "type"
+    ],
+    "answer": "Cells are the strings \"1\" and \"0\"."
+  }
+]

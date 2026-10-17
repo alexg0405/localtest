@@ -50,11 +50,19 @@ BEHAVIORAL_AREAS = [
     ("self_awareness", "Self-awareness and learning"),
     ("communication", "Communication and pacing"),
 ]
-LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS)}
+PROBLEM_AREAS = [
+    ("problem_understanding", "Problem understanding"),
+    ("problem_solving", "Problem solving and complexity"),
+    ("correctness", "Correctness and edge cases"),
+    ("testing", "Testing and verification"),
+    ("code_quality", "Code quality"),
+    ("communication", "Communication"),
+]
+LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS), **dict(PROBLEM_AREAS)}
 
 
 def areas_for(interview: Interview):
-    return {"amazon-final": AMAZON_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS}.get(interview.meta.get("format"), AREAS)
+    return {"amazon-final": AMAZON_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS}.get(interview.meta.get("format"), AREAS)
 
 
 def _behavioral_scores(interview, state, notes) -> Dict[str, Any]:
@@ -561,7 +569,8 @@ def _score_amazon_communication(interview, state, notes):
         ("thought out loud while coding (100+ words)", len(narrated.split()) >= 100),
         ("explained the approach before coding", re.search(r"\b(my approach|i('ll| will| am going to| want to)|the idea is|plan is|first i|i think we can)\b", (narrated + " " + notes["plan"]).lower())),
         ("walked through an example or dry run", re.search(r"\b(dry run|walk(ing)? through|trace|let's try|for example|example)\b", (narrated + " " + notes["explanation"]).lower())),
-        ("asked the interviewer questions at the end", bool(their_questions)),
+        ("asked the interviewer questions at the end", bool(their_questions)) if interview.meta.get("format") != "problem" else
+        ("stated the complexity out loud", re.search(r"\bo\(|big[- ]o|\blinear\b|\blog(arithmic)?\b|n log|quadratic|constant (time|space)", narrated.lower()) is not None),
     ]
     present = [label for label, ok in checks if ok]
     missing = [label for label, ok in checks if not ok]
@@ -675,8 +684,9 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
     }
     context = {"interview": interview, "coverage": coverage, "prompt_missing": prompt_missing, "patch": patch, "tests": tests, "smells": smells, "communication_missing": communication_missing}
     amazon = interview.meta.get("format") == "amazon-final"
-    if amazon:
-        lp_score, lp_evidence, context["leadership_missing"] = _score_leadership(interview, state)
+    problem = interview.meta.get("format") == "problem"
+    if amazon or problem:
+        lp_score, lp_evidence, context["leadership_missing"] = _score_leadership(interview, state) if amazon else (None, [], [])
         ps_score, ps_evidence, context["solving_missing"] = _score_problem_solving(interview, notes, runs)
         cm_score, cm_evidence, context["communication_missing"] = _score_amazon_communication(interview, state, notes)
         dry_run = re.search(r"\b(dry run|walk(ing)? through|trace|let's try|for example|edge case)", (notes["spoken"] + " " + notes["explanation"]).lower())
@@ -684,6 +694,17 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         te_score = _clamp((te_score or 1) + (1 if dry_run else 0) + (1 if test_runs or code_runs else 0))
         te_evidence = te_evidence + (["You walked through an example or edge case by hand."] if dry_run else ["No dry run was said or written. Interviewers expect you to trace the example before running anything."])
         te_evidence.append(f"Ran the tests {len(test_runs)} time(s) and your own code {len(code_runs)} time(s) in the editor." if test_runs or code_runs else "Never ran the tests or your own code in the editor.")
+        if problem:
+            # Hints: noted in coach mode; in real mode, leaning on them lowers the problem-solving score.
+            hints, coached = state.get("hints", []), state.get("mode") == "coach"
+            real_hints = [h for h in hints if h.get("mode") != "coach"]
+            if hints:
+                ps_evidence = ps_evidence + [f"Used {len(hints)} of {len(interview.hints())} hints" + (f" ({len(real_hints)} in real mode, which lowers this score)." if real_hints else " in coach mode (not penalized).")]
+            if real_hints and ps_score is not None:
+                ps_score = _clamp(ps_score - (len(real_hints) - 1 if len(real_hints) > 1 else 0) - (1 if len(real_hints) >= len(interview.hints()) else 0))
+            if state.get("approach_revealed") and ps_score is not None:
+                ps_score = min(ps_score, 3)
+                ps_evidence = ps_evidence + ["You opened the reference approach, so this score is capped at 3. Re-solve it in real mode to earn the rest."]
         scores.update({"leadership": (lp_score, lp_evidence), "problem_solving": (ps_score, ps_evidence), "communication": (cm_score, cm_evidence), "testing": (te_score, te_evidence)})
     if behavioral_only:
         scores.update(_behavioral_scores(interview, state, notes))
@@ -737,7 +758,12 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         "improvements": improvements,
         "follow_up": follow_up,
         "patch_review": {"found": patch["found"], "needed": patch["needed"], "answer": patch["expected"]} if patch["expected"] else None,
-        "format_note": "No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only else None,
+        "format_note": ("No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only
+                        else (f"Coach mode: you used {len(state.get('hints', []))} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}. Try it again in real mode once it feels easy." if problem and state.get("mode") == "coach"
+                              else (f"Real mode: {len(state.get('hints', []))} hint(s) used." if problem else None))),
+        "mode": state.get("mode", "real") if problem else None,
+        "hints_used": len(state.get("hints", [])) if problem else None,
+        "approach": interview.approach() if problem else None,
         "lp_breakdown": lp_breakdown(interview, state) if amazon or behavioral_only else None,
         "behavioral_only": behavioral_only,
         "changed_files": [{"path": f["path"], "status": f["status"], "added": len(f["added_lines"]), "removed": len(f["removed_lines"])} for f in raw_diff["files"]],
@@ -802,8 +828,11 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
     auto = "\n".join(f"- {s['label']}: {s['score'] if s['score'] is not None else 'not observed'}" for s in report["scores"])
     amazon = interview.meta.get("format") == "amazon-final"
     area_names = ", ".join(label for _, label in areas_for(interview))
-    setting = ("This is a simulated Amazon SDE intern final-round interview with no AI assistant (Amazon tells candidates not to use GenAI during interviews). It has Leadership Principles questions with follow-ups, then a coding problem in a plain editor without running code."
-               if amazon else "The candidate used an AI coding assistant (Claude Code), which is allowed and expected.")
+    problem = interview.meta.get("format") == "problem"
+    hints = state.get("hints", [])
+    setting = ("This is a simulated Amazon SDE intern final-round interview with no AI assistant (Amazon tells candidates not to use GenAI during interviews). It has Leadership Principles questions with follow-ups, then a coding problem in an editor that can run tests."
+               if amazon else (f"This is a single-problem practice round with no AI assistant, in {state.get('mode', 'real')} mode. The candidate used {len(hints)} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}." if problem
+                               else "The candidate used an AI coding assistant (Claude Code), which is allowed and expected."))
     ai_rule = "- Judge Leadership Principles answers on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon else "- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant."
     behavioral = "\n".join(f"- Q: {a['question']}" + (f" [{a['lp']}]" if a.get("lp") else "") + "".join(f"\n  Prompt: {p}" for p in a.get("prompts", [])[1:]) + "\n  Answer: " + " ".join(part["text"] for part in a.get("parts", [])) for a in state.get("behavioral", {}).get("answers", [])) or "(none)"
     return f"""You are grading a {interview.meta.get('duration_minutes', 60)}-minute practice software engineering interview ("{interview.title}"). {setting}

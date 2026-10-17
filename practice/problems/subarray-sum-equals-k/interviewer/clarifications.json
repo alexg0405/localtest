@@ -1,0 +1,51 @@
+[
+  {
+    "topic": "Zero and negatives",
+    "important": true,
+    "keywords": [
+      "negative",
+      "zero",
+      "positive",
+      "values",
+      "range"
+    ],
+    "answer": "Numbers can be negative or zero, and k can be negative too."
+  },
+  {
+    "topic": "Contiguous",
+    "important": true,
+    "keywords": [
+      "contiguous",
+      "subsequence",
+      "subarray",
+      "consecutive",
+      "skip"
+    ],
+    "answer": "Subarrays are contiguous and non-empty."
+  },
+  {
+    "topic": "Counting",
+    "important": false,
+    "keywords": [
+      "count",
+      "distinct",
+      "overlapping",
+      "same values",
+      "unique"
+    ],
+    "answer": "Count every (start, end) pair separately, even if two subarrays have the same values."
+  },
+  {
+    "topic": "Input size",
+    "important": true,
+    "keywords": [
+      "size",
+      "how many",
+      "large",
+      "constraints",
+      "efficient",
+      "long"
+    ],
+    "answer": "Up to tens of thousands of numbers, so O(n²) is too slow."
+  }
+]

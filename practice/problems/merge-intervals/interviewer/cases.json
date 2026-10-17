@@ -1,0 +1,33 @@
+{
+  "test_examples": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_touching_intervals_merge": {
+    "area": "edge",
+    "description": "Intervals that touch at an endpoint merge",
+    "topic": "Touching intervals"
+  },
+  "test_nested_intervals": {
+    "area": "edge",
+    "description": "Intervals inside another interval"
+  },
+  "test_empty_and_single": {
+    "area": "edge",
+    "description": "No intervals, and a single one",
+    "topic": "Empty input"
+  },
+  "test_a_later_interval_can_extend_the_end": {
+    "area": "core",
+    "description": "Keeping the max end when a shorter interval comes between"
+  },
+  "test_negative_numbers": {
+    "area": "edge",
+    "description": "Negative coordinates"
+  },
+  "test_many_intervals_are_fast": {
+    "area": "performance",
+    "description": "200,000 intervals in under 3 seconds (needs O(n log n))",
+    "topic": "Input size"
+  }
+}

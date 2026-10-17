@@ -1,0 +1,5 @@
+[
+  "Two words are anagrams exactly when they'd look the same after some transformation. Which transformation makes every anagram identical?",
+  "Sort each word's letters: anagrams give the same sorted string. Use that as a key in a hash map from key to list of words.",
+  "groups = defaultdict(list); for each word, groups[tuple(sorted(word))].append(word); return list(groups.values()). For long words, a 26-count tuple key avoids the sort: O(k) instead of O(k log k)."
+]

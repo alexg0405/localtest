@@ -254,8 +254,15 @@ def verify_problem_workflow(interview, home: Path, c: Checker) -> None:
         c.check("the coach explains concepts", concept["matched"] and "heap" in concept["answer"].lower())
         clarify = _http(port, "/api/ask", {"interview": interview.id, "question": f"Can there be {interview.clarifications()[1]['keywords'][0]}s?"})["entry"]
         c.check("the coach praises good clarifying questions", clarify["answer"].startswith("Good question"))
-        hints = [_http(port, "/api/hint", {"interview": interview.id})["entry"]["answer"] for _ in range(4)]
-        c.check("the coach gives all three hints in order, then offers the approach", all(h.startswith(f"Hint {i + 1} of 3") for i, h in enumerate(hints[:3])) and "Show the approach" in hints[3])
+        first = _http(port, "/api/hint", {"interview": interview.id})["entry"]["answer"]
+        again = _http(port, "/api/hint", {"interview": interview.id})["entry"]["answer"]
+        used = len(_http(port, f"/api/state?interview={interview.id}")["session"]["state"]["hints"])
+        c.check("asking for a hint again without doing anything rephrases it instead of moving on", first.startswith("Hint 1 of 3") and again.startswith("Let's stay with the last hint") and used == 1)
+        hints = [first]
+        for attempt in range(3):
+            _http(port, "/api/speech", {"interview": interview.id, "text": f"okay so my idea number {attempt} is to try something different here"})
+            hints.append(_http(port, "/api/hint", {"interview": interview.id})["entry"]["answer"])
+        c.check("after some progress, the coach gives the next hint, then offers the approach", hints[1].startswith("Hint 2 of 3") and hints[2].startswith("Hint 3 of 3") and "Show the approach" in hints[3])
         run = _http(port, "/api/test", {"interview": interview.id})
         c.check("the coach reacts to failing tests", run["coach"] is not None and run["result"]["failed"] + run["result"]["errors"] > 0)
         approach = _http(port, "/api/approach", {"interview": interview.id})["entry"]

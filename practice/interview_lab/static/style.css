@@ -429,3 +429,20 @@ body.coach-mode .pop-avatar { background: linear-gradient(135deg, #a78bfa, #f0ab
 body.coach-mode .pop-reply button { background: #a78bfa; color: #120a24; }
 .md a { color: var(--blue); text-decoration: none; border-bottom: 1px solid rgba(91, 157, 255, .35); }
 .md a:hover { border-bottom-color: var(--blue); }
+
+/* Top-bar mic with live captions */
+.mic-top { display: inline-flex; align-items: center; gap: 7px; height: 34px; max-width: 300px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel); color: var(--text-2); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.mic-top:hover { border-color: var(--green); color: var(--text); }
+.mic-top svg { width: 15px; height: 15px; }
+.mic-top .dot { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.2s ease-in-out infinite; }
+.mic-top #mic-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mic-top.on { border-color: rgba(46, 200, 102, .5); background: var(--green-soft); color: var(--text); }
+.mic-top.on svg { color: var(--green); }
+.mic-top.on .dot { display: inline-block; }
+.mic-top.speaking { border-color: rgba(91, 157, 255, .5); background: var(--blue-soft); }
+.mic-top.speaking .dot { background: var(--blue); }
+.mic-top.hearing #mic-caption { font-style: italic; font-weight: 500; }
+.pop-mic { width: 32px; height: 32px; flex: none; border-radius: 8px; border: 1px solid var(--line-2); background: var(--raised); color: var(--text-2); display: grid; place-items: center; cursor: pointer; }
+.pop-mic svg { width: 15px; height: 15px; }
+.pop-mic[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: #04130a; }
+.pop-text .pop-action { display: inline-block; margin-top: 8px; padding: 5px 10px; border-radius: 7px; border: 0; background: var(--green); color: #04130a; font-weight: 700; font-size: 12px; cursor: pointer; }

@@ -362,6 +362,7 @@ function ensureCodeMirror() {
       "Shift-Tab": cm => cm.indentSelection("subtract"),
       "Cmd-Enter": () => $("run-tests").click(), "Ctrl-Enter": () => $("run-tests").click(),
       "Cmd-S": () => saveCode(), "Ctrl-S": () => saveCode(),
+      "Alt-M": () => { if (voice.on) stopVoice(); else startVoice(); },
     },
   });
   code.cm.on("change", () => codeChanged());
@@ -524,18 +525,22 @@ async function coachChat(body) {
 }
 
 // A statement said aloud gets a short reply from the coach when you pause, at most every 20 seconds.
-let lastThinkingReply = 0;
+let lastThinkingReply = 0, thought = [];
 function coachOnThinking(text) {
+  // Everything you've said since the coach last replied, so it responds to your train of thought, not one fragment.
+  thought.push(text);
   const coach = latest.session.state.mode === "coach";
   if (!coach && !phaseNow().nudge) return;   // a real interviewer lets you code in peace
-  if (text.split(/\s+/).length < 10 || Date.now() - lastThinkingReply < (coach ? 20000 : 45000)) return;
+  const said = thought.join(" ");
+  if (said.split(/\s+/).length < 8 || Date.now() - lastThinkingReply < (coach ? 15000 : 45000)) return;
   clearTimeout(voice.nudgeTimer);
   const spokeAt = voice.spokeAt;
   voice.nudgeTimer = setTimeout(() => {
     if (voice.spokeAt !== spokeAt || voice.speaking || pop.streaming) return;
     lastThinkingReply = Date.now();
-    coachChat({ trigger: "thinking", message: text });
-  }, 3500);
+    thought = [];
+    coachChat({ trigger: "thinking", message: said.slice(-1500) });
+  }, 3000);
 }
 
 const HINT_ASK = /\b(hint|i'?m stuck|stuck|give me a clue|clue|nudge|help me out|can you help)\b/i;
@@ -557,6 +562,25 @@ async function askForHint() {
     await refresh();
     if (voice.on) say(entry.answer); else toast("Hint added to the Interviewer chat.");
   } catch (e) { toast(e.message); }
+}
+
+// Practice out loud: resume the mic if you left it on, otherwise invite you once per session.
+const offered = new Set();
+function offerVoice(data) {
+  if (inLobby || !data.session.started || data.session.state.status !== "running" || voice.on || data.interview.format !== "problem") return;
+  const key = `${current}:${data.session.state.started_at}`;
+  if (offered.has(key)) return;
+  offered.add(key);
+  if (recall("lab.mic") === "on") { startVoice(); return; }
+  setTimeout(() => {
+    if (voice.on || pop.streaming) return;
+    showPop("");
+    const coach = data.session.state.mode === "coach";
+    $("pop-text").innerHTML = escapeHtml(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code. I'll listen and jump in when it helps." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.")
+      + '<br><button type="button" class="pop-action" id="pop-start-mic">Turn on mic (⌥M)</button>';
+    $("pop-start-mic").onclick = () => startVoice();
+    schedulePopHide(30000);
+  }, 1500);
 }
 
 async function coachSays(entry) {
@@ -646,6 +670,7 @@ function render(data) {
   const files = info.editor_files || [];
   if (files.length && !code.path && !code.opening) { code.opening = true; openCode(files[0]).finally(() => { code.opening = false; }); }
   syncCode(data.files);
+  offerVoice(data);
   renderTimer();
 }
 
@@ -681,7 +706,16 @@ function setVoiceUi(stateText, live) {
   bar.classList.toggle("on", voice.on && !voice.speaking);
   bar.classList.toggle("speaking", voice.speaking);
   $("mic").setAttribute("aria-pressed", String(voice.on));
-  $("mic-pill").hidden = !voice.on;
+  const top = $("mic-pill");
+  top.classList.toggle("on", voice.on);
+  top.classList.toggle("speaking", voice.speaking);
+  top.setAttribute("aria-pressed", String(voice.on));
+  $("pop-mic").setAttribute("aria-pressed", String(voice.on));
+  if (!voice.on) $("mic-caption").textContent = "Talk (⌥M)";
+  else if (voice.speaking) $("mic-caption").textContent = "Speaking…";
+  else if (live !== undefined && $("voice-bar").classList.contains("hearing")) $("mic-caption").textContent = live.slice(-48) || "Listening";
+  else $("mic-caption").textContent = "Listening";
+  top.classList.toggle("hearing", voice.on && $("voice-bar").classList.contains("hearing"));
   if (stateText) $("voice-state").textContent = stateText;
   if (live !== undefined) $("voice-live").textContent = live;
 }
@@ -829,12 +863,14 @@ async function startVoice() {
     }, 1300);
   };
   rec.onerror = event => {
-    if (event.error === "not-allowed" || event.error === "service-not-allowed") { stopVoice(); toast("Microphone access was blocked. Allow it for this page in the address bar, then try again."); }
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") { stopVoice(false); toast("Microphone access was blocked. Allow it for this page in the address bar, then try again."); }
     else if (event.error === "network") toast("Speech recognition needs a network connection in this browser.");
+    else if (event.error === "audio-capture") { stopVoice(); toast("No microphone was found. Plug one in or check System Settings → Sound → Input."); }
   };
   rec.onend = () => { if (voice.on && !voice.speaking) setTimeout(listen, 200); };
   voice.rec = rec;
   voice.on = true;
+  remember("lab.mic", "on");
   listen();
   setVoiceUi("Listening…", voice.local ? "Speech is transcribed on this device." : "Your browser's speech service transcribes what you say (in Chrome, audio goes to Google).");
   // Say the interviewer's latest line if it came in during the last two minutes, before the mic was on.
@@ -843,7 +879,8 @@ async function startVoice() {
   if (last && last.source === "interviewer" && session.elapsed - last.at < 120) say(last.answer);
 }
 
-function stopVoice() {
+function stopVoice(forget = true) {
+  if (forget) remember("lab.mic", "off");
   voice.on = false;
   clearTimeout(voice.silence); clearTimeout(voice.nudgeTimer);
   try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
@@ -1163,8 +1200,14 @@ function wire() {
     lastNudge = Date.now();
     try { if (aiOn()) coachChat({ trigger: "nudge" }); else { const { entry } = await call("/api/nudge", {}); coachSays(entry); } } catch (e) { /* try later */ }
   }, 15000);
+  const toggleMic = () => { if (voice.on) stopVoice(); else startVoice(); };
+  $("mic-pill").onclick = toggleMic;
+  $("pop-mic").onclick = toggleMic;
+  document.addEventListener("keydown", event => {
+    if (event.altKey && event.code === "KeyM" && latest && latest.session.started && !inLobby) { event.preventDefault(); toggleMic(); }
+  });
   $("mic").onclick = () => { if (voice.on) stopVoice(); else { showTab("interviewer"); startVoice(); } };
-  $("mic-pill").onclick = () => stopVoice();
+
   $("speak-replies").checked = recall("lab.voice") !== "off";
   $("speak-replies").onchange = () => { remember("lab.voice", $("speak-replies").checked ? "on" : "off"); if (!$("speak-replies").checked && "speechSynthesis" in window) speechSynthesis.cancel(); };
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => pickVoice();

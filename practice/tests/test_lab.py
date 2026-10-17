@@ -415,13 +415,13 @@ def test_coach_prompt_includes_code_tests_and_conversation(tmp_path):
     problem = get_interview("two-sum")
     workspace = create_workspace(problem, tmp_path)
     (workspace / "solution.py").write_text("def two_sum(nums, target):\n    return [0, 1]  # my attempt\n")
-    state = {"questions": [{"at": 5, "question": "Can values repeat?", "answer": "Yes.", "source": "coach-ai"}],
+    state = {"mode": "coach", "questions": [{"at": 5, "question": "Can values repeat?", "answer": "Yes.", "source": "coach-ai"}],
              "spoken": [{"at": 9, "text": "I think a hash map works"}], "hints": [],
              "last_test_run": {"at": 60, "passed": 1, "failed": 1, "errors": 0, "failing": [{"name": "test_examples", "message": "assert [0, 1] == [2, 3]"}]}}
     prompt = coach_ai.build_prompt(problem, state, workspace, 120, "Code it and test it", "hint", hint={"level": 1, "total": 3, "text": problem.hints()[0]})
     assert "# my attempt" in prompt and "assert [0, 1] == [2, 3]" in prompt
     assert "Candidate: Can values repeat?" in prompt and "thinking aloud): I think a hash map works" in prompt
-    assert "Give hint 1 of 3" in prompt and problem.hints()[0] in prompt
+    assert "1 of 3" in prompt and problem.hints()[0] in prompt
     assert len(coach_ai.SYSTEM) < 8000 and "text-to-speech" in coach_ai.SYSTEM
 
 
@@ -436,3 +436,20 @@ def test_real_interviewer_prompt_probes_instead_of_teaching(tmp_path):
     assert "You are the COACH" in coach and "Socratic" in coach
     assert problem.followups()[0] in real  # the real interviewer asks these at the end
     assert real.rstrip().endswith("Reply as the interviewer, in one or two short spoken sentences.")
+
+
+def test_hints_only_advance_after_progress(tmp_path):
+    import time as clock
+    sessions = Sessions(tmp_path)
+    problem = get_interview("group-anagrams")
+    sessions.start(problem, mode="coach")
+    first = sessions.take_hint(problem)
+    assert first["level"] == 1 and not first["repeat"]
+    again = sessions.take_hint(problem)
+    assert again["level"] == 1 and again["repeat"] and len(sessions.load(problem.id)["hints"]) == 1
+    clock.sleep(0.7)
+    (tmp_path / problem.id / "solution.py").write_text("def group_anagrams(words):\n    return []\n")   # an edit counts as progress
+    second = sessions.take_hint(problem)
+    assert second["level"] == 2 and not second["repeat"]
+    sessions.ask(problem, "Can words repeat?")
+    assert sessions.take_hint(problem)["level"] == 3

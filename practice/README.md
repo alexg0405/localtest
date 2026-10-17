@@ -117,6 +117,14 @@ catch brute-force solutions), clarification answers, three hints, a reference
 approach, and follow-up questions. The statements and examples are written for
 this lab; each links to LeetCode's official version.
 
+**Practice out loud.** The mic button next to the timer (or ⌥M, even inside
+the editor) turns on listening.
+- The button shows a live caption of what it hears.
+- The coach responds to your train of thought when you pause, and answers
+  spoken questions right away.
+- Lab remembers the mic setting for your next session, and the first time,
+  the popup invites you to turn it on.
+
 Pick a mode before you start, or switch at any time in the interview's top
 bar:
 - **Real interviewer:** answers only questions about the problem. A hint is a
@@ -124,7 +132,9 @@ bar:
   until you submit.
 - **Coach:** a friendly tutor that helps you learn.
   - Ask for a hint any time (the Hint button, or just say "can I get a hint?").
-    You get three progressively stronger hints.
+    Hints get stronger only after you've made progress (said, typed, ran, or
+    edited something). Asking again right away gets the same idea rephrased,
+    and that isn't counted.
   - Ask about concepts ("what's a heap?", "how does binary search work?").
   - It praises good clarifying questions.
   - After every test run, it tells you what failed and what to try, or which

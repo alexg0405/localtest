@@ -128,8 +128,13 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 # The scripted coach answers instead, without counting a second hint.
                 if trigger == "hint":
                     coach = state.get("mode") == "coach"
-                    text = ((f"Hint {hint['level']} of {hint['total']}: " if coach else "Sure, here's a nudge. ") + hint["text"] if hint
-                            else "That's all my hints. If you want, open the menu and choose Show the approach." if coach else "That's as much as I can give you. Try to take it from there.")
+                    if hint and hint.get("repeat"):
+                        text = (f"Let's stay with the last hint for a moment: {hint['text']} Which part of it is unclear, or what would you try first?" if coach
+                                else "I'd like to see you try the last hint first. What are you thinking?")
+                    elif hint:
+                        text = (f"Hint {hint['level']} of {hint['total']}: " if coach else "Sure, here's a nudge. ") + hint["text"]
+                    else:
+                        text = "That's all my hints. If you want, open the menu and choose Show the approach." if coach else "That's as much as I can give you. Try to take it from there."
                     entry = sessions.record_coach(interview, "hint", "", text)
                 elif trigger == "message" and message.strip():
                     entry = sessions.ask(interview, message, bool(body.get("voice")))

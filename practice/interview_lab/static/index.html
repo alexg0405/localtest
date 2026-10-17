@@ -101,7 +101,7 @@
         <div class="timer" id="timer"><svg><use href="#i-clock"/></svg><span id="elapsed">00:00</span><span class="of">/ 60:00</span></div>
         <button class="icon-btn" id="pause" title="Pause the clock"><svg><use href="#i-pause"/></svg></button>
         <button class="icon-btn" id="resume" title="Resume the clock" hidden><svg><use href="#i-play"/></svg></button>
-        <button class="pill live-pill" id="mic-pill" hidden title="The interviewer is listening. Click to stop."><i></i>Listening</button>
+        <button class="mic-top" id="mic-pill" type="button" title="Talk out loud (⌥M)" aria-pressed="false"><svg><use href="#i-mic"/></svg><span class="dot"></span><span id="mic-caption">Talk (⌥M)</span></button>
       </div>
       <div class="tb-right">
         <div class="mode-toggle mode-sm" id="ide-mode" role="radiogroup" aria-label="Interviewer mode" hidden>
@@ -141,6 +141,7 @@
       </div>
       <div class="pop-text" id="pop-text"></div>
       <form class="pop-reply" id="pop-reply">
+        <button type="button" class="pop-mic" id="pop-mic" title="Talk out loud (⌥M)" aria-pressed="false"><svg><use href="#i-mic"/></svg></button>
         <input id="pop-input" type="text" placeholder="Reply to your coach…" autocomplete="off" aria-label="Reply">
         <button type="submit" title="Send"><svg><use href="#i-send"/></svg></button>
       </form>

@@ -130,9 +130,14 @@ def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, e
     conversation = "\n".join(history) or "(nothing yet)"
     followups = "\n".join(f"- {q}" for q in interview.followups())
 
-    if trigger == "hint" and hint:
-        ask = (f"The candidate asked for a hint. Give hint {hint['level']} of {hint['total']}, adapted to their current code, and nothing beyond it:\n{hint['text']}" if coach
-               else f"The candidate asked for a hint. Give hint {hint['level']} of {hint['total']} as one short, neutral sentence, and nothing beyond it:\n{hint['text']}")
+    if trigger == "hint" and hint and hint.get("repeat"):
+        ask = (f"The candidate asked for a hint again, but hasn't said, tried, or changed anything since your last hint (level {hint['level']}: {hint['text']}). "
+               "Don't give a bigger hint. Talk with them: ask warmly which part is unclear or what they'd try first, and put the same idea another way, ideally as a question about their own code." if coach
+               else f"The candidate asked for another hint without trying anything since your last one ({hint['text']}). As the interviewer, say you'd like to see them try that first, and ask what they're thinking.")
+    elif trigger == "hint" and hint:
+        ask = (f"The candidate asked for a hint. Make it part of the conversation, not a canned line: briefly connect to what they've said or written, then give the next step, ideally as a guiding question about their code. "
+               f"Go no further than this level ({hint['level']} of {hint['total']}):\n{hint['text']}" if coach
+               else f"The candidate asked for a hint. As the interviewer, give one short, neutral sentence that connects to where they are, going no further than this:\n{hint['text']}")
     elif trigger == "hint":
         ask = ("The candidate asked for another hint, but they've had all three. Encourage them, point at the single most important next step in their code, and mention they can open Show the approach in the menu." if coach
                else "The candidate asked for another hint, but they've had all three. Say neutrally that you'd like to see how they'd take it from here, and ask what they're thinking.")

@@ -328,17 +328,49 @@ class Sessions:
                 self.save(state)
             return state
 
+    @staticmethod
+    def _activity(state: Dict[str, Any]) -> Dict[str, int]:
+        """How many things the candidate has done so far: messages, speech, test runs, code runs, behavioral answers."""
+        return {
+            "questions": sum(1 for q in state.get("questions", []) if q.get("source") != "interviewer"),
+            "spoken": len(state.get("spoken", [])),
+            "test_runs": len(state.get("test_runs", [])),
+            "code_runs": len(state.get("code_runs", [])),
+            "answers": sum(len(a.get("parts", [])) for a in state.get("behavioral", {}).get("answers", [])),
+        }
+
+    def _progress_since(self, interview: Interview, state: Dict[str, Any], hint: Dict[str, Any]) -> bool:
+        """Whether the candidate did anything after a hint: said or asked something, ran code, or edited it."""
+        before = hint.get("activity")
+        if before is None:
+            return True  # a hint from before this was tracked
+        now = self._activity(state)
+        if any(now[key] > before.get(key, 0) for key in now):
+            return True
+        workspace = workspace_path(interview, self.home)
+        for name in interview.meta.get("editor_files", []):
+            try:
+                if (workspace / name).stat().st_mtime > hint.get("wall", 0) + 0.5:
+                    return True
+            except OSError:
+                pass
+        return False
+
     def take_hint(self, interview: Interview) -> Optional[Dict[str, Any]]:
-        """Records that the next hint was given and returns it ({level, total, text}), or None when they're all used."""
+        """The hint to give now: {level, total, text, repeat}. A new level only after the candidate made progress since the
+        last hint; asking again right away repeats the last level (not counted) so it can be rephrased. None when all are used."""
         hints = interview.hints()
         with LOCK:
             state = self._require(interview.id)
             used = state.setdefault("hints", [])
+            if used and not self._progress_since(interview, state, used[-1]):
+                level = used[-1]["level"]
+                return {"level": level, "total": len(hints), "text": hints[level - 1], "repeat": True}
             if len(used) >= len(hints):
                 return None
-            used.append({"at": round(self.elapsed(state), 1), "level": len(used) + 1, "mode": state.get("mode", "real")})
+            used.append({"at": round(self.elapsed(state), 1), "wall": time.time(), "activity": self._activity(state), "level": len(used) + 1, "mode": state.get("mode", "real")})
             self.save(state)
-            return {"level": len(used), "total": len(hints), "text": hints[len(used) - 1]}
+            return {"level": len(used), "total": len(hints), "text": hints[len(used) - 1], "repeat": False}
 
     def record_coach(self, interview: Interview, trigger: str, message: str, reply: str, voice: bool = False) -> Dict[str, Any]:
         """Keeps a conversational coach exchange: the student's message and the reply, or the coach speaking up on its own."""
@@ -362,19 +394,23 @@ class Sessions:
             self.save(state)
 
     def hint(self, interview: Interview) -> Dict[str, Any]:
-        hints = interview.hints()
+        """The scripted hint, used when Claude isn't available."""
+        hint = self.take_hint(interview)
         with LOCK:
             state = self._require(interview.id)
-            used = state.setdefault("hints", [])
             coach = state.get("mode") == "coach"
-            if len(used) >= len(hints):
+            if hint is None:
                 text = ("That's all my hints. If you want, open the menu and choose Show the approach, and I'll walk you through the whole solution." if coach
                         else "That's as much as I can give you. Try to take it from there, and tell me what you're thinking.")
-                return self._interviewer_message(state, text, "hint:none")
-            level = len(used)
-            used.append({"at": round(self.elapsed(state), 1), "level": level + 1, "mode": state.get("mode", "real")})
-            prefix = f"Hint {level + 1} of {len(hints)}: " if coach else "Sure, here's a nudge. "
-            entry = self._interviewer_message(state, prefix + hints[level], f"hint:{level + 1}")
+                kind = "hint:none"
+            elif hint["repeat"]:
+                text = (f"Let's stay with the last hint for a moment: {hint['text']} Which part of it is unclear, or what would you try first?" if coach
+                        else "I'd like to see you try the last hint first. What are you thinking?")
+                kind = "hint:repeat"
+            else:
+                text = (f"Hint {hint['level']} of {hint['total']}: " if coach else "Sure, here's a nudge. ") + hint["text"]
+                kind = f"hint:{hint['level']}"
+            entry = self._interviewer_message(state, text, kind)
             self.save(state)
             return entry
 

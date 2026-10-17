@@ -347,7 +347,7 @@ class Sessions:
             if trigger == "message" and message.strip():
                 topic = interviewer.best_entry(interview.clarifications(), message).get("topic")
                 entry = {"at": round(self.elapsed(state), 1), "question": message.strip()[:4000], "answer": reply, "topic": topic,
-                         "matched": True, "source": "coach-ai", "voice": voice}
+                         "matched": True, "source": "coach-ai", "voice": voice, "mode": state.get("mode", "real")}
                 state["questions"].append(entry)
             else:
                 entry = self._interviewer_message(state, reply, f"coach-ai:{trigger}")

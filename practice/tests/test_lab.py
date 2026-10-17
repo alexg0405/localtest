@@ -420,6 +420,19 @@ def test_coach_prompt_includes_code_tests_and_conversation(tmp_path):
              "last_test_run": {"at": 60, "passed": 1, "failed": 1, "errors": 0, "failing": [{"name": "test_examples", "message": "assert [0, 1] == [2, 3]"}]}}
     prompt = coach_ai.build_prompt(problem, state, workspace, 120, "Code it and test it", "hint", hint={"level": 1, "total": 3, "text": problem.hints()[0]})
     assert "# my attempt" in prompt and "assert [0, 1] == [2, 3]" in prompt
-    assert "Student: Can values repeat?" in prompt and "thinking aloud): I think a hash map works" in prompt
+    assert "Candidate: Can values repeat?" in prompt and "thinking aloud): I think a hash map works" in prompt
     assert "Give hint 1 of 3" in prompt and problem.hints()[0] in prompt
     assert len(coach_ai.SYSTEM) < 8000 and "text-to-speech" in coach_ai.SYSTEM
+
+
+def test_real_interviewer_prompt_probes_instead_of_teaching(tmp_path):
+    from interview_lab import coach_ai
+    from interview_lab.workspace import create_workspace
+    problem = get_interview("merge-intervals")
+    workspace = create_workspace(problem, tmp_path)
+    real = coach_ai.build_prompt(problem, {"mode": "real", "questions": [], "spoken": [], "hints": []}, workspace, 60, "Explain your approach", "message", "Is sorting optimal?")
+    coach = coach_ai.build_prompt(problem, {"mode": "coach", "questions": [], "spoken": [], "hints": []}, workspace, 60, "Explain your approach", "message", "Is sorting optimal?")
+    assert "You are the INTERVIEWER" in real and "don't confirm that their idea is right" in real and "never reveal it" in real
+    assert "You are the COACH" in coach and "Socratic" in coach
+    assert problem.followups()[0] in real  # the real interviewer asks these at the end
+    assert real.rstrip().endswith("Reply as the interviewer, in one or two short spoken sentences.")

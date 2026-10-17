@@ -302,7 +302,7 @@ function renderQuestions(questions, spoken = []) {
   $("questions").innerHTML = items.map(({ at, q, said, answer }) => {
     if (answer) return you(answer, at, "", "answer · ");
     if (said) return you(said, at, "said", "said aloud · ");
-    if (q.source === "coach-ai") return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, "Coach · Claude", "coach");
+    if (q.source === "coach-ai") return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, q.mode === "real" ? "Interviewer · Claude" : "Coach · Claude", q.mode === "real" ? "" : "coach");
     if (q.source === "interviewer") {
       const kind = (q.kind || "").startsWith("hint") || q.kind === "coach-ai:hint" ? "hint" : (q.kind || "").startsWith("coach") || q.kind === "approach" ? "coach" : "cue";
       const label = kind === "hint" ? "Hint" : q.kind === "approach" ? "Approach" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer";
@@ -434,15 +434,17 @@ async function syncCode(files) {
 
 // The coach popup (top right) shows whatever the interviewer or coach says, as it says it.
 const pop = { timer: null, hovered: false, streaming: false, seen: null };
-const coachAiOn = () => problemNow() && latest.session.state.mode === "coach" && latest.coach_ai && latest.coach_ai.available;
+const aiOn = () => problemNow() && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in either role
+const coachAiOn = () => aiOn() && latest.session.state.mode === "coach";
 
 function showPop(text, { who, state, thinking } = {}) {
   const box = $("coach-pop");
   const coach = latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
   $("pop-who").textContent = who || (coach ? "Coach" : "Interviewer");
-  $("pop-state").textContent = state !== undefined ? state : coach && latest.coach_ai && latest.coach_ai.available ? "Claude · your subscription" : "";
+  $("pop-state").textContent = state !== undefined ? state : aiOn() ? "Claude · your subscription" : "";
   $("pop-text").innerHTML = thinking ? '<span class="typing"><i></i><i></i><i></i></span>' : escapeHtml(text);
-  $("pop-reply").hidden = !coach;
+  $("pop-reply").hidden = !problemNow();
+  $("pop-input").placeholder = coach ? "Reply to your coach…" : "Reply to your interviewer…";
   box.hidden = false;
   $("pop-text").scrollTop = $("pop-text").scrollHeight;
   schedulePopHide();
@@ -524,7 +526,9 @@ async function coachChat(body) {
 // A statement said aloud gets a short reply from the coach when you pause, at most every 20 seconds.
 let lastThinkingReply = 0;
 function coachOnThinking(text) {
-  if (text.split(/\s+/).length < 10 || Date.now() - lastThinkingReply < 20000) return;
+  const coach = latest.session.state.mode === "coach";
+  if (!coach && !phaseNow().nudge) return;   // a real interviewer lets you code in peace
+  if (text.split(/\s+/).length < 10 || Date.now() - lastThinkingReply < (coach ? 20000 : 45000)) return;
   clearTimeout(voice.nudgeTimer);
   const spokeAt = voice.spokeAt;
   voice.nudgeTimer = setTimeout(() => {
@@ -541,11 +545,11 @@ const active = () => { lastActivity = Date.now(); };
 
 async function askForHint() {
   if (!problemNow()) return;
-  if (coachAiOn()) { active(); return coachChat({ trigger: "hint" }); }
   if (latest.session.state.mode !== "coach" && !askForHint.confirmed) {
     if (!confirm("In real mode a hint lowers your problem-solving score, like leaning on a real interviewer would. Get a hint?")) return;
     askForHint.confirmed = true;
   }
+  if (aiOn()) { active(); return coachChat({ trigger: "hint" }); }
   active();
   try {
     const { entry } = await call("/api/hint", {});
@@ -756,7 +760,7 @@ async function handleUtterance(text) {
   text = text.trim();
   if (text.split(/\s+/).length < 2 || !latest || !latest.session.started) return;
   if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
-  if (coachAiOn()) {
+  if (aiOn()) {
     if (isQuestion(text)) { coachChat({ message: text, voice: true }); return; }
     try { await call("/api/speech", { text }); } catch (e) { /* still reply */ }
     setVoiceUi("Listening…", `Noted: “${text}”`);
@@ -1011,7 +1015,7 @@ function wire() {
       await askForHint();
       return;
     }
-    if (coachAiOn()) {
+    if (aiOn()) {
       $("question").value = "";
       $("question").disabled = false;
       coachChat({ message: question });
@@ -1141,7 +1145,7 @@ function wire() {
     $("pop-input").value = "";
     active();
     if (HINT_ASK.test(text) && text.split(/\s+/).length < 15) askForHint();
-    else if (coachAiOn()) coachChat({ message: text });
+    else if (aiOn()) coachChat({ message: text });
     else { $("question").value = text; $("ask-form").requestSubmit(); }
   };
   $("show-approach").onclick = async () => {
@@ -1152,10 +1156,12 @@ function wire() {
   ["keydown", "pointerdown"].forEach(type => document.addEventListener(type, active, { passive: true }));
   setInterval(async () => {
     // The coach checks in when you've been quiet for two minutes while coding.
-    if (!problemNow() || latest.session.state.mode !== "coach" || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
-    if (Date.now() - lastActivity < 120000 || Date.now() - lastNudge < 180000 || voice.speaking) return;
+    if (!problemNow() || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
+    const coach = latest.session.state.mode === "coach";
+    if (!coach && !aiOn()) return;
+    if (Date.now() - lastActivity < (coach ? 120000 : 150000) || Date.now() - lastNudge < (coach ? 180000 : 240000) || voice.speaking || pop.streaming) return;
     lastNudge = Date.now();
-    try { if (coachAiOn()) coachChat({ trigger: "nudge" }); else { const { entry } = await call("/api/nudge", {}); coachSays(entry); } } catch (e) { /* try later */ }
+    try { if (aiOn()) coachChat({ trigger: "nudge" }); else { const { entry } = await call("/api/nudge", {}); coachSays(entry); } } catch (e) { /* try later */ }
   }, 15000);
   $("mic").onclick = () => { if (voice.on) stopVoice(); else { showTab("interviewer"); startVoice(); } };
   $("mic-pill").onclick = () => stopVoice();

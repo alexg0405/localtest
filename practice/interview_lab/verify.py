@@ -331,12 +331,18 @@ def verify_conversational_coach(interview, port: int, c: Checker) -> None:
         c.check("coach replies stream from Claude and are recorded", text == "Good thinking. What would that cost per call?" and done.get("done") and done["entry"]["source"] == "coach-ai")
         prompt = next(r for path, r in seen if path == "/api/claude-code")
         c.check("the coach sees the problem, your code, and the conversation, with its own system prompt",
-                "Student's current code" in prompt["prompt"] and "Could I use a sorted list?" in prompt["prompt"] and prompt["model"] == coach_ai.MODEL and "coach" in prompt["system"])
+                "Candidate's current code" in prompt["prompt"] and "Could I use a sorted list?" in prompt["prompt"] and prompt["model"] == coach_ai.MODEL and "coach" in prompt["system"])
         hints_before = len(_http(port, f"/api/state?interview={interview.id}")["session"]["state"]["hints"])
         coach({"trigger": "hint"})
         hint_prompt = [r for path, r in seen if path == "/api/claude-code"][-1]["prompt"]
         hints_after = len(_http(port, f"/api/state?interview={interview.id}")["session"]["state"]["hints"])
         c.check("a Claude hint follows the hint ladder (and counts, while hints remain)", "asked for" in hint_prompt and hints_after >= hints_before)
+        _http(port, "/api/mode", {"interview": interview.id, "mode": "real"})
+        events = coach({"message": "Is a hash map the best approach?"})
+        real_prompt = [r for path, r in seen if path == "/api/claude-code"][-1]
+        c.check("real mode talks with Claude as a realistic interviewer, sharing the warm process", events[-1].get("done") and "You are the INTERVIEWER" in real_prompt["prompt"]
+                and real_prompt["system"] == prompt["system"] and events[-1]["entry"]["mode"] == "real")
+        _http(port, "/api/mode", {"interview": interview.id, "mode": "coach"})
         os.environ["ROOMSIDE_URL"] = "http://127.0.0.1:9"
         events = coach({"message": "How large can the input be?"})
         c.check("when Claude is unreachable, the scripted coach answers instead", "fallback" in events[-1] and events[-1]["entry"] and events[-1]["entry"]["answer"])

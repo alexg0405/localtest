@@ -101,8 +101,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             state = sessions.load(interview.id)
             if not state:
                 raise SessionError("No session yet. Start the interview first.")
-            if state.get("mode") != "coach":
-                raise SessionError("The conversational coach is only on in coach mode.")
+            if interview.meta.get("format") != "problem":
+                raise SessionError("The conversational interviewer is available in the practice problems.")
             trigger = str(body.get("trigger", "message"))
             trigger = trigger if trigger in coach_ai.TRIGGERS else "message"
             message = str(body.get("message", ""))[:4000]
@@ -127,7 +127,9 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             except coach_ai.CoachError as error:
                 # The scripted coach answers instead, without counting a second hint.
                 if trigger == "hint":
-                    text = f"Hint {hint['level']} of {hint['total']}: {hint['text']}" if hint else "That's all my hints. If you want, open the menu and choose Show the approach."
+                    coach = state.get("mode") == "coach"
+                    text = ((f"Hint {hint['level']} of {hint['total']}: " if coach else "Sure, here's a nudge. ") + hint["text"] if hint
+                            else "That's all my hints. If you want, open the menu and choose Show the approach." if coach else "That's as much as I can give you. Try to take it from there.")
                     entry = sessions.record_coach(interview, "hint", "", text)
                 elif trigger == "message" and message.strip():
                     entry = sessions.ask(interview, message, bool(body.get("voice")))
@@ -262,7 +264,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             coach = None
             if interview.meta.get("format") == "problem":
                 coach = coach_ai.status()
-                if coach["available"] and status.get("started") and status["state"].get("mode") == "coach" and not getattr(lab, "warmed", {}).get(interview.id):
+                if coach["available"] and status.get("started") and not getattr(lab, "warmed", {}).get(interview.id):
                     lab.warmed = {**getattr(lab, "warmed", {}), interview.id: True}
                     coach_ai.warm()
             return {
@@ -349,7 +351,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 lab.sessions.record_test_run(interview, summary(result))
                 lab.sessions.record_test_details(interview, result)
                 # With Claude available, the page asks the conversational coach instead of the scripted reaction.
-                if not (state.get("mode") == "coach" and interview.meta.get("format") == "problem" and coach_ai.status()["available"]):
+                if not (interview.meta.get("format") == "problem" and coach_ai.status()["available"]):
                     coach = lab.sessions.coach_on_tests(interview, result)
             return {"coach": coach, "result": {**summary(result), "output": result["output"], "cases": [{"name": c["id"].split("::", 1)[-1] if not c["collection_error"] else c["name"], "outcome": c["outcome"], "message": c["message"]} for c in result["cases"]]}}
 

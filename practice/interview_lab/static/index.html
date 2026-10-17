@@ -132,6 +132,20 @@
       <div class="progress-tick" id="change-tick" title="Requirement change at 30:00"></div>
     </div>
 
+    <div class="coach-pop" id="coach-pop" hidden role="status" aria-live="polite">
+      <div class="pop-head">
+        <span class="pop-avatar">IV</span>
+        <span class="pop-who" id="pop-who">Coach</span>
+        <span class="pop-state" id="pop-state"></span>
+        <button class="pop-close" id="pop-close" type="button" title="Hide" aria-label="Hide">×</button>
+      </div>
+      <div class="pop-text" id="pop-text"></div>
+      <form class="pop-reply" id="pop-reply">
+        <input id="pop-input" type="text" placeholder="Reply to your coach…" autocomplete="off" aria-label="Reply">
+        <button type="submit" title="Send"><svg><use href="#i-send"/></svg></button>
+      </form>
+    </div>
+
     <div class="panes" id="panes">
       <section class="pane left-pane">
         <nav class="tabs" role="tablist">

@@ -407,3 +407,19 @@ def test_coach_mode_explains_concepts_and_real_mode_does_not():
     assert coached["matched"] and "O(log n)" in coached["answer"]
     assert interviewer.answer(problem, "Is h always at least the number of piles?", False, "coach")["answer"].startswith("Good question")
     assert interviewer.cues_for(problem, "coach")["p_intro"].startswith("Hey!") and interviewer.cues_for(problem, "real")["p_intro"].startswith("Hi!")
+
+
+def test_coach_prompt_includes_code_tests_and_conversation(tmp_path):
+    from interview_lab import coach_ai
+    from interview_lab.workspace import create_workspace
+    problem = get_interview("two-sum")
+    workspace = create_workspace(problem, tmp_path)
+    (workspace / "solution.py").write_text("def two_sum(nums, target):\n    return [0, 1]  # my attempt\n")
+    state = {"questions": [{"at": 5, "question": "Can values repeat?", "answer": "Yes.", "source": "coach-ai"}],
+             "spoken": [{"at": 9, "text": "I think a hash map works"}], "hints": [],
+             "last_test_run": {"at": 60, "passed": 1, "failed": 1, "errors": 0, "failing": [{"name": "test_examples", "message": "assert [0, 1] == [2, 3]"}]}}
+    prompt = coach_ai.build_prompt(problem, state, workspace, 120, "Code it and test it", "hint", hint={"level": 1, "total": 3, "text": problem.hints()[0]})
+    assert "# my attempt" in prompt and "assert [0, 1] == [2, 3]" in prompt
+    assert "Student: Can values repeat?" in prompt and "thinking aloud): I think a hash map works" in prompt
+    assert "Give hint 1 of 3" in prompt and problem.hints()[0] in prompt
+    assert len(coach_ai.SYSTEM) < 8000 and "text-to-speech" in coach_ai.SYSTEM

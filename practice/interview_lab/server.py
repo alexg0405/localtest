@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
-from . import api, grading, interviewer
+from . import api, coach_ai, grading, interviewer
 from .catalog import all_interviews, get_interview, test_python
 from .session import SessionError, Sessions
 from .testing import run_pytest, summary
@@ -95,6 +95,59 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             except (SessionError, WorkspaceError, ValueError) as error:
                 return self._error(HTTPStatus.BAD_REQUEST, str(error))
 
+        def _coach(self, interview, body: Dict[str, Any]) -> None:
+            """Streams a conversational coach reply as NDJSON: {"text"} chunks, then {"done", "entry"} (or {"fallback"})."""
+            sessions = lab.sessions
+            state = sessions.load(interview.id)
+            if not state:
+                raise SessionError("No session yet. Start the interview first.")
+            if state.get("mode") != "coach":
+                raise SessionError("The conversational coach is only on in coach mode.")
+            trigger = str(body.get("trigger", "message"))
+            trigger = trigger if trigger in coach_ai.TRIGGERS else "message"
+            message = str(body.get("message", ""))[:4000]
+            hint = sessions.take_hint(interview) if trigger == "hint" else None
+            status = sessions.status(interview)
+            phase = next((p["name"] for p in status["phases"][status["phase"]:status["phase"] + 1]), "overtime")
+            prompt = coach_ai.build_prompt(interview, sessions.load(interview.id), workspace_path(interview, lab.home), status["elapsed"], phase, trigger, message, hint)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+            def send(event: Dict[str, Any]) -> None:
+                self.wfile.write((json.dumps(event) + "\n").encode("utf-8"))
+                self.wfile.flush()
+
+            text = ""
+            try:
+                for chunk in coach_ai.stream(prompt):
+                    text += chunk
+                    send({"text": chunk})
+            except coach_ai.CoachError as error:
+                # The scripted coach answers instead, without counting a second hint.
+                if trigger == "hint":
+                    text = f"Hint {hint['level']} of {hint['total']}: {hint['text']}" if hint else "That's all my hints. If you want, open the menu and choose Show the approach."
+                    entry = sessions.record_coach(interview, "hint", "", text)
+                elif trigger == "message" and message.strip():
+                    entry = sessions.ask(interview, message, bool(body.get("voice")))
+                elif trigger == "nudge":
+                    entry = sessions.coach_nudge(interview)
+                elif trigger == "tests":
+                    entry = sessions.coach_on_tests(interview, {"cases": [{"outcome": "failed", "base": c["name"].split("[")[0].split("::")[-1], "message": c["message"]} for c in (sessions.load(interview.id).get("last_test_run") or {}).get("failing", [])], "total": 1})
+                else:
+                    entry = None
+                send({"fallback": str(error), "entry": entry})
+                return
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            reply = text.strip() or "Tell me what you're thinking, and we'll take it from there."
+            entry = sessions.record_coach(interview, trigger, message, reply, bool(body.get("voice")))
+            try:
+                send({"done": True, "entry": entry})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         def do_POST(self) -> None:
             if not self._allowed_host():
                 return self._error(HTTPStatus.FORBIDDEN, "Open the dashboard at http://127.0.0.1.")
@@ -120,6 +173,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     return self._json(200, {"entry": sessions.hint(interview)})
                 elif action == "/api/approach":
                     return self._json(200, {"entry": sessions.reveal_approach(interview)})
+                elif action == "/api/coach":
+                    return self._coach(interview, body)
                 elif action == "/api/nudge":
                     return self._json(200, {"entry": sessions.coach_nudge(interview)})
                 elif action == "/api/pause":
@@ -204,7 +259,14 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             report, _ = grading.latest_report(interview, lab.home)
             workspace = workspace_path(interview, lab.home)
             python = test_python(lab.home)
+            coach = None
+            if interview.meta.get("format") == "problem":
+                coach = coach_ai.status()
+                if coach["available"] and status.get("started") and status["state"].get("mode") == "coach" and not getattr(lab, "warmed", {}).get(interview.id):
+                    lab.warmed = {**getattr(lab, "warmed", {}), interview.id: True}
+                    coach_ai.warm()
             return {
+                "coach_ai": coach,
                 "interview": interview.public(),
                 "task": interview.task(),
                 "session": status,
@@ -282,9 +344,13 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 raise ValueError("This round simulates an editor that can't run code: dry-run your solution by hand. Grading runs it after you submit.")
             result = run_pytest(test_python(lab.home), workspace, ["tests"])
             coach = None
-            if lab.sessions.load(interview.id):
+            state = lab.sessions.load(interview.id)
+            if state:
                 lab.sessions.record_test_run(interview, summary(result))
-                coach = lab.sessions.coach_on_tests(interview, result)
+                lab.sessions.record_test_details(interview, result)
+                # With Claude available, the page asks the conversational coach instead of the scripted reaction.
+                if not (state.get("mode") == "coach" and interview.meta.get("format") == "problem" and coach_ai.status()["available"]):
+                    coach = lab.sessions.coach_on_tests(interview, result)
             return {"coach": coach, "result": {**summary(result), "output": result["output"], "cases": [{"name": c["id"].split("::", 1)[-1] if not c["collection_error"] else c["name"], "outcome": c["outcome"], "message": c["message"]} for c in result["cases"]]}}
 
         def _packet(self, interview, kind: str) -> str:

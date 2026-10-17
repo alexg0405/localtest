@@ -54,6 +54,7 @@ function escapeHtml(text) { return String(text).replace(/[&<>"']/g, c => ({ "&":
 function inline(text) {
   return escapeHtml(text)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
 }
@@ -301,8 +302,9 @@ function renderQuestions(questions, spoken = []) {
   $("questions").innerHTML = items.map(({ at, q, said, answer }) => {
     if (answer) return you(answer, at, "", "answer · ");
     if (said) return you(said, at, "said", "said aloud · ");
+    if (q.source === "coach-ai") return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, "Coach · Claude", "coach");
     if (q.source === "interviewer") {
-      const kind = (q.kind || "").startsWith("hint") ? "hint" : (q.kind || "").startsWith("coach") || q.kind === "approach" ? "coach" : "cue";
+      const kind = (q.kind || "").startsWith("hint") || q.kind === "coach-ai:hint" ? "hint" : (q.kind || "").startsWith("coach") || q.kind === "approach" ? "coach" : "cue";
       const label = kind === "hint" ? "Hint" : q.kind === "approach" ? "Approach" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer";
       return q.kind === "approach" ? `<div class="msg them coach"><div class="avatar">IV</div><div><div class="bubble md">${markdown(q.answer)}</div><div class="meta">${label} · ${clock(at)}</div></div></div>` : them(q.answer, `${label} · ${clock(at)}`, kind);
     }
@@ -430,6 +432,108 @@ async function syncCode(files) {
   } catch (e) { /* try again on the next refresh */ }
 }
 
+// The coach popup (top right) shows whatever the interviewer or coach says, as it says it.
+const pop = { timer: null, hovered: false, streaming: false, seen: null };
+const coachAiOn = () => problemNow() && latest.session.state.mode === "coach" && latest.coach_ai && latest.coach_ai.available;
+
+function showPop(text, { who, state, thinking } = {}) {
+  const box = $("coach-pop");
+  const coach = latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
+  $("pop-who").textContent = who || (coach ? "Coach" : "Interviewer");
+  $("pop-state").textContent = state !== undefined ? state : coach && latest.coach_ai && latest.coach_ai.available ? "Claude · your subscription" : "";
+  $("pop-text").innerHTML = thinking ? '<span class="typing"><i></i><i></i><i></i></span>' : escapeHtml(text);
+  $("pop-reply").hidden = !coach;
+  box.hidden = false;
+  $("pop-text").scrollTop = $("pop-text").scrollHeight;
+  schedulePopHide();
+}
+
+function schedulePopHide(ms = 16000) {
+  clearTimeout(pop.timer);
+  pop.timer = setTimeout(() => {
+    if (pop.hovered || pop.streaming || voice.speaking || document.activeElement === $("pop-input")) return schedulePopHide(4000);
+    $("coach-pop").hidden = true;
+  }, ms);
+}
+
+function popNewMessages(questions) {
+  // Show the newest interviewer line that arrived since the last render (but not on first load).
+  const key = `${current}:${questions.length}`;
+  if (pop.seen === null || !pop.seen.startsWith(current + ":")) { pop.seen = key; return; }
+  if (pop.seen === key) return;
+  const fresh = questions.slice(Number(pop.seen.split(":").pop()));
+  pop.seen = key;
+  const last = fresh.filter(q => q.source === "interviewer" || q.source === "coach-ai" || q.answer).slice(-1)[0];
+  if (last && !pop.streaming) showPop(last.kind === "approach" ? "I've put the approach in the Interviewer chat." : last.answer);
+}
+
+function speakNewSentences(text, from) {
+  if (!voice.on || !$("speak-replies").checked) return from;
+  const rest = text.slice(from);
+  const match = rest.match(/^[\s\S]*[.!?](\s|$)/);
+  if (!match) return from;
+  const sentence = match[0].trim();
+  if (sentence) say(sentence);
+  return from + match[0].length;
+}
+
+async function coachChat(body) {
+  if (pop.streaming) return;
+  pop.streaming = true;
+  showPop("", { thinking: true });
+  let text = "", spoken = 0;
+  try {
+    const response = await fetch("api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interview: current, ...body }) });
+    if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || `The coach is unavailable (${response.status}).`); }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index;
+      while ((index = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, index).trim();
+        buffer = buffer.slice(index + 1);
+        if (!line) continue;
+        const event = JSON.parse(line);
+        if (event.text) {
+          text += event.text;
+          $("pop-text").textContent = text;
+          $("pop-text").scrollTop = $("pop-text").scrollHeight;
+          spoken = speakNewSentences(text, spoken);
+        } else if ("fallback" in event) {
+          text = event.entry ? event.entry.answer : "";
+          if (text) { $("pop-text").textContent = text; if (voice.on) say(text); spoken = text.length; }
+          $("pop-state").textContent = "scripted coach (Claude unavailable)";
+          latest.coach_ai = { ...latest.coach_ai, available: false };
+        }
+      }
+    }
+    if (voice.on && spoken < text.length) say(text.slice(spoken).trim());
+  } catch (e) {
+    $("pop-text").textContent = e.message;
+  }
+  pop.streaming = false;
+  await refresh();
+  pop.seen = `${current}:${latest.session.state.questions.length}`;
+  schedulePopHide();
+}
+
+// A statement said aloud gets a short reply from the coach when you pause, at most every 20 seconds.
+let lastThinkingReply = 0;
+function coachOnThinking(text) {
+  if (text.split(/\s+/).length < 10 || Date.now() - lastThinkingReply < 20000) return;
+  clearTimeout(voice.nudgeTimer);
+  const spokeAt = voice.spokeAt;
+  voice.nudgeTimer = setTimeout(() => {
+    if (voice.spokeAt !== spokeAt || voice.speaking || pop.streaming) return;
+    lastThinkingReply = Date.now();
+    coachChat({ trigger: "thinking", message: text });
+  }, 3500);
+}
+
 const HINT_ASK = /\b(hint|i'?m stuck|stuck|give me a clue|clue|nudge|help me out|can you help)\b/i;
 const problemNow = () => latest && latest.session.started && latest.interview.format === "problem";
 let lastActivity = Date.now(), lastNudge = 0;
@@ -437,6 +541,7 @@ const active = () => { lastActivity = Date.now(); };
 
 async function askForHint() {
   if (!problemNow()) return;
+  if (coachAiOn()) { active(); return coachChat({ trigger: "hint" }); }
   if (latest.session.state.mode !== "coach" && !askForHint.confirmed) {
     if (!confirm("In real mode a hint lowers your problem-solving score, like leaning on a real interviewer would. Get a hint?")) return;
     askForHint.confirmed = true;
@@ -513,6 +618,7 @@ function render(data) {
   $("reveal").hidden = session.state.change_revealed_at !== null;
   renderPhases(session);
   renderQuestions(session.state.questions, session.state.spoken || []);
+  popNewMessages(session.state.questions);
   cues(session);
   renderNotes(session.state.notes, renderedFor !== current);
   renderedFor = current;
@@ -561,7 +667,7 @@ function renderTests(result) {
 
 const recognitionClass = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 const voice = { on: false, rec: null, finals: "", silence: null, speaking: false, lastNudge: 0, nudgeTimer: null, local: false, spokeAt: 0 };
-const FILLERS = /^(?:(?:so|okay|ok|um+|uh+|and|also|alright|all right|right|hey|well|yeah|quick question|one more thing)[\s,]+)+/i;
+const FILLERS = /^(?:(?:so|oh|okay|ok|um+|uh+|hmm+|and|also|alright|all right|right|hey|well|yeah|wait|quick question|one more thing)[\s,]+)+/i;
 const ASKS = /^(what|how|why|when|where|which|who|whose|should|shall|can|could|would|will|is|are|am|was|were|do|does|did|have|has|may|might|must|any)\b|\?\s*$|\b(can i|can you|could you|do you|should i|should we|is it|is there|are there|are we|what if|what about|how about|i was wondering|do we need|am i allowed)\b/i;
 
 function isQuestion(text) { return ASKS.test(text.replace(FILLERS, "").trim()); }
@@ -650,6 +756,13 @@ async function handleUtterance(text) {
   text = text.trim();
   if (text.split(/\s+/).length < 2 || !latest || !latest.session.started) return;
   if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
+  if (coachAiOn()) {
+    if (isQuestion(text)) { coachChat({ message: text, voice: true }); return; }
+    try { await call("/api/speech", { text }); } catch (e) { /* still reply */ }
+    setVoiceUi("Listening…", `Noted: “${text}”`);
+    coachOnThinking(text);
+    return;
+  }
   if (behavioralNow() && !(isQuestion(text) && text.split(/\s+/).length < 20)) {
     setVoiceUi("Listening…", `“${text}”`);
     answerBehavioral(text, false);
@@ -898,6 +1011,12 @@ function wire() {
       await askForHint();
       return;
     }
+    if (coachAiOn()) {
+      $("question").value = "";
+      $("question").disabled = false;
+      coachChat({ message: question });
+      return;
+    }
     if (behavioralNow() && !(isQuestion(question) && question.split(/\s+/).length < 20)) {
       $("question").value = "";
       await answerBehavioral(question, true);
@@ -939,7 +1058,11 @@ function wire() {
     await saveCode();
     showConsole("tests");
     $("console-summary").innerHTML = `<span class="muted">running…</span>`;
-    try { const { result, coach } = await call("/api/test", {}); renderTests(result); active(); if (coach) coachSays(coach); else refresh(); }
+    try {
+      const { result, coach } = await call("/api/test", {});
+      renderTests(result); active();
+      if (coachAiOn()) { await refresh(); coachChat({ trigger: "tests" }); } else if (coach) coachSays(coach); else refresh();
+    }
     catch (e) { toast(e.message); $("console-summary").textContent = ""; }
     button.disabled = false; button.lastChild.textContent = "Run tests";
   };
@@ -1006,6 +1129,21 @@ function wire() {
     };
   });
   $("hint").onclick = () => askForHint();
+  const popBox = $("coach-pop");
+  popBox.addEventListener("mouseenter", () => { pop.hovered = true; });
+  popBox.addEventListener("mouseleave", () => { pop.hovered = false; schedulePopHide(5000); });
+  $("pop-close").onclick = () => { popBox.hidden = true; };
+  $("pop-text").onclick = () => showTab("interviewer");
+  $("pop-reply").onsubmit = event => {
+    event.preventDefault();
+    const text = $("pop-input").value.trim();
+    if (!text) return;
+    $("pop-input").value = "";
+    active();
+    if (HINT_ASK.test(text) && text.split(/\s+/).length < 15) askForHint();
+    else if (coachAiOn()) coachChat({ message: text });
+    else { $("question").value = text; $("ask-form").requestSubmit(); }
+  };
   $("show-approach").onclick = async () => {
     $("menu").hidden = true;
     if (!confirm("Show the full approach? Try one more hint first if you haven't. The problem-solving score is capped at 3 once you've seen it.")) return;
@@ -1017,7 +1155,7 @@ function wire() {
     if (!problemNow() || latest.session.state.mode !== "coach" || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
     if (Date.now() - lastActivity < 120000 || Date.now() - lastNudge < 180000 || voice.speaking) return;
     lastNudge = Date.now();
-    try { const { entry } = await call("/api/nudge", {}); coachSays(entry); } catch (e) { /* try later */ }
+    try { if (coachAiOn()) coachChat({ trigger: "nudge" }); else { const { entry } = await call("/api/nudge", {}); coachSays(entry); } } catch (e) { /* try later */ }
   }, 15000);
   $("mic").onclick = () => { if (voice.on) stopVoice(); else { showTab("interviewer"); startVoice(); } };
   $("mic-pill").onclick = () => stopVoice();

@@ -328,6 +328,39 @@ class Sessions:
                 self.save(state)
             return state
 
+    def take_hint(self, interview: Interview) -> Optional[Dict[str, Any]]:
+        """Records that the next hint was given and returns it ({level, total, text}), or None when they're all used."""
+        hints = interview.hints()
+        with LOCK:
+            state = self._require(interview.id)
+            used = state.setdefault("hints", [])
+            if len(used) >= len(hints):
+                return None
+            used.append({"at": round(self.elapsed(state), 1), "level": len(used) + 1, "mode": state.get("mode", "real")})
+            self.save(state)
+            return {"level": len(used), "total": len(hints), "text": hints[len(used) - 1]}
+
+    def record_coach(self, interview: Interview, trigger: str, message: str, reply: str, voice: bool = False) -> Dict[str, Any]:
+        """Keeps a conversational coach exchange: the student's message and the reply, or the coach speaking up on its own."""
+        with LOCK:
+            state = self._require(interview.id)
+            if trigger == "message" and message.strip():
+                topic = interviewer.best_entry(interview.clarifications(), message).get("topic")
+                entry = {"at": round(self.elapsed(state), 1), "question": message.strip()[:4000], "answer": reply, "topic": topic,
+                         "matched": True, "source": "coach-ai", "voice": voice}
+                state["questions"].append(entry)
+            else:
+                entry = self._interviewer_message(state, reply, f"coach-ai:{trigger}")
+            self.save(state)
+            return entry
+
+    def record_test_details(self, interview: Interview, result: Dict[str, Any]) -> None:
+        with LOCK:
+            state = self._require(interview.id)
+            state["last_test_run"] = {"at": round(self.elapsed(state), 1), "passed": result.get("passed", 0), "failed": result.get("failed", 0), "errors": result.get("errors", 0),
+                                      "failing": [{"name": c["name"], "message": c["message"]} for c in result.get("cases", []) if c["outcome"] != "passed"][:8]}
+            self.save(state)
+
     def hint(self, interview: Interview) -> Dict[str, Any]:
         hints = interview.hints()
         with LOCK:

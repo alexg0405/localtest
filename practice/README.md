@@ -135,6 +135,25 @@ bar:
 
   Hints in coach mode are noted but not penalized.
 
+**Conversational coach (your Claude subscription).** While Roomside is running
+(`npm start`), coach mode talks with Claude through Roomside's Claude Code
+bridge. That's the official Claude Code CLI on your computer, signed in with
+your Claude account: no API key, and nothing is taken from the app.
+- **What Claude sees:** the problem, your current code, your latest test
+  results, and the conversation. It also gets the clarification facts, the
+  hint ladder, and the reference approach as private context.
+- **How it coaches:** Socratically, one question at a time, about your actual
+  code and failing tests. It doesn't hand over the solution unless you give
+  up and ask for it.
+- **When it speaks:** when you type, ask a question out loud, ask for a hint,
+  or run the tests; after a pause when you think out loud; and when you've
+  been quiet for a while.
+- **How replies appear:** they stream into a small box in the top-right corner
+  (with a reply field) and are read aloud sentence by sentence.
+- **Settings and fallback:** the model is Claude Sonnet 5.5 by default (set
+  `PRACTICE_COACH_MODEL` to change it), and usage counts toward your plan. If
+  Roomside or Claude Code isn't available, the scripted coach answers instead.
+
 Problems are graded on six areas:
 - problem understanding
 - problem solving and complexity

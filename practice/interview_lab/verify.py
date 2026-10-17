@@ -277,9 +277,77 @@ def verify_problem_workflow(interview, home: Path, c: Checker) -> None:
         listing = _http(port, "/api/interviews")
         tile = next(i for i in listing if i["id"] == interview.id)
         c.check("the lobby shows your last score and mode", tile["last_mode"] == "coach" and tile["last_score"] is not None and tile["format"] == "problem")
+        verify_conversational_coach(interview, port, c)
     finally:
         server.shutdown()
         server.server_close()
+
+
+def verify_conversational_coach(interview, port: int, c: Checker) -> None:
+    """The Claude coach, against a stand-in for Roomside's Claude Code bridge (so it costs nothing and is repeatable)."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from . import coach_ai
+    seen = []
+
+    class Bridge(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            body = json.dumps({"available": True, "loggedIn": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append((self.path, request))
+            self.send_response(200 if self.path == "/api/claude-code" else 204)
+            self.end_headers()
+            if self.path == "/api/claude-code":
+                for chunk in ("Good thinking. ", "What would that cost per call?"):
+                    self.wfile.write((json.dumps({"text": chunk}) + "\n").encode())
+                    self.wfile.flush()
+                self.wfile.write(b'{"done": true}\n')
+
+    bridge = ThreadingHTTPServer(("127.0.0.1", 0), Bridge)
+    threading.Thread(target=bridge.serve_forever, daemon=True).start()
+    previous = os.environ.get("ROOMSIDE_URL")
+
+    def coach(body):
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/api/coach", data=json.dumps({"interview": interview.id, **body}).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return [json.loads(line) for line in response if line.strip()]
+
+    try:
+        os.environ["ROOMSIDE_URL"] = f"http://127.0.0.1:{bridge.server_address[1]}"
+        coach_ai.status(force=True)
+        state = _http(port, f"/api/state?interview={interview.id}")
+        c.check("the page sees the conversational coach when Claude Code is signed in", state["coach_ai"]["available"])
+        events = coach({"message": "Could I use a sorted list?"})
+        text = "".join(e.get("text", "") for e in events)
+        done = events[-1]
+        c.check("coach replies stream from Claude and are recorded", text == "Good thinking. What would that cost per call?" and done.get("done") and done["entry"]["source"] == "coach-ai")
+        prompt = next(r for path, r in seen if path == "/api/claude-code")
+        c.check("the coach sees the problem, your code, and the conversation, with its own system prompt",
+                "Student's current code" in prompt["prompt"] and "Could I use a sorted list?" in prompt["prompt"] and prompt["model"] == coach_ai.MODEL and "coach" in prompt["system"])
+        hints_before = len(_http(port, f"/api/state?interview={interview.id}")["session"]["state"]["hints"])
+        coach({"trigger": "hint"})
+        hint_prompt = [r for path, r in seen if path == "/api/claude-code"][-1]["prompt"]
+        hints_after = len(_http(port, f"/api/state?interview={interview.id}")["session"]["state"]["hints"])
+        c.check("a Claude hint follows the hint ladder (and counts, while hints remain)", "asked for" in hint_prompt and hints_after >= hints_before)
+        os.environ["ROOMSIDE_URL"] = "http://127.0.0.1:9"
+        events = coach({"message": "How large can the input be?"})
+        c.check("when Claude is unreachable, the scripted coach answers instead", "fallback" in events[-1] and events[-1]["entry"] and events[-1]["entry"]["answer"])
+    finally:
+        if previous is None:
+            os.environ.pop("ROOMSIDE_URL", None)
+        else:
+            os.environ["ROOMSIDE_URL"] = previous
+        coach_ai.status(force=True)
+        bridge.shutdown()
+        bridge.server_close()
 
 
 def verify_behavioral_round(interview, home: Path, workspace: Path, scratch: Path, c: Checker) -> None:
@@ -461,13 +529,14 @@ def run() -> int:
         print(f"pytest is not available for {python}. Run: python3 practice/lab.py setup")
         return 1
     c = Checker()
-    saved = {key: os.environ.get(key) for key in ("PRACTICE_HOME", "PRACTICE_PYTHON", "ANTHROPIC_API_KEY", "PRACTICE_API_MODE")}
+    saved = {key: os.environ.get(key) for key in ("PRACTICE_HOME", "PRACTICE_PYTHON", "ANTHROPIC_API_KEY", "PRACTICE_API_MODE", "ROOMSIDE_URL")}
     with tempfile.TemporaryDirectory() as scratch:
         home = Path(scratch) / "home"
         home.mkdir()
         os.environ["PRACTICE_HOME"] = str(home)
         os.environ["PRACTICE_PYTHON"] = python
         os.environ.pop("ANTHROPIC_API_KEY", None)
+        os.environ["ROOMSIDE_URL"] = "http://127.0.0.1:9"  # verify never calls your real Claude Code
         os.environ.pop("PRACTICE_API_MODE", None)
         try:
             print(f"Verifying in a temporary PRACTICE_HOME with {probe.stdout.strip()}")

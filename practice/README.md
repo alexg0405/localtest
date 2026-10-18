@@ -123,7 +123,7 @@ the editor) turns on listening.
 - The coach responds to your train of thought when you pause, and answers
   spoken questions right away.
 - Lab remembers the mic setting for your next session, and the first time,
-  the popup invites you to turn it on.
+  the chat window invites you to turn it on.
 
 Pick a mode before you start, or switch at any time in the interview's top
 bar:
@@ -165,8 +165,15 @@ your Claude account: no API key, and nothing is taken from the app.
   hint; after a pause when you think out loud (the real interviewer only while
   you plan or wrap up); after test runs (coach only); and when you've been
   quiet for a while.
-- **How replies appear:** they stream into a small box in the top-right corner
-  (with a reply field) and are read aloud sentence by sentence.
+- **How replies appear:** they stream into a chat window with the whole
+  conversation and a reply field, and are read aloud sentence by sentence.
+  - Drag the window by its title bar, and resize it from any edge or corner.
+  - Minimize it to a title bar that shows the latest reply (or double-click
+    the title bar), or close it.
+  - The chat button next to the timer reopens it. A dot on that button means
+    there's a reply you haven't seen.
+  - Lab remembers where you put the window, its size, and whether it's open.
+    On a narrow screen it sits at the bottom.
 - **Settings and fallback:** the model is Claude Sonnet 5.5 by default (set
   `PRACTICE_COACH_MODEL` to change it), and usage counts toward your plan. If
   Roomside or Claude Code isn't available, the scripted coach answers instead.

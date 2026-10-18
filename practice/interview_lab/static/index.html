@@ -101,6 +101,7 @@
         <div class="timer" id="timer"><svg><use href="#i-clock"/></svg><span id="elapsed">00:00</span><span class="of">/ 60:00</span></div>
         <button class="icon-btn" id="pause" title="Pause the clock"><svg><use href="#i-pause"/></svg></button>
         <button class="icon-btn" id="resume" title="Resume the clock" hidden><svg><use href="#i-play"/></svg></button>
+        <button class="icon-btn pop-toggle" id="pop-toggle" type="button" title="Show the interviewer chat"><svg><use href="#i-chat"/></svg><i class="unread" id="pop-unread" hidden></i></button>
         <button class="mic-top" id="mic-pill" type="button" title="Talk out loud (⌥M)" aria-pressed="false"><svg><use href="#i-mic"/></svg><span class="dot"></span><span id="mic-caption">Talk (⌥M)</span></button>
       </div>
       <div class="tb-right">
@@ -132,19 +133,25 @@
       <div class="progress-tick" id="change-tick" title="Requirement change at 30:00"></div>
     </div>
 
-    <div class="coach-pop" id="coach-pop" hidden role="status" aria-live="polite">
-      <div class="pop-head">
+    <div class="coach-pop" id="coach-pop" hidden role="dialog" aria-label="Interviewer chat">
+      <div class="pop-head" id="pop-head" title="Drag to move">
         <span class="pop-avatar">IV</span>
         <span class="pop-who" id="pop-who">Coach</span>
         <span class="pop-state" id="pop-state"></span>
-        <button class="pop-close" id="pop-close" type="button" title="Hide" aria-label="Hide">×</button>
+        <button class="pop-btn" id="pop-min" type="button" title="Minimize" aria-label="Minimize">–</button>
+        <button class="pop-btn pop-close" id="pop-close" type="button" title="Close (reopen from the chat button)" aria-label="Close">×</button>
       </div>
-      <div class="pop-text" id="pop-text"></div>
+      <div class="pop-body" id="pop-body" aria-live="polite">
+        <div class="pop-log" id="pop-log"></div>
+        <div class="pop-text" id="pop-text"></div>
+      </div>
       <form class="pop-reply" id="pop-reply">
         <button type="button" class="pop-mic" id="pop-mic" title="Talk out loud (⌥M)" aria-pressed="false"><svg><use href="#i-mic"/></svg></button>
         <input id="pop-input" type="text" placeholder="Reply to your coach…" autocomplete="off" aria-label="Reply">
         <button type="submit" title="Send"><svg><use href="#i-send"/></svg></button>
       </form>
+      <i class="pop-grip" data-edge="n"></i><i class="pop-grip" data-edge="s"></i><i class="pop-grip" data-edge="e"></i><i class="pop-grip" data-edge="w"></i>
+      <i class="pop-grip" data-edge="ne"></i><i class="pop-grip" data-edge="nw"></i><i class="pop-grip" data-edge="se" title="Drag to resize"></i><i class="pop-grip" data-edge="sw"></i>
     </div>
 
     <div class="panes" id="panes">

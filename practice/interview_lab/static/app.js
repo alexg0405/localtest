@@ -183,6 +183,7 @@ function showView() {
     window.scrollTo(0, 0);
     showView.last = view;
     if (view === "ide" && code.cm) setTimeout(() => code.cm.refresh(), 0);  // CodeMirror can't measure itself while hidden
+    if (view === "ide") setTimeout(scrollPop, 0);   // open on the latest reply
   }
   document.body.classList.toggle("locked-scroll", view !== "lobby");
 }
@@ -282,6 +283,12 @@ function applyFormat(info) {
   if (behavioralOnly) showTab("interviewer");
 }
 
+function chatItems(questions, spoken = []) {
+  // Questions and replies, think-aloud, and behavioral answers, in the order they happened.
+  const answers = ((latest && latest.session.state.behavioral) || { answers: [] }).answers.flatMap(a => a.parts.map(p => ({ at: p.at, answer: p.text })));
+  return questions.map(q => ({ at: q.at, q })).concat(spoken.map(s => ({ at: s.at, said: s.text })), answers).sort((a, b) => a.at - b.at);
+}
+
 function renderQuestions(questions, spoken = []) {
   const asked = questions.filter(q => q.source !== "interviewer");
   $("q-count").hidden = !asked.length;
@@ -295,8 +302,7 @@ function renderQuestions(questions, spoken = []) {
     document.querySelectorAll(".suggest button").forEach(b => b.onclick = () => { $("question").value = b.textContent; $("question").focus(); });
     return;
   }
-  const answers = ((latest && latest.session.state.behavioral) || { answers: [] }).answers.flatMap(a => a.parts.map(p => ({ at: p.at, answer: p.text })));
-  const items = questions.map(q => ({ at: q.at, q })).concat(spoken.map(s => ({ at: s.at, said: s.text })), answers).sort((a, b) => a.at - b.at);
+  const items = chatItems(questions, spoken);
   const you = (text, at, extra = "", label = "") => `<div class="msg you ${extra}"><div class="avatar">You</div><div><div class="bubble">${escapeHtml(text)}</div><div class="meta">${label}${clock(at)}</div></div></div>`;
   const them = (text, meta, extra = "") => `<div class="msg them ${extra}"><div class="avatar">IV</div><div><div class="bubble">${escapeHtml(text)}</div><div class="meta">${meta}</div></div></div>`;
   $("questions").innerHTML = items.map(({ at, q, said, answer }) => {
@@ -433,41 +439,106 @@ async function syncCode(files) {
   } catch (e) { /* try again on the next refresh */ }
 }
 
-// The coach popup (top right) shows whatever the interviewer or coach says, as it says it.
-const pop = { timer: null, hovered: false, streaming: false, seen: null };
+// The interviewer chat window: the whole conversation, with the reply streaming in at the bottom.
+// Drag it by its title bar, resize it from any edge or corner, minimize or close it; it remembers all of that.
+const pop = { streaming: false, seen: null, lastReply: "" };
 const aiOn = () => problemNow() && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in either role
 const coachAiOn = () => aiOn() && latest.session.state.mode === "coach";
+const coachNow = () => !!latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
+const POP_MIN = { w: 280, h: 160 };
+const popDocked = () => matchMedia("(max-width: 700px)").matches;   // on a phone-sized window it sits at the bottom
 
-function showPop(text, { who, state, thinking } = {}) {
+function popLayout() {
+  let saved = {};
+  try { saved = JSON.parse(recall("lab.pop") || "{}") || {}; } catch (e) { /* use the defaults */ }
+  return { open: true, collapsed: false, x: null, y: 66, w: 380, h: 380, ...saved };
+}
+function savePop(changes) {
+  for (const key of ["x", "y", "w", "h"]) if (typeof changes[key] === "number") changes[key] = Math.round(changes[key]);
+  remember("lab.pop", JSON.stringify({ ...popLayout(), ...changes }));
+}
+
+function placePop(layout = popLayout()) {
+  // Keep it on screen, even after the browser window shrinks; the saved spot comes back when it grows again.
   const box = $("coach-pop");
-  const coach = latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
-  $("pop-who").textContent = who || (coach ? "Coach" : "Interviewer");
-  $("pop-state").textContent = state !== undefined ? state : aiOn() ? "Claude · your subscription" : "";
-  $("pop-text").innerHTML = thinking ? '<span class="typing"><i></i><i></i><i></i></span>' : escapeHtml(text);
-  $("pop-reply").hidden = !problemNow();
-  $("pop-input").placeholder = coach ? "Reply to your coach…" : "Reply to your interviewer…";
-  box.hidden = false;
-  $("pop-text").scrollTop = $("pop-text").scrollHeight;
-  schedulePopHide();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const w = Math.max(POP_MIN.w, Math.min(layout.w, vw - 16));
+  const h = Math.max(POP_MIN.h, Math.min(layout.h, vh - 16));
+  const x = Math.max(8, Math.min(layout.x === null ? vw - w - 16 : layout.x, vw - w - 8));
+  const y = Math.max(8, Math.min(layout.y, vh - (layout.collapsed ? 46 : h) - 8));
+  Object.assign(box.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
 }
 
-function schedulePopHide(ms = 16000) {
-  clearTimeout(pop.timer);
-  pop.timer = setTimeout(() => {
-    if (pop.hovered || pop.streaming || voice.speaking || document.activeElement === $("pop-input")) return schedulePopHide(4000);
-    $("coach-pop").hidden = true;
-  }, ms);
+const popOpen = () => !$("coach-pop").hidden;
+const popShowing = () => popOpen() && !$("coach-pop").classList.contains("collapsed");
+
+function applyPop() {
+  const layout = popLayout();
+  const box = $("coach-pop");
+  box.hidden = !layout.open;
+  box.classList.toggle("collapsed", !!layout.collapsed);
+  placePop(layout);
+  $("pop-min").textContent = layout.collapsed ? "+" : "–";
+  $("pop-min").title = layout.collapsed ? "Expand" : "Minimize";
+  $("pop-min").setAttribute("aria-label", $("pop-min").title);
+  $("pop-toggle").classList.toggle("active", layout.open && !layout.collapsed);
+  $("pop-toggle").title = layout.open && !layout.collapsed ? "Hide the interviewer chat" : "Show the interviewer chat";
+  if (popShowing()) { $("pop-unread").hidden = true; scrollPop(); }
+  popHeader();
 }
 
-function popNewMessages(questions) {
-  // Show the newest interviewer line that arrived since the last render (but not on first load).
+function setPop(changes) { savePop(changes); applyPop(); }
+
+function popHeader(state) {
+  $("pop-who").textContent = coachNow() ? "Coach" : "Interviewer";
+  if (state === undefined) {
+    if ($("coach-pop").classList.contains("collapsed") && pop.lastReply) state = pop.lastReply;   // minimized, the title bar shows the latest reply
+    else state = aiOn() ? "Claude · your subscription" : problemNow() ? "scripted" : "";
+  }
+  $("pop-state").textContent = state;
+  $("pop-state").title = state;
+}
+
+function scrollPop() { const body = $("pop-body"); body.scrollTop = body.scrollHeight; }
+
+function popLine(cls, text, label, title) {
+  return `<div class="pop-line ${cls}"${title ? ` title="${title}"` : ""}>${label ? `<small>${escapeHtml(label)}</small>` : ""}${escapeHtml(text)}</div>`;
+}
+
+function renderPop(questions, spoken) {
+  const body = $("pop-body");
+  const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+  const who = coachNow() ? "Coach" : "Interviewer";
+  const items = chatItems(questions, spoken).slice(-80);
+  $("pop-log").innerHTML = items.length ? items.map(({ q, said, answer }) => {
+    if (answer) return popLine("you", answer, "Your answer");
+    if (said) return popLine("said", said, "", "Said aloud");
+    if (q.source === "interviewer") {
+      const hint = (q.kind || "").includes("hint");
+      if (q.kind === "approach") return `<button type="button" class="pop-line them pop-link" data-open-tab="interviewer"><small>Approach</small>The full approach is in the Interviewer tab. Open it</button>`;
+      return popLine(hint ? "them hint" : "them", q.answer, hint ? "Hint" : who);
+    }
+    return popLine("you", q.question, q.voice ? "🎙 You" : "") + popLine("them", q.answer, q.source === "api" ? "API interviewer" : who);
+  }).join("") : `<p class="pop-empty">${coachNow() ? "Your coach's replies show up here. Ask anything, or ask for a hint." : "The interviewer's replies show up here. Type below or turn on the mic."}</p>`;
+  const replies = questions.filter(q => q.answer && q.kind !== "approach");
+  pop.lastReply = replies.length ? replies[replies.length - 1].answer : "";
+  if (atBottom) scrollPop();
+}
+
+function popNewMessages(session) {
+  const questions = session.state.questions;
+  renderPop(questions, session.state.spoken || []);
+  $("pop-input").placeholder = coachNow() ? "Reply to your coach…" : behavioralNow() ? "Ask, or answer the question…" : "Reply to your interviewer…";
+  popHeader();
+  // A reply that arrived since the last render scrolls into view, or lights the chat button when the window is hidden.
   const key = `${current}:${questions.length}`;
-  if (pop.seen === null || !pop.seen.startsWith(current + ":")) { pop.seen = key; return; }
+  if (pop.seen === null || !pop.seen.startsWith(current + ":")) { pop.seen = key; scrollPop(); return; }
   if (pop.seen === key) return;
   const fresh = questions.slice(Number(pop.seen.split(":").pop()));
   pop.seen = key;
-  const last = fresh.filter(q => q.source === "interviewer" || q.source === "coach-ai" || q.answer).slice(-1)[0];
-  if (last && !pop.streaming) showPop(last.kind === "approach" ? "I've put the approach in the Interviewer chat." : last.answer);
+  if (!fresh.some(q => q.answer)) return;
+  if (popShowing()) scrollPop();
+  else $("pop-unread").hidden = false;
 }
 
 function speakNewSentences(text, from) {
@@ -483,8 +554,16 @@ function speakNewSentences(text, from) {
 async function coachChat(body) {
   if (pop.streaming) return;
   pop.streaming = true;
-  showPop("", { thinking: true });
-  let text = "", spoken = 0;
+  $("pop-toggle").classList.add("busy");
+  const live = $("pop-text");
+  const empty = $("pop-log").querySelector(".pop-empty");
+  if (empty) empty.remove();
+  live.innerHTML = (body.message && body.trigger === undefined ? popLine("you", body.message, body.voice ? "🎙 You" : "") : "")
+    + `<div class="pop-line them${body.trigger === "hint" ? " hint" : ""}"><small>${body.trigger === "hint" ? "Hint" : coachNow() ? "Coach" : "Interviewer"}</small><span class="pop-stream"><span class="typing"><i></i><i></i><i></i></span></span></div>`;
+  const stream = live.querySelector(".pop-stream");
+  popHeader("typing…");
+  scrollPop();
+  let text = "", spoken = 0, failed = false;
   try {
     const response = await fetch("api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interview: current, ...body }) });
     if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || `The coach is unavailable (${response.status}).`); }
@@ -503,25 +582,29 @@ async function coachChat(body) {
         const event = JSON.parse(line);
         if (event.text) {
           text += event.text;
-          $("pop-text").textContent = text;
-          $("pop-text").scrollTop = $("pop-text").scrollHeight;
+          stream.textContent = text;
+          scrollPop();
           spoken = speakNewSentences(text, spoken);
         } else if ("fallback" in event) {
           text = event.entry ? event.entry.answer : "";
-          if (text) { $("pop-text").textContent = text; if (voice.on) say(text); spoken = text.length; }
-          $("pop-state").textContent = "scripted coach (Claude unavailable)";
+          if (text) { stream.textContent = text; if (voice.on) say(text); spoken = text.length; }
           latest.coach_ai = { ...latest.coach_ai, available: false };
+          toast("Claude isn't reachable, so the scripted coach answered.");
         }
       }
     }
     if (voice.on && spoken < text.length) say(text.slice(spoken).trim());
   } catch (e) {
-    $("pop-text").textContent = e.message;
+    failed = true;
+    stream.textContent = e.message;
+    stream.parentElement.classList.add("error");
   }
   pop.streaming = false;
-  await refresh();
-  pop.seen = `${current}:${latest.session.state.questions.length}`;
-  schedulePopHide();
+  $("pop-toggle").classList.remove("busy");
+  await refresh();   // the reply is now in the conversation, so the live copy goes
+  if (!failed) live.innerHTML = "";
+  popHeader();
+  scrollPop();
 }
 
 // A statement said aloud gets a short reply from the coach when you pause, at most every 20 seconds.
@@ -558,9 +641,9 @@ async function askForHint() {
   active();
   try {
     const { entry } = await call("/api/hint", {});
-    showTab("interviewer");
+    if (!popShowing()) showTab("interviewer");
     await refresh();
-    if (voice.on) say(entry.answer); else toast("Hint added to the Interviewer chat.");
+    if (voice.on) say(entry.answer); else if (!popShowing()) toast("Hint added to the Interviewer chat.");
   } catch (e) { toast(e.message); }
 }
 
@@ -573,13 +656,11 @@ function offerVoice(data) {
   offered.add(key);
   if (recall("lab.mic") === "on") { startVoice(); return; }
   setTimeout(() => {
-    if (voice.on || pop.streaming) return;
-    showPop("");
+    if (voice.on || pop.streaming || !popOpen()) return;
     const coach = data.session.state.mode === "coach";
-    $("pop-text").innerHTML = escapeHtml(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code. I'll listen and jump in when it helps." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.")
-      + '<br><button type="button" class="pop-action" id="pop-start-mic">Turn on mic (⌥M)</button>';
+    $("pop-text").innerHTML = `<div class="pop-line them"><small>${coach ? "Coach" : "Interviewer"}</small>${escapeHtml(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code. I'll listen and jump in when it helps." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.")}<br><button type="button" class="pop-action" id="pop-start-mic">Turn on mic (⌥M)</button></div>`;
     $("pop-start-mic").onclick = () => startVoice();
-    schedulePopHide(30000);
+    scrollPop();
   }, 1500);
 }
 
@@ -587,7 +668,7 @@ async function coachSays(entry) {
   if (!entry) return;
   await refresh();
   if (voice.on) say(entry.answer);
-  else toast((latest.session.state.mode === "coach" ? "Coach: " : "") + entry.answer.slice(0, 140) + (entry.answer.length > 140 ? "…" : ""));
+  else if (!popShowing()) toast((latest.session.state.mode === "coach" ? "Coach: " : "") + entry.answer.slice(0, 140) + (entry.answer.length > 140 ? "…" : ""));
 }
 
 function showTab(name) {
@@ -646,7 +727,7 @@ function render(data) {
   $("reveal").hidden = session.state.change_revealed_at !== null;
   renderPhases(session);
   renderQuestions(session.state.questions, session.state.spoken || []);
-  popNewMessages(session.state.questions);
+  popNewMessages(session);
   cues(session);
   renderNotes(session.state.notes, renderedFor !== current);
   renderedFor = current;
@@ -711,6 +792,7 @@ function setVoiceUi(stateText, live) {
   top.classList.toggle("speaking", voice.speaking);
   top.setAttribute("aria-pressed", String(voice.on));
   $("pop-mic").setAttribute("aria-pressed", String(voice.on));
+  if (voice.on && $("pop-start-mic")) $("pop-text").innerHTML = "";   // the invitation is done once the mic is on
   if (!voice.on) $("mic-caption").textContent = "Talk (⌥M)";
   else if (voice.speaking) $("mic-caption").textContent = "Speaking…";
   else if (live !== undefined && $("voice-bar").classList.contains("hearing")) $("mic-caption").textContent = live.slice(-48) || "Listening";
@@ -997,6 +1079,70 @@ async function copyText(text, label) {
   }
 }
 
+function popPointer(handle, event, onMove) {
+  // Follows one pointer from press to release, then saves where the window ended up.
+  const box = $("coach-pop");
+  try { handle.setPointerCapture(event.pointerId); } catch (e) { /* keeps working without capture, just less smoothly */ }
+  box.classList.add("moving");
+  event.preventDefault();
+  const move = e => onMove(e);
+  const up = () => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", up);
+    handle.removeEventListener("pointercancel", up);
+    box.classList.remove("moving");
+    const r = box.getBoundingClientRect();
+    savePop(box.classList.contains("collapsed") ? { x: r.left, y: r.top, w: r.width } : { x: r.left, y: r.top, w: r.width, h: r.height });
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", up);
+  handle.addEventListener("pointercancel", up);
+}
+
+function wirePop() {
+  const box = $("coach-pop");
+  $("pop-head").addEventListener("pointerdown", event => {
+    if (event.button !== 0 || event.target.closest("button") || popDocked()) return;
+    const r = box.getBoundingClientRect(), dx = event.clientX - r.left, dy = event.clientY - r.top;
+    popPointer($("pop-head"), event, e => placePop({ ...popLayout(), x: e.clientX - dx, y: e.clientY - dy }));
+  });
+  $("pop-head").addEventListener("dblclick", event => { if (!event.target.closest("button")) setPop({ collapsed: !popLayout().collapsed }); });
+  box.querySelectorAll("[data-edge]").forEach(grip => grip.addEventListener("pointerdown", event => {
+    const edge = grip.dataset.edge;
+    if (event.button !== 0 || popDocked()) return;
+    const start = box.getBoundingClientRect(), x0 = event.clientX, y0 = event.clientY;
+    popPointer(grip, event, e => {
+      const dx = e.clientX - x0, dy = e.clientY - y0;
+      let x = start.left, y = start.top, w = start.width, h = start.height;
+      if (edge.includes("e")) w = Math.min(start.width + dx, window.innerWidth - 8 - start.left);
+      if (edge.includes("w")) w = Math.min(start.width - dx, start.right - 8);
+      if (edge.includes("s")) h = Math.min(start.height + dy, window.innerHeight - 8 - start.top);
+      if (edge.includes("n")) h = Math.min(start.height - dy, start.bottom - 8);
+      w = Math.max(POP_MIN.w, w);
+      h = Math.max(POP_MIN.h, h);
+      if (edge.includes("w")) x = start.right - w;
+      if (edge.includes("n")) y = start.bottom - h;
+      placePop({ ...popLayout(), x, y, w, h });
+    });
+  }));
+  $("pop-min").onclick = () => setPop({ collapsed: !popLayout().collapsed });
+  $("pop-close").onclick = () => setPop({ open: false });
+  $("pop-toggle").onclick = () => { const l = popLayout(); setPop(l.open && !l.collapsed ? { open: false } : { open: true, collapsed: false }); };
+  $("pop-log").addEventListener("click", event => { const link = event.target.closest("[data-open-tab]"); if (link) showTab(link.dataset.openTab); });
+  $("pop-reply").onsubmit = event => {
+    event.preventDefault();
+    const text = $("pop-input").value.trim();
+    if (!text) return;
+    $("pop-input").value = "";
+    active();
+    if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) askForHint();
+    else if (aiOn()) coachChat({ message: text });
+    else { $("question").value = text; $("ask-form").requestSubmit(); }
+  };
+  window.addEventListener("resize", () => { if (popOpen()) placePop(); });
+  applyPop();
+}
+
 function wire() {
   $("start").onclick = async () => {
     if (latest && latest.session.started) { inLobby = false; showView(); return; }
@@ -1170,21 +1316,7 @@ function wire() {
     };
   });
   $("hint").onclick = () => askForHint();
-  const popBox = $("coach-pop");
-  popBox.addEventListener("mouseenter", () => { pop.hovered = true; });
-  popBox.addEventListener("mouseleave", () => { pop.hovered = false; schedulePopHide(5000); });
-  $("pop-close").onclick = () => { popBox.hidden = true; };
-  $("pop-text").onclick = () => showTab("interviewer");
-  $("pop-reply").onsubmit = event => {
-    event.preventDefault();
-    const text = $("pop-input").value.trim();
-    if (!text) return;
-    $("pop-input").value = "";
-    active();
-    if (HINT_ASK.test(text) && text.split(/\s+/).length < 15) askForHint();
-    else if (aiOn()) coachChat({ message: text });
-    else { $("question").value = text; $("ask-form").requestSubmit(); }
-  };
+  wirePop();
   $("show-approach").onclick = async () => {
     $("menu").hidden = true;
     if (!confirm("Show the full approach? Try one more hint first if you haven't. The problem-solving score is capped at 3 once you've seen it.")) return;

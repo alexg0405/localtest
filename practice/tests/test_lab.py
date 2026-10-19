@@ -57,11 +57,11 @@ def config_for(fake, **extra):
     return api.ApiConfig(env=env)
 
 
-def test_api_mode_is_off_by_default():
+def test_api_mode_is_off_by_default(tmp_path):
     config = api.ApiConfig(env={"ANTHROPIC_API_KEY": "sk-test"})
     assert not config.enabled and not config.public()["ready"]
     with pytest.raises(api.ApiError) as error:
-        api.complete(config, "s", "p", {}, Path("/tmp"))
+        api.complete(config, "s", "p", {}, tmp_path)
     assert error.value.kind == "off"
 
 
@@ -453,3 +453,47 @@ def test_hints_only_advance_after_progress(tmp_path):
     assert second["level"] == 2 and not second["repeat"]
     sessions.ask(problem, "Can words repeat?")
     assert sessions.take_hint(problem)["level"] == 3
+
+
+def test_windows_gets_its_own_paths_and_powershell_commands():
+    from pathlib import PureWindowsPath
+    from interview_lab.catalog import claude_rule_path, shell_commands, venv_python
+
+    assert venv_python(Path("/home/me/.venv"), windows=False) == Path("/home/me/.venv/bin/python")
+    assert venv_python(Path("/home/me/.venv"), windows=True) == Path("/home/me/.venv/Scripts/python.exe")
+    # Claude Code writes Windows paths in permission rules as //c/Users/...
+    assert claude_rule_path(Path("/Users/me/localtest/practice"), windows=False) == "//Users/me/localtest/practice"
+    assert claude_rule_path(PureWindowsPath(r"C:\Users\me\localtest\practice"), windows=True) == "//c/Users/me/localtest/practice"
+    workspace, venv = PureWindowsPath(r"C:\Users\me\interview-practice\two-sum"), PureWindowsPath(r"C:\Users\me\interview-practice\.venv")
+    commands = shell_commands(workspace, str(venv / "Scripts" / "python.exe"), venv, windows=True)
+    assert commands["assistant"] == f'cd "{workspace}"; claude'   # PowerShell 5 has no &&
+    assert commands["tests"].endswith(f'; & "{venv}\\Scripts\\python.exe" -m pytest -q')
+    assert commands["activate"] == f'& "{venv}\\Scripts\\Activate.ps1"'
+    assert "&&" in shell_commands(Path("/w"), "/v/bin/python", Path("/v"), windows=False)["assistant"]
+
+
+def test_dashboard_serves_its_script_as_javascript_whatever_the_system_says(tmp_path, monkeypatch):
+    # On Windows, Python's file types come from the registry, which can call .js plain text; with nosniff the page would break.
+    import mimetypes
+    import urllib.request
+    from interview_lab.server import Lab, make_server
+
+    monkeypatch.setattr(mimetypes, "guess_type", lambda *args, **kwargs: ("text/plain", None))
+    server = make_server(Lab(tmp_path, api_config=api.ApiConfig(env={})), port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/static/app.js") as response:
+            assert response.headers["Content-Type"] == "text/javascript; charset=utf-8"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_workspace_points_vs_code_and_claude_code_at_the_right_places(tmp_path):
+    from interview_lab.catalog import LAB_ROOT, claude_rule_path, venv_python
+
+    workspace = create_workspace(get_interview("two-sum"), tmp_path)
+    vscode = json.loads((workspace / ".vscode" / "settings.json").read_text(encoding="utf-8"))
+    assert vscode["python.defaultInterpreterPath"] == str(venv_python(tmp_path / ".venv"))
+    deny = json.loads((workspace / ".claude" / "settings.json").read_text(encoding="utf-8"))["permissions"]["deny"]
+    assert f"Read({claude_rule_path(LAB_ROOT)}/**)" in deny

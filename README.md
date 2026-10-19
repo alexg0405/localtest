@@ -3,7 +3,7 @@
 
 ## Run
 
-Install Node.js 20+ and npm, then double-click `run.command` on macOS, or run `./run.sh` in a terminal. The first run installs dependencies and opens the app in your browser. You can also run `npm install` and `npm start`. The development server listens on this computer only (`127.0.0.1`); the optional phone mirror opens one more port on your network, only while it is on. Use a browser with Web Speech API support (Chrome is recommended). Browser speech recognition availability and audio processing depend on the browser and its provider.
+Install Node.js 20+ and npm, then double-click `run.command` on macOS or `run.cmd` on Windows, or run `./run.sh` in a terminal. The first run installs dependencies and opens the app in your browser. You can also run `npm install` and `npm start`. The development server listens on this computer only (`127.0.0.1`); the optional phone mirror opens one more port on your network, only while it is on. Use a browser with Web Speech API support (Chrome is recommended). Browser speech recognition availability and audio processing depend on the browser and its provider.
 
 ## Desktop app
 
@@ -11,11 +11,17 @@ The Tauri 2 shell is scaffolded as an installable desktop app, including a Rooms
 
 Without Rust installed locally, you can build the desktop app on GitHub: open **Actions → Desktop build → Run workflow** and tick the macOS option to download `Roomside.app` (unsigned, so right-click it and choose **Open** the first time). The same workflow compiles the shell on Linux whenever `src-tauri/` changes.
 
+On Windows:
+- Install [Node.js](https://nodejs.org/) 20+ and, for Interview Lab, [Python](https://www.python.org/downloads/) 3.9+ (tick **Add python.exe to PATH** in the installer).
+- Install Claude Code (in PowerShell: `irm https://claude.ai/install.ps1 | iex`) and sign in once with `claude`. If Claude Code says it needs Git Bash, install [Git for Windows](https://git-scm.com/downloads/win). Roomside finds `claude.exe` or npm's `claude.cmd` on PATH, in `%USERPROFILE%\.local\bin`, or in `%APPDATA%\npm`; set `CLAUDE_BIN` to its full path if it's somewhere else.
+- Double-click `run.cmd`, or run `npm install` and `npm start` in PowerShell. Use Chrome or Edge for speech recognition. Interview Lab reads the interviewer aloud with Windows' voices; Edge's natural voices sound best.
+- If the microphone doesn't work, check **Settings → Privacy & security → Microphone** and allow access for `127.0.0.1` in the browser's address bar.
+
 If macOS blocks the microphone, open the site in Chrome and allow microphone access for `127.0.0.1` in the address bar/site settings. If speech recognition is unavailable or network speech processing is disabled, type the question in the manual field. For model errors, confirm the endpoint and model name, then verify that the endpoint accepts browser CORS requests.
 
 ## Interview practice lab
 
-`practice/` is a separate, local practice environment for AI-assisted coding interviews in Python. It has timed AI-assisted interviews (commerce orders, a banking ledger, an unfamiliar repository), Amazon SDE intern final rounds and a behavioral round, 15 classic practice problems with a real-interviewer or coach mode, a dashboard with a 60-minute clock and an offline interviewer, a requirement change at minute 30, and evidence-based grading. You use Claude Code on your own subscription as the coding assistant, and no API key is needed. Run `python3 practice/lab.py setup` once. After that, `npm start` runs both: Roomside at http://127.0.0.1:5173/ and Interview Lab at http://127.0.0.1:5173/practice/. Click **Practice** in Roomside's top bar to switch, and **Roomside** in the lab to switch back. See [practice/README.md](practice/README.md).
+`practice/` is a separate, local practice environment for AI-assisted coding interviews in Python. It has timed AI-assisted interviews (commerce orders, a banking ledger, an unfamiliar repository), Amazon SDE intern final rounds and a behavioral round, 15 classic practice problems with a real-interviewer or coach mode, a dashboard with a 60-minute clock and an offline interviewer, a requirement change at minute 30, and evidence-based grading. You use Claude Code on your own subscription as the coding assistant, and no API key is needed. Run `npm run practice -- setup` once (or `python3 practice/lab.py setup`; `py practice\lab.py setup` on Windows). After that, `npm start` runs both: Roomside at http://127.0.0.1:5173/ and Interview Lab at http://127.0.0.1:5173/practice/. Click **Practice** in Roomside's top bar to switch, and **Roomside** in the lab to switch back. See [practice/README.md](practice/README.md).
 
 ## Tests
 

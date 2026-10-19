@@ -6,7 +6,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, List
 
 LAB_ROOT = Path(__file__).resolve().parent.parent
@@ -38,12 +38,47 @@ def practice_home() -> Path:
     return Path(os.environ.get("PRACTICE_HOME") or Path.home() / "interview-practice").expanduser()
 
 
+WINDOWS = os.name == "nt"
+# How to run the lab from the repository, for messages: the py launcher on Windows, where there is usually no python3.
+LAB_COMMAND = "py practice\\lab.py" if WINDOWS else "python3 practice/lab.py"
+
+
+def venv_python(venv: Path, windows: bool = WINDOWS) -> Path:
+    """A virtualenv's Python: Scripts\\python.exe on Windows, bin/python elsewhere."""
+    return venv / "Scripts" / "python.exe" if windows else venv / "bin" / "python"
+
+
+def claude_rule_path(directory: Path, windows: bool = WINDOWS) -> str:
+    """An absolute folder as Claude Code's permission rules write it: //Users/me/x, or //c/Users/me/x for C:\\Users\\me\\x."""
+    if windows:
+        path = PureWindowsPath(directory)
+        return "//" + "/".join([path.drive[:1].lower(), *path.parts[1:]]) if path.drive else "/" + path.as_posix()
+    return "/" + PurePosixPath(directory).as_posix()
+
+
 def test_python(home: Path) -> str:
     """The Python that runs pytest: $PRACTICE_PYTHON, then the lab's virtualenv, then this Python."""
     if os.environ.get("PRACTICE_PYTHON"):
         return os.environ["PRACTICE_PYTHON"]
-    venv = home / ".venv" / "bin" / "python"
+    venv = venv_python(home / ".venv")
     return str(venv) if venv.exists() else sys.executable
+
+
+def shell_commands(workspace: Path, python: str, venv: Path, windows: bool = WINDOWS) -> Dict[str, str]:
+    """Commands to copy into a terminal: PowerShell (Windows' default terminal) on Windows, a POSIX shell elsewhere."""
+    if windows:
+        return {
+            "editor": f'code "{workspace}"',
+            "assistant": f'cd "{workspace}"; claude',
+            "tests": f'cd "{workspace}"; & "{python}" -m pytest -q',
+            "activate": f'& "{venv / "Scripts" / "Activate.ps1"}"',
+        }
+    return {
+        "editor": f'code "{workspace}"',
+        "assistant": f'cd "{workspace}" && claude',
+        "tests": f'cd "{workspace}" && "{python}" -m pytest -q',
+        "activate": f'source "{venv / "bin" / "activate"}"',
+    }
 
 
 @dataclass(frozen=True)

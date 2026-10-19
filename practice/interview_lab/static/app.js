@@ -8,6 +8,8 @@ let tickBase = null;       // {elapsed, at}: a smooth local clock between polls
 let inLobby = true;
 let changeSeen = false;    // the candidate has opened the Change tab since it was revealed
 let activeNote = "plan";
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const MIC_KEY = MAC ? "⌥M" : "Alt+M";   // the mic shortcut, as each keyboard labels it
 
 const NOTES = {
   plan: { hint: "<b>5–15 min.</b> What you found, which files matter, how the call path works, and what you'll change first.", placeholder: "## What I found\n- \n\n## Files I'll touch\n- \n\n## Plan\n1. " },
@@ -660,7 +662,7 @@ function offerVoice(data) {
   setTimeout(() => {
     if (voice.on || pop.streaming || !popOpen()) return;
     const coach = data.session.state.mode === "coach";
-    $("pop-text").innerHTML = `<div class="pop-line them"><small>${coach ? "Coach" : "Interviewer"}</small>${escapeHtml(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code. I'll listen and jump in when it helps." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.")}<br><button type="button" class="pop-action" id="pop-start-mic">Turn on mic (⌥M)</button></div>`;
+    $("pop-text").innerHTML = `<div class="pop-line them"><small>${coach ? "Coach" : "Interviewer"}</small>${escapeHtml(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code. I'll listen and jump in when it helps." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.")}<br><button type="button" class="pop-action" id="pop-start-mic">Turn on mic (${MIC_KEY})</button></div>`;
     $("pop-start-mic").onclick = () => startVoice();
     scrollPop();
     say(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.");
@@ -796,7 +798,7 @@ function setVoiceUi(stateText, live) {
   top.setAttribute("aria-pressed", String(voice.on));
   $("pop-mic").setAttribute("aria-pressed", String(voice.on));
   if (voice.on && $("pop-start-mic")) $("pop-text").innerHTML = "";   // the invitation is done once the mic is on
-  if (!voice.on) $("mic-caption").textContent = "Talk (⌥M)";
+  if (!voice.on) $("mic-caption").textContent = `Talk (${MIC_KEY})`;
   else if (voice.speaking) $("mic-caption").textContent = "Speaking…";
   else if (live !== undefined && $("voice-bar").classList.contains("hearing")) $("mic-caption").textContent = live.slice(-48) || "Listening";
   else $("mic-caption").textContent = "Listening";
@@ -807,7 +809,8 @@ function setVoiceUi(stateText, live) {
 
 function pickVoice() {
   const voices = speechSynthesis.getVoices().filter(v => /^en(-|_|$)/i.test(v.lang));
-  const preferred = ["Samantha", "Ava", "Google US English", "Allison", "Daniel", "Karen", "Alex"];
+  // macOS, then Edge's natural voices on Windows, then Chrome's, then the older Windows voices.
+  const preferred = ["Samantha", "Ava", "Aria", "Jenny", "Online (Natural)", "Google US English", "Allison", "Daniel", "Karen", "Alex", "Zira", "David"];
   return preferred.map(name => voices.find(v => v.name.includes(name))).find(Boolean) || voices.find(v => v.lang === "en-US") || voices[0] || null;
 }
 
@@ -1138,6 +1141,11 @@ function popPointer(handle, event, onMove) {
   handle.addEventListener("pointercancel", up);
 }
 
+function labelShortcuts() {
+  for (const id of ["mic-pill", "pop-mic"]) $(id).title = `Talk out loud (${MIC_KEY})`;
+  $("mic-caption").textContent = `Talk (${MIC_KEY})`;
+}
+
 function wirePop() {
   const box = $("coach-pop");
   $("pop-head").addEventListener("pointerdown", event => {
@@ -1361,6 +1369,7 @@ function wire() {
   });
   $("hint").onclick = () => askForHint();
   wirePop();
+  labelShortcuts();
   $("show-approach").onclick = async () => {
     $("menu").hidden = true;
     if (!confirm("Show the full approach? Try one more hint first if you haven't. The problem-solving score is capped at 3 once you've seen it.")) return;

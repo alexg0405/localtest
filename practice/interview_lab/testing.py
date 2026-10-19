@@ -8,6 +8,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
+from .catalog import LAB_COMMAND
+
 
 def run_pytest(python: str, cwd: Path, paths: Sequence[str] = (), timeout: int = 180) -> Dict[str, Any]:
     with tempfile.TemporaryDirectory() as scratch:
@@ -16,14 +18,14 @@ def run_pytest(python: str, cwd: Path, paths: Sequence[str] = (), timeout: int =
                    "--continue-on-collection-errors", "-o", "junit_family=xunit2", f"--junitxml={report}", *paths]
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
         try:
-            completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
+            completed = subprocess.run(command, cwd=cwd, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             return _failure(f"pytest took longer than {timeout} seconds and was stopped (an infinite loop?).")
         except OSError as error:
             return _failure(f"Could not run pytest with {python}: {error}")
         output = (completed.stdout + completed.stderr)[-6000:]
         if "No module named pytest" in output:
-            return _failure("pytest is not installed for this Python. Run: python3 practice/lab.py setup", output)
+            return _failure(f"pytest is not installed for this Python. Run: {LAB_COMMAND} setup", output)
         cases = _parse(report) if report.exists() else []
     counts = {outcome: sum(1 for case in cases if case["outcome"] == outcome) for outcome in ("passed", "failed", "error", "skipped")}
     return {

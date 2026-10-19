@@ -1,0 +1,6 @@
+# Keep LF line endings on every platform, so a Windows checkout has the same starter files, patches, and tests
+# as everywhere else. Windows batch files need CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

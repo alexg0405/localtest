@@ -1,10 +1,10 @@
 // Dev-server bridge that answers through the Claude Code CLI signed in with your Claude subscription, so no API key is
 // needed. Claude Code runs with every tool disabled, in an empty directory, and only for requests from this page.
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join, win32 } from 'node:path';
 import type { Plugin } from 'vite';
 import { isClaudeModel, type ClaudeModel } from '../src/claude';
 import { isLocalRequest, readBody } from './http';
@@ -17,23 +17,51 @@ const newestFirst = (a: string, b: string) => { const x = a.split('.').map(Numbe
 // The folders in a version's folder: newer desktop apps keep Claude Code a level down (<version>/<build>/claude.app).
 const builds = (folder: string) => { try { return readdirSync(folder, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name !== 'claude.app').map(entry => join(folder, entry.name)); } catch { return []; } };
 
-/** Finds Claude Code: $CLAUDE_BIN, then `claude` on PATH, then the newest copy bundled with the Claude desktop app. */
-export function findClaudeBinary(env: NodeJS.ProcessEnv = process.env, home = homedir()): string | null {
+/**
+ * Finds Claude Code: $CLAUDE_BIN, then `claude` on PATH, then where its installers put it, then the newest copy bundled
+ * with the Claude desktop app. On Windows the names are claude.exe (the native installer) and claude.cmd (npm).
+ */
+export function findClaudeBinary(env: NodeJS.ProcessEnv = process.env, home = homedir(), platform: NodeJS.Platform = process.platform): string | null {
   if (env.CLAUDE_BIN) return isExecutable(env.CLAUDE_BIN) ? env.CLAUDE_BIN : null;
-  for (const directory of (env.PATH ?? '').split(delimiter)) if (directory && isExecutable(join(directory, 'claude'))) return join(directory, 'claude');
-  const bundled = join(home, 'Library', 'Application Support', 'Claude', 'claude-code');
+  const windows = platform === 'win32';
+  const names = windows ? ['claude.exe', 'claude.cmd'] : ['claude'];
+  for (const directory of (env.PATH ?? env.Path ?? '').split(windows ? ';' : ':')) for (const name of names) if (directory && isExecutable(join(directory, name))) return join(directory, name);
+  const appData = env.APPDATA || join(home, 'AppData', 'Roaming');
+  const installed = windows ? [join(home, '.local', 'bin', 'claude.exe'), join(appData, 'npm', 'claude.cmd')] : [join(home, '.local', 'bin', 'claude')];
+  for (const candidate of installed) if (isExecutable(candidate)) return candidate;
+  const bundled = windows ? join(appData, 'Claude', 'claude-code') : join(home, 'Library', 'Application Support', 'Claude', 'claude-code');
   const versions = existsSync(bundled) ? readdirSync(bundled).filter(name => /^\d+(\.\d+)*$/.test(name)).sort(newestFirst) : [];
   for (const version of versions) {
     const folder = join(bundled, version);
-    for (const base of [folder, ...builds(folder)]) { const candidate = join(base, 'claude.app', 'Contents', 'MacOS', 'claude'); if (isExecutable(candidate)) return candidate; }
+    for (const base of [folder, ...builds(folder)]) { const candidate = windows ? join(base, 'claude.exe') : join(base, 'claude.app', 'Contents', 'MacOS', 'claude'); if (isExecutable(candidate)) return candidate; }
   }
   return null;
 }
 
+/**
+ * How to run a Claude Code binary. Node can't start npm's claude.cmd shim without a shell, and a shell would mangle the
+ * system prompt, so run what the shim runs: its script with this Node, or its .exe.
+ */
+export function claudeCommand(binary: string, read = (file: string) => readFileSync(file, 'utf8')): { command: string; args: string[] } {
+  if (!/\.(cmd|bat)$/i.test(binary)) return { command: binary, args: [] };
+  let shim = ''; try { shim = read(binary); } catch { /* reported when it fails to start */ }
+  // npm's shims end with:  "%_prog%"  "%dp0%\node_modules\@anthropic-ai\claude-code\cli.js" %*
+  const target = [...shim.matchAll(/"%~?dp0%?\\([^"%]+)"/gi)].map(match => match[1]).filter(file => !/(^|\\)node(\.exe)?$/i.test(file)).pop();
+  if (!target) return { command: binary, args: [] };
+  const file = win32.join(win32.dirname(binary), target);
+  return /\.exe$/i.test(file) ? { command: file, args: [] } : { command: process.execPath, args: [file] };
+}
+
+const unixKeys = ['HOME', 'USER', 'LOGNAME', 'PATH', 'SHELL', 'TMPDIR', 'LANG', 'LC_ALL'];
+// Windows programs need these to find the user's profile (where Claude Code keeps its login), system folders, and Git Bash.
+const windowsKeys = ['PATHEXT', 'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
+  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'TEMP', 'TMP', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE',
+  'NUMBER_OF_PROCESSORS', 'CLAUDE_CODE_GIT_BASH_PATH'];
+
 /** Only what the CLI needs. No API keys, so it answers with the subscription login, and no variables from other Claude sessions. */
 export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
-  for (const key of ['HOME', 'USER', 'LOGNAME', 'PATH', 'SHELL', 'TMPDIR', 'LANG', 'LC_ALL']) if (env[key]) result[key] = env[key];
+  for (const key of [...unixKeys, ...windowsKeys]) if (env[key]) result[key] = env[key];
   return result;
 }
 
@@ -55,7 +83,8 @@ export const inputLine = (prompt: string) => `${JSON.stringify({ type: 'user', m
 
 /** Starts Claude Code for one answer. It boots right away, then waits on stdin for the prompt. */
 export function startClaude(binary: string, model: ClaudeModel, system: string, cwd: string): ChildProcessWithoutNullStreams {
-  const child = spawn(binary, claudeArgs(model, system), { cwd, env: childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+  const { command, args } = claudeCommand(binary);
+  const child = spawn(command, [...args, ...claudeArgs(model, system)], { cwd, env: childEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   child.on('error', () => undefined); // streamAnswer reports errors; this keeps a process nobody is using yet from crashing the dev server.
   child.stdin.on('error', () => undefined);
   return child;
@@ -124,7 +153,7 @@ export function streamAnswer(options: { child: ChildProcessWithoutNullStreams; p
     const abort = () => finish();
     const timer = setTimeout(() => finish({ error: 'Claude Code took too long to answer. Try again.' }), options.timeoutMs ?? 120_000);
     options.signal?.addEventListener('abort', abort);
-    child.stdout.setEncoding('utf8').on('data', (chunk: string) => { buffer += chunk; const lines = buffer.split('\n'); buffer = lines.pop() ?? ''; for (const line of lines) emit(translateLine(line, state)); });
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => { buffer += chunk; const lines = buffer.split(/\r?\n/); buffer = lines.pop() ?? ''; for (const line of lines) emit(translateLine(line, state)); });
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-2000); });
     child.on('error', error => finish({ error: `Could not start Claude Code: ${error.message}` }));
     child.on('close', code => { if (buffer.trim()) emit(translateLine(buffer, state)); finish(code === 0 ? { done: true } : { error: friendlyError(stderr.trim().split('\n').pop() || `Claude Code stopped unexpectedly (exit code ${code}).`) }); });
@@ -134,7 +163,8 @@ export function streamAnswer(options: { child: ChildProcessWithoutNullStreams; p
 
 function authStatus(binary: string, cwd: string) {
   return new Promise<{ loggedIn: boolean; authMethod?: string }>(resolve => {
-    execFile(binary, ['auth', 'status', '--json'], { cwd, env: childEnv(), timeout: 15_000 }, (_error, stdout) => {
+    const { command, args } = claudeCommand(binary);
+    execFile(command, [...args, 'auth', 'status', '--json'], { cwd, env: childEnv(), timeout: 15_000, windowsHide: true }, (_error, stdout) => {
       try { const status = JSON.parse(stdout); resolve({ loggedIn: status.loggedIn === true, authMethod: status.authMethod }); } catch { resolve({ loggedIn: false }); }
     });
   });

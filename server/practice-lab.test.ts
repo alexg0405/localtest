@@ -75,7 +75,7 @@ describe('Interview Lab under /practice/', () => {
     const { roomsidePort } = await setup(async () => false);
     const reply = await send(roomsidePort, '/practice/');
     expect(reply.status).toBe(503);
-    expect(reply.body).toMatch(/python3 practice\/lab.py serve/);
+    expect(reply.body).toMatch(/npm run practice/);
   });
 });
 
@@ -98,6 +98,12 @@ describe('labStarter', () => {
     expect(await ensure()).toBe(false);
     expect(await ensure()).toBe(false);
     expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up right away when there is no Python to start it with', async () => {
+    const wait = vi.fn(noWait);
+    expect(await labStarter({ running: async () => false, start: () => false, wait })()).toBe(false);
+    expect(wait).not.toHaveBeenCalled();
   });
 
   it('treats a refused connection as not running', async () => {

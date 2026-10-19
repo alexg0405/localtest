@@ -7,7 +7,7 @@ the 60-minute clock, plays the interviewer, reveals a requirement change at
 minute 30, and grades your session from evidence when you submit.
 
 It needs only Python 3.9+ and pytest: no cloud services, no database, and no API
-key.
+key. It runs on macOS, Linux, and Windows.
 
 ## The interviews
 
@@ -37,11 +37,15 @@ python3 practice/lab.py setup     # once: creates ~/interview-practice/.venv wit
 python3 practice/lab.py serve     # or just `npm start`: Roomside serves it at http://127.0.0.1:5173/practice/
 ```
 
+On Windows, where Python usually has no `python3` command, use `py` instead
+(`py practice\lab.py setup`), or `npm run practice -- setup`, which finds Python
+for you on any system. The dashboard shows PowerShell versions of its commands.
+
 If you run Roomside, you do not need a second command: `npm start` also starts Interview Lab and serves it at http://127.0.0.1:5173/practice/. Roomside's **Practice** button opens it in its own tab, and the lab's **Roomside** link switches back. `npm run practice` (or `serve`) runs the lab on its own at http://127.0.0.1:8765/. Check the lab itself:
 
 ```sh
 python3 practice/lab.py verify                                        # end-to-end self-check of all three interviews
-~/interview-practice/.venv/bin/python -m pytest practice/tests -q      # unit tests for the lab
+~/interview-practice/.venv/bin/python -m pytest practice/tests -q      # unit tests (Windows: ~\interview-practice\.venv\Scripts\python.exe)
 ```
 
 `verify` runs in a throwaway folder. It checks that:
@@ -119,7 +123,7 @@ catch brute-force solutions), clarification answers, three hints, a reference
 approach, and follow-up questions. The statements and examples are written for
 this lab; each links to LeetCode's official version.
 
-**Practice out loud.** The mic button next to the timer (or ⌥M, even inside
+**Practice out loud.** The mic button next to the timer (or ⌥M on a Mac, Alt+M on Windows, even inside
 the editor) turns on listening.
 - The button shows a live caption of what it hears.
 - The coach responds to your train of thought when you pause, and answers

@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .catalog import LAB_ROOT, TEMPLATES_DIR, Interview, practice_home
+from .catalog import LAB_ROOT, TEMPLATES_DIR, Interview, claude_rule_path, practice_home, venv_python
 
 MARKER = ".practice-workspace.json"
 BACKUP_DIR = ".practice-backup"
@@ -53,10 +53,10 @@ def _generated_files(interview: Interview, home: Path) -> Dict[str, str]:
     template = "CLAUDE.md" if interview.ai_allowed else "CLAUDE_no_ai.md"
     claude_md = (TEMPLATES_DIR / template).read_text(encoding="utf-8").format(title=title, lab_root=LAB_ROOT)
     lab_dirs = [LAB_ROOT, home / ".lab"]
-    deny = [f"{tool}(/{directory}/**)" for directory in lab_dirs for tool in ("Read", "Edit")]
+    deny = [f"{tool}({claude_rule_path(directory)}/**)" for directory in lab_dirs for tool in ("Read", "Edit")]
     claude_settings = {"permissions": {"deny": deny}}
     vscode = {
-        "python.defaultInterpreterPath": str(home / ".venv" / "bin" / "python"),
+        "python.defaultInterpreterPath": str(venv_python(home / ".venv")),
         "python.testing.pytestEnabled": True,
         "python.testing.unittestEnabled": False,
         "python.testing.pytestArgs": [TEST_DIR],

@@ -48,7 +48,14 @@ class Sessions:
         path = self._path(state["interview"])
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        temporary.replace(path)
+        for attempt in range(40):
+            try:
+                temporary.replace(path)
+                return
+            except PermissionError:  # Windows: another thread is reading the file right now
+                if attempt == 39:
+                    raise
+                time.sleep(0.025)
 
     def _require(self, interview_id: str) -> Dict[str, Any]:
         state = self.load(interview_id)

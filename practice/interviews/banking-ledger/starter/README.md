@@ -60,7 +60,8 @@ pytest -q
 ```
 
 Run these with the practice virtualenv active: `source ~/interview-practice/.venv/bin/activate`
-(the dashboard shows the exact command for your setup).
+on macOS or Linux, or `& ~\interview-practice\.venv\Scripts\Activate.ps1` in PowerShell on
+Windows (the dashboard shows the exact command for your setup).
 
 ## Also in this session
 

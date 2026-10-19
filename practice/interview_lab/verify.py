@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable, List
 
 from . import api, grading
-from .catalog import LAB_ROOT, all_interviews, practice_home, test_python
+from .catalog import LAB_COMMAND, LAB_ROOT, all_interviews, claude_rule_path, practice_home, test_python
 from .session import CHANGE_FILE, Sessions
 from .testing import run_pytest
 from .workspace import BACKUP_DIR, build_starter, create_workspace, iter_files, reset_workspace, workspace_path
@@ -124,8 +124,8 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         leaked = [r for r in files if "interviewer" in r or r.startswith("_grading") or "grading" in Path(r).name]
         leaked += [r for r, p in files.items() if p.suffix in (".md", ".py") and any(g in p.read_text(encoding="utf-8") for g in guide_lines)]
         c.check("workspace contains no interviewer materials", not leaked, ", ".join(leaked))
-        settings = json.loads((workspace / ".claude" / "settings.json").read_text())
-        c.check("CLAUDE.md and assistant deny rules are in place", (workspace / "CLAUDE.md").exists() and any(str(LAB_ROOT) in rule for rule in settings["permissions"]["deny"]))
+        settings = json.loads((workspace / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        c.check("CLAUDE.md and assistant deny rules are in place", (workspace / "CLAUDE.md").exists() and any(claude_rule_path(LAB_ROOT) in rule for rule in settings["permissions"]["deny"]))
 
         if interview.meta.get("format") == "amazon-behavioral":
             verify_behavioral_round(interview, home, workspace, scratch, c)
@@ -160,7 +160,7 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         build_starter(interview, patched, home)
         subprocess.run(["git", "init", "-q"], cwd=patched, check=True)
         has_patch = (patched / "patch_review" / "ai_patch.diff").exists()
-        applied = subprocess.run(["git", "apply", "patch_review/ai_patch.diff"], cwd=patched, capture_output=True, text=True) if has_patch else None
+        applied = subprocess.run(["git", "apply", "patch_review/ai_patch.diff"], cwd=patched, capture_output=True, encoding="utf-8", errors="replace") if has_patch else None
         if has_patch:
             c.check("AI patch applies to the starter", applied.returncode == 0, applied.stderr.strip()[:200])
         if has_patch and applied.returncode == 0:
@@ -537,9 +537,9 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
 
 def run() -> int:
     python = test_python(practice_home())
-    probe = subprocess.run([python, "-m", "pytest", "--version"], capture_output=True, text=True)
+    probe = subprocess.run([python, "-m", "pytest", "--version"], capture_output=True, encoding="utf-8", errors="replace")
     if probe.returncode:
-        print(f"pytest is not available for {python}. Run: python3 practice/lab.py setup")
+        print(f"pytest is not available for {python}. Run: {LAB_COMMAND} setup")
         return 1
     c = Checker()
     saved = {key: os.environ.get(key) for key in ("PRACTICE_HOME", "PRACTICE_PYTHON", "ANTHROPIC_API_KEY", "PRACTICE_API_MODE", "ROOMSIDE_URL")}

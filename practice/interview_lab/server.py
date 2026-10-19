@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import subprocess
+import socketserver
 import tempfile
 import threading
 import webbrowser
@@ -15,12 +16,14 @@ from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
 from . import api, coach_ai, grading, interviewer
-from .catalog import all_interviews, get_interview, test_python
+from .catalog import all_interviews, get_interview, shell_commands, test_python
 from .session import SessionError, Sessions
 from .testing import run_pytest, summary
 from .workspace import WorkspaceError, read_marker, reset_workspace, workspace_path
 
 STATIC = Path(__file__).resolve().parent / "static"
+STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json",
+                ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2", ".md": "text/markdown"}
 GRADE_LOCK = threading.Lock()
 
 
@@ -246,7 +249,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             path = (STATIC / name).resolve()
             if STATIC.resolve() not in path.parents or not path.is_file():
                 return self._error(HTTPStatus.NOT_FOUND, "Not found.")
-            content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            # Not the system's table: on Windows it comes from the registry, which can call .js plain text (and nosniff then blocks it).
+            content_type = STATIC_TYPES.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             if content_type.startswith("text/") or content_type.endswith("javascript"):
                 content_type += "; charset=utf-8"
             self._send(200, path.read_bytes(), content_type)
@@ -282,12 +286,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 "workspace": str(workspace),
                 "workspace_exists": bool(read_marker(workspace)),
                 "files": {name: (workspace / name).stat().st_mtime for name in interview.meta.get("editor_files", []) if (workspace / name).is_file()},
-                "commands": {
-                    "editor": f'code "{workspace}"',
-                    "assistant": f'cd "{workspace}" && claude',
-                    "tests": f'cd "{workspace}" && "{python}" -m pytest -q',
-                    "activate": f'source "{lab.home / ".venv" / "bin" / "activate"}"',
-                },
+                "commands": shell_commands(workspace, python, lab.home / ".venv"),
             }
 
         def _ask(self, interview, question: str, use_api: bool, voice: bool = False) -> Dict[str, Any]:
@@ -333,7 +332,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 script = handle.name
             env = {**os.environ, "PYTHONPATH": str(workspace), "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
             try:
-                done = subprocess.run([test_python(lab.home), script], cwd=workspace, capture_output=True, text=True, timeout=10, env=env)
+                done = subprocess.run([test_python(lab.home), script], cwd=workspace, capture_output=True, encoding="utf-8", errors="replace", timeout=10, env=env)
                 result = {"ok": done.returncode == 0, "stdout": done.stdout[-20_000:], "stderr": done.stderr[-20_000:], "timed_out": False}
             except subprocess.TimeoutExpired as error:
                 result = {"ok": False, "stdout": (error.stdout or b"").decode("utf-8", "replace")[-20_000:] if isinstance(error.stdout, bytes) else (error.stdout or ""), "stderr": "Stopped after 10 seconds (an infinite loop?).", "timed_out": True}
@@ -383,9 +382,19 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
     return Handler
 
 
+class LabServer(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second server take a port that's already in use, so a second lab would split the requests.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self) -> None:
+        # Skips HTTPServer's reverse DNS lookup of 127.0.0.1, which can take seconds on some Windows networks.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def make_server(lab: Lab, port: int = 8765) -> ThreadingHTTPServer:
     holder = {"port": port}
-    server = ThreadingHTTPServer(("127.0.0.1", port), _handler(lab, holder))
+    server = LabServer(("127.0.0.1", port), _handler(lab, holder))
     holder["port"] = server.server_address[1]
     return server
 

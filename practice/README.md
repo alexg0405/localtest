@@ -71,8 +71,10 @@ put them somewhere else.
    questions when you pause while planning or explaining. Whatever you say that
    isn't a question is kept as your think-aloud and counts as evidence. The
    browser transcribes your speech: on this device when it can, otherwise with
-   its speech service (Chrome sends the audio to Google). Replies use your
-   computer's built-in voices. Run tests with **Run visible tests** (each run is recorded as
+   its speech service (Chrome sends the audio to Google). Everything the
+   interviewer says is read aloud in your computer's built-in voice, with or
+   without the mic; the speaker button in the chat window (or **Read aloud** in
+   the Interviewer tab) mutes it. Run tests with **Run visible tests** (each run is recorded as
    evidence) or with `pytest` in your terminal.
 5. Write your plan, assumptions, patch review, and final explanation in the
    dashboard. Optionally paste your Claude Code conversation into
@@ -166,7 +168,10 @@ your Claude account: no API key, and nothing is taken from the app.
   you plan or wrap up); after test runs (coach only); and when you've been
   quiet for a while.
 - **How replies appear:** they stream into a chat window with the whole
-  conversation and a reply field, and are read aloud sentence by sentence.
+  conversation and a reply field, and are read aloud sentence by sentence,
+  even with the mic off.
+  - The speaker button in the window's title bar mutes and unmutes reading.
+    Lab remembers the setting; it starts on.
   - Drag the window by its title bar, and resize it from any edge or corner.
   - Minimize it to a title bar that shows the latest reply (or double-click
     the title bar), or close it.

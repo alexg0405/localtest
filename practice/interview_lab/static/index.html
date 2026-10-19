@@ -25,6 +25,8 @@
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-speaker-off" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 9l3 3-3 3M12 15h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </svg>
@@ -138,6 +140,7 @@
         <span class="pop-avatar">IV</span>
         <span class="pop-who" id="pop-who">Coach</span>
         <span class="pop-state" id="pop-state"></span>
+        <button class="pop-btn pop-speak" id="pop-speak" type="button" aria-pressed="true" aria-label="Read replies aloud"></button>
         <button class="pop-btn" id="pop-min" type="button" title="Minimize" aria-label="Minimize">–</button>
         <button class="pop-btn pop-close" id="pop-close" type="button" title="Close (reopen from the chat button)" aria-label="Close">×</button>
       </div>
@@ -173,7 +176,7 @@
                 <strong id="voice-state">Talk to your interviewer</strong>
                 <span id="voice-live">Press the mic and speak. Questions get answered out loud; everything else is kept as your think-aloud.</span>
               </div>
-              <label class="check" title="Have the interviewer read its replies aloud"><input type="checkbox" id="speak-replies" checked> Voice</label>
+              <label class="check" title="Read everything the interviewer says aloud, with or without the mic"><input type="checkbox" id="speak-replies" checked> Read aloud</label>
             </div>
             <form id="ask-form" class="chat-input">
               <input id="question" type="text" placeholder="Ask the interviewer a clarifying question…" autocomplete="off">

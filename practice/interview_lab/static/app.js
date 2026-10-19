@@ -184,6 +184,7 @@ function showView() {
     showView.last = view;
     if (view === "ide" && code.cm) setTimeout(() => code.cm.refresh(), 0);  // CodeMirror can't measure itself while hidden
     if (view === "ide") setTimeout(scrollPop, 0);   // open on the latest reply
+    else hush();
   }
   document.body.classList.toggle("locked-scroll", view !== "lobby");
 }
@@ -542,7 +543,7 @@ function popNewMessages(session) {
 }
 
 function speakNewSentences(text, from) {
-  if (!voice.on || !$("speak-replies").checked) return from;
+  if (!readAloud()) return from;
   const rest = text.slice(from);
   const match = rest.match(/^[\s\S]*[.!?](\s|$)/);
   if (!match) return from;
@@ -587,13 +588,13 @@ async function coachChat(body) {
           spoken = speakNewSentences(text, spoken);
         } else if ("fallback" in event) {
           text = event.entry ? event.entry.answer : "";
-          if (text) { stream.textContent = text; if (voice.on) say(text); spoken = text.length; }
+          if (text) { stream.textContent = text; say(text); spoken = text.length; }
           latest.coach_ai = { ...latest.coach_ai, available: false };
           toast("Claude isn't reachable, so the scripted coach answered.");
         }
       }
     }
-    if (voice.on && spoken < text.length) say(text.slice(spoken).trim());
+    if (spoken < text.length) say(text.slice(spoken).trim());
   } catch (e) {
     failed = true;
     stream.textContent = e.message;
@@ -643,7 +644,8 @@ async function askForHint() {
     const { entry } = await call("/api/hint", {});
     if (!popShowing()) showTab("interviewer");
     await refresh();
-    if (voice.on) say(entry.answer); else if (!popShowing()) toast("Hint added to the Interviewer chat.");
+    say(entry.answer);
+    if (!popShowing()) toast("Hint added to the Interviewer chat.");
   } catch (e) { toast(e.message); }
 }
 
@@ -661,14 +663,15 @@ function offerVoice(data) {
     $("pop-text").innerHTML = `<div class="pop-line them"><small>${coach ? "Coach" : "Interviewer"}</small>${escapeHtml(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code. I'll listen and jump in when it helps." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.")}<br><button type="button" class="pop-action" id="pop-start-mic">Turn on mic (⌥M)</button></div>`;
     $("pop-start-mic").onclick = () => startVoice();
     scrollPop();
+    say(coach ? "Practice out loud: turn on your mic and talk me through your thinking as you code." : "Real interviews are spoken. Turn on your mic and talk me through your thinking as you code.");
   }, 1500);
 }
 
 async function coachSays(entry) {
   if (!entry) return;
   await refresh();
-  if (voice.on) say(entry.answer);
-  else if (!popShowing()) toast((latest.session.state.mode === "coach" ? "Coach: " : "") + entry.answer.slice(0, 140) + (entry.answer.length > 140 ? "…" : ""));
+  say(entry.answer);
+  if (!popShowing()) toast((latest.session.state.mode === "coach" ? "Coach: " : "") + entry.answer.slice(0, 140) + (entry.answer.length > 140 ? "…" : ""));
 }
 
 function showTab(name) {
@@ -789,7 +792,7 @@ function setVoiceUi(stateText, live) {
   $("mic").setAttribute("aria-pressed", String(voice.on));
   const top = $("mic-pill");
   top.classList.toggle("on", voice.on);
-  top.classList.toggle("speaking", voice.speaking);
+  top.classList.toggle("speaking", voice.on && voice.speaking);
   top.setAttribute("aria-pressed", String(voice.on));
   $("pop-mic").setAttribute("aria-pressed", String(voice.on));
   if (voice.on && $("pop-start-mic")) $("pop-text").innerHTML = "";   // the invitation is done once the mic is on
@@ -808,17 +811,57 @@ function pickVoice() {
   return preferred.map(name => voices.find(v => v.name.includes(name))).find(Boolean) || voices.find(v => v.lang === "en-US") || voices[0] || null;
 }
 
+// Everything the interviewer says is read aloud unless you turn it off with the speaker button (separate from the mic).
+const readAloud = () => "speechSynthesis" in window && $("speak-replies").checked;
+
+function setReadAloud(on) {
+  $("speak-replies").checked = on;
+  remember("lab.readAloud", on ? "on" : "off");
+  if (!on) hush();
+  renderSpeaker();
+}
+
+function hush() {
+  voice.queue = [];
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+
+function renderSpeaker() {
+  const on = $("speak-replies").checked, button = $("pop-speak");
+  button.setAttribute("aria-pressed", String(on));
+  button.classList.toggle("speaking", on && voice.speaking);
+  button.title = on ? (voice.speaking ? "Reading aloud. Click to stop and mute" : "Replies are read aloud. Click to mute") : "Muted. Click to have replies read aloud";
+  button.innerHTML = `<svg><use href="#${on ? "i-speaker" : "i-speaker-off"}"/></svg>`;
+}
+
+function speakable(text) {
+  // What reads well out loud: no Markdown or code blocks, and complexities as words.
+  return String(text)
+    .replace(/```[\s\S]*?```/g, " (the code is in the chat) ")
+    .replace(/[`*#]/g, "")
+    .replace(/\bO\(([^()]{1,30})\)/g, "O of $1")
+    .replace(/\b([a-z])\^2\b/g, "$1 squared")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function say(text) {
-  if (!$("speak-replies").checked || !("speechSynthesis" in window) || !text) return;
+  if (!readAloud() || !text) return;
+  // Sentence-sized pieces: long utterances can stall in some browsers, and a queue keeps replies in order.
   voice.queue = voice.queue || [];
-  voice.queue.push(text);
+  let piece = "";
+  for (const sentence of speakable(text).match(/[^.!?]+(?:[.!?]+["')\]]*|$)\s*/g) || []) {
+    if (piece && (piece + sentence).length > 220) { voice.queue.push(piece.trim()); piece = ""; }
+    piece += sentence;
+  }
+  if (piece.trim()) voice.queue.push(piece.trim());
   if (!voice.speaking) speakNext();
 }
 
 function speakNext() {
   const text = (voice.queue || []).shift();
   if (!text) return;
-  const utterance = new SpeechSynthesisUtterance(text.replace(/`/g, "").replace(/_/g, " "));
+  const utterance = new SpeechSynthesisUtterance(text.replace(/_/g, " "));
   const chosen = pickVoice();
   if (chosen) utterance.voice = chosen;
   utterance.rate = 1.03;
@@ -826,11 +869,13 @@ function speakNext() {
     voice.speaking = true;                       // stop listening, so the interviewer does not hear itself
     try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
     setVoiceUi("Interviewer is speaking…", text);
+    renderSpeaker();
   };
   const done = () => {
     voice.speaking = false;
     if ((voice.queue || []).length) { speakNext(); return; }
     if (voice.on) { setTimeout(listen, 250); setVoiceUi("Listening…", "Go ahead, I'm listening."); } else setVoiceUi("Talk to your interviewer");
+    renderSpeaker();
   };
   utterance.onend = done;
   utterance.onerror = done;
@@ -851,12 +896,12 @@ async function behavioralNext() {
   try {
     const { entry } = await call("/api/behavioral", {});
     await refresh();
-    if (entry) { if (voice.on) say(entry.answer); return; }
+    if (entry) { say(entry.answer); return; }
     if (!behavioralNext.done && latest.session.state.behavioral && latest.session.state.behavioral.question >= 0) {
       behavioralNext.done = true;
       const line = "Thanks, that's all the behavioral questions I have. We'll move to the coding problem shortly.";
       toast(line);
-      if (voice.on) say(line);
+      say(line);
     }
   } catch (e) { toast(e.message); }
 }
@@ -955,10 +1000,6 @@ async function startVoice() {
   remember("lab.mic", "on");
   listen();
   setVoiceUi("Listening…", voice.local ? "Speech is transcribed on this device." : "Your browser's speech service transcribes what you say (in Chrome, audio goes to Google).");
-  // Say the interviewer's latest line if it came in during the last two minutes, before the mic was on.
-  const session = latest && latest.session;
-  const last = session && session.started ? session.state.questions[session.state.questions.length - 1] : null;
-  if (last && last.source === "interviewer" && session.elapsed - last.at < 120) say(last.answer);
 }
 
 function stopVoice(forget = true) {
@@ -966,9 +1007,7 @@ function stopVoice(forget = true) {
   voice.on = false;
   clearTimeout(voice.silence); clearTimeout(voice.nudgeTimer);
   try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
-  voice.rec = null; voice.finals = ""; voice.queue = [];
-  if ("speechSynthesis" in window) speechSynthesis.cancel();
-  voice.speaking = false;
+  voice.rec = null; voice.finals = "";
   $("voice-bar").classList.remove("hearing");
   setVoiceUi("Talk to your interviewer", "Press the mic and speak. Questions get answered out loud; everything else is kept as your think-aloud.");
 }
@@ -986,7 +1025,7 @@ async function cues(session) {
     try {
       const { entry } = await call("/api/cue", { cue: name });
       if (entry) {
-        if (voice.on) say(entry.answer);
+        say(entry.answer);
         await refresh();
         if (phase && phase.kind === "behavioral" && name === phase.cue) behavioralNext();
       }
@@ -1215,7 +1254,7 @@ function wire() {
       const data = await call("/api/ask", { question, use_api: $("use-api").checked });
       if (data.entry.api_error) toast(`API: ${data.entry.api_error.message} Answered offline instead.`);
       $("question").value = "";
-      if (voice.on) say(data.entry.answer);
+      say(data.entry.answer);
       await refresh();
     } catch (e) { toast(e.message); }
     $("question").disabled = false;
@@ -1306,7 +1345,12 @@ function wire() {
     button.onclick = async () => {
       const mode = button.dataset.mode;
       if (button.closest(".mode-toggle").id === "ide-mode" && latest && latest.session.started) {
-        try { render(await call("/api/mode", { mode })); const last = latest.session.state.questions.slice(-1)[0]; if (last && voice.on) say(last.answer); } catch (e) { toast(e.message); }
+        try {
+          const before = latest.session.state.questions.length;
+          render(await call("/api/mode", { mode }));
+          const last = latest.session.state.questions.slice(-1)[0];
+          if (last && latest.session.state.questions.length > before) say(last.answer);   // the interviewer announces the switch
+        } catch (e) { toast(e.message); }
       } else {
         lobbyMode = mode;
         remember("lab.mode", mode);
@@ -1320,7 +1364,7 @@ function wire() {
   $("show-approach").onclick = async () => {
     $("menu").hidden = true;
     if (!confirm("Show the full approach? Try one more hint first if you haven't. The problem-solving score is capped at 3 once you've seen it.")) return;
-    try { const { entry } = await call("/api/approach", {}); showTab("interviewer"); await refresh(); if (voice.on) say("I've put the approach in the chat. Read it, then try writing it yourself without looking."); } catch (e) { toast(e.message); }
+    try { const { entry } = await call("/api/approach", {}); showTab("interviewer"); await refresh(); say("I've put the approach in the chat. Read it, then try writing it yourself without looking."); } catch (e) { toast(e.message); }
   };
   ["keydown", "pointerdown"].forEach(type => document.addEventListener(type, active, { passive: true }));
   setInterval(async () => {
@@ -1340,8 +1384,10 @@ function wire() {
   });
   $("mic").onclick = () => { if (voice.on) stopVoice(); else { showTab("interviewer"); startVoice(); } };
 
-  $("speak-replies").checked = recall("lab.voice") !== "off";
-  $("speak-replies").onchange = () => { remember("lab.voice", $("speak-replies").checked ? "on" : "off"); if (!$("speak-replies").checked && "speechSynthesis" in window) speechSynthesis.cancel(); };
+  $("speak-replies").checked = recall("lab.readAloud") !== "off";
+  $("speak-replies").onchange = () => setReadAloud($("speak-replies").checked);
+  $("pop-speak").onclick = () => setReadAloud(!$("speak-replies").checked);
+  renderSpeaker();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => pickVoice();
     document.querySelectorAll(".copy").forEach(button => { button.onclick = () => copyText($(button.dataset.copy).textContent, "Command"); });
 

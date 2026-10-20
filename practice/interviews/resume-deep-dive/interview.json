@@ -1,0 +1,76 @@
+{
+  "id": "resume-deep-dive",
+  "title": "Résumé deep dive with a senior engineer",
+  "format": "resume",
+  "inspired_by": "Most loops include a conversation where an experienced engineer picks things off your résumé and keeps asking why, how, and what you did yourself, to see whether you really built what you list. Claude plays that engineer, using your own résumé. An original simulation, not any company's script.",
+  "level": "Internship and new-grad résumé interview",
+  "summary": "A senior engineer reads your résumé, asks you to walk through your background, goes deep on two of your projects or roles, asks how you work with others, then takes your questions. Graded on depth, ownership, follow-ups, and communication, with the interviewer's written notes.",
+  "tags": [
+    "30 min",
+    "your résumé",
+    "voice",
+    "no AI"
+  ],
+  "duration_minutes": 30,
+  "change_at_minutes": null,
+  "ai_allowed": false,
+  "run_tests_allowed": false,
+  "note_tabs": {
+    "plan": "notes.md"
+  },
+  "source_files": [],
+  "behavioral": {
+    "bank": "resume"
+  },
+  "interviewer_name": "Sam",
+  "phases": [
+    {
+      "start": 0,
+      "end": 3,
+      "name": "Your background",
+      "cue": "rs_intro",
+      "kind": "behavioral",
+      "goal": "Get a two-to-three-minute walkthrough of their background. At most one light follow-up, then start the first deep dive."
+    },
+    {
+      "start": 3,
+      "end": 14,
+      "name": "Deep dive: your strongest project",
+      "kind": "behavioral",
+      "goal": "Pick the most substantial project or role on their résumé (or the one they highlighted) and go deep: the problem it solved, what they personally built, how it works end to end, one key technical decision and the alternatives, the hardest bug or obstacle and how they found it, how they knew it worked (numbers), and what they'd do differently."
+    },
+    {
+      "start": 14,
+      "end": 23,
+      "name": "Deep dive: a second experience",
+      "kind": "behavioral",
+      "goal": "Switch to a different project, internship, or role on their résumé and go deep the same way. Prefer claims on the résumé they haven't explained yet: technologies they list, metrics, scale, or impact."
+    },
+    {
+      "start": 23,
+      "end": 27,
+      "name": "Teamwork and judgment",
+      "kind": "behavioral",
+      "goal": "Ask how they work with others, tied to what they've told you: a technical disagreement, a mistake they made, feedback they got, or a tight deadline. Probe for what they did themselves and what they learned."
+    },
+    {
+      "start": 27,
+      "end": 30,
+      "name": "Your questions for me",
+      "kind": "wrap",
+      "goal": "Ask what questions they have for you. Answer each in two or three sentences as a senior engineer would: general and plausible, with no made-up specifics about a real company. When they're done, thank them and close."
+    }
+  ],
+  "cues": {
+    "rs_intro": "Hi, I'm Sam, a senior engineer on the team. Thanks for making the time. I've read through your résumé, and I'd like to spend most of our half hour going deep on a couple of things you've built."
+  },
+  "closing_prompts": [],
+  "followups": {
+    "walkthrough": "Write a 90-second walkthrough: where you are now, the two experiences you most want to talk about and why, and what you're looking for next. Say it aloud three times with a timer.",
+    "depth": "For each project on your résumé, write the architecture in five boxes, one decision with the alternative you rejected and why, and the hardest bug you hit. Then explain one of them aloud without notes.",
+    "ownership": "Go through every bullet on your résumé and write one sentence on what you personally did, and one number for the result (users, time saved, percent, latency). Change any bullet you can't back up.",
+    "followups": "Pick one project and have a friend (or this interview) ask \"why?\" five times in a row about one decision. Practice short, specific answers that add something new each time.",
+    "teamwork": "Prepare three short STAR stories from your résumé: a technical disagreement, a mistake you made, and a tight deadline. End each with what you learned.",
+    "communication": "Record yourself answering three questions about your résumé. Aim for 30–90 seconds per answer, then stop and let the interviewer ask. Prepare two questions to ask at the end."
+  }
+}

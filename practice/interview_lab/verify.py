@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -129,6 +130,9 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
 
         if interview.meta.get("format") == "amazon-behavioral":
             verify_behavioral_round(interview, home, workspace, scratch, c)
+            return
+        if interview.meta.get("format") == "resume":
+            verify_resume_round(interview, home, workspace, scratch, c)
             return
         if interview.meta.get("format") == "problem":
             verify_problem(interview, home, python, workspace, scratch, c)
@@ -393,6 +397,157 @@ def verify_behavioral_round(interview, home: Path, workspace: Path, scratch: Pat
     c.check("reset restores the starter and backs up your files", "my notes" not in readme.read_text(encoding="utf-8") and (backup / "stories.txt").read_text(encoding="utf-8") == "keep me")
 
 
+SAMPLE_ANSWERS = {
+    "walkthrough": "I'm currently a junior at State University studying computer science. Most recently I interned at Brightline Logistics on the tracking team, "
+                   "where I built a Python service that batches shipment updates. Before that I built StudySync, a React and Node app for study groups, and I'm a TA "
+                   "for data structures. I'm looking for an internship where I can work on backend systems at scale, ideally around reliability and performance.",
+    "depth": "I built the batching service myself. The problem was that we called carrier APIs once per shipment, which hit rate limits. I chose to queue updates "
+             "in Redis and flush them every thirty seconds instead of calling per event, because the carriers accept bulk requests; the tradeoff was a little latency. "
+             "I wrote integration tests with pytest. The hardest bug was a race condition when two workers flushed the same batch; I traced it in the logs and added a lock. "
+             "As a result API calls dropped 40%.",
+    "teamwork": "During my internship I disagreed with a teammate about caching the tracking page. My role was the backend, and the goal was faster loads. I measured p95 "
+                "latency, I wrote a short doc comparing options, and I proposed a TTL cache. We tried it and latency fell from 900 ms to 250 ms. Looking back, I learned "
+                "to bring data to a disagreement instead of opinions.",
+}
+
+
+def verify_resume_round(interview, home: Path, workspace: Path, scratch: Path, c: Checker) -> None:
+    from . import coach_ai, resume
+    sample = (interview.interviewer / "sample_resume.md").read_text(encoding="utf-8")
+    c.check("no-AI round: the workspace tells the assistant not to help", "Do not help with the exercise" in (workspace / "CLAUDE.md").read_text(encoding="utf-8"))
+    bare = scratch / "no-resume"
+    bare.mkdir()
+    generic = Sessions(bare, clock=FakeClock())
+    generic.start(interview, reset=True)
+    c.check("without a résumé, the scripted interviewer asks general questions", "proudest of" in generic.load(interview.id)["behavioral"]["plan"][1]["question"])
+    saved = resume.save(home, "sample_resume.md", sample)
+    summary = resume.summary(resume.load(home))
+    c.check("your résumé is saved on this computer, and its roles and projects are found",
+            saved["text"].startswith("Jordan Lee") and "StudySync" in summary["items"] and any("Brightline Logistics" in item for item in summary["items"]), ", ".join(summary["items"]))
+    sessions = Sessions(home, clock=FakeClock())
+    sessions.start(interview, reset=True)
+    plan = sessions.load(interview.id)["behavioral"]["plan"]
+    c.check("the scripted interviewer goes deep on things from your résumé", "Brightline Logistics" in plan[1]["question"] and "StudySync" in plan[2]["question"], plan[1]["question"])
+    status = sessions.status(interview)
+    c.check("a 30-minute conversation with no requirement change", status["change_at"] is None and interview.meta["duration_minutes"] == 30)
+    state = sessions.load(interview.id)
+    opening = coach_ai.build_resume_prompt(interview, state, sample, 20, "open")
+    c.check("Claude's interviewer gets your résumé, the plan, and its role", "StudySync" in opening and "SENIOR SOFTWARE ENGINEER" in opening and "Deep dive: a second experience" in opening and "walk you through their background" in opening)
+    turn = coach_ai.build_resume_prompt(interview, state, sample, 13.6 * 60, "message", "We used Redis for the queue.")
+    c.check("it keeps time: near the end of a part it moves to the next one", 'move to "Deep dive: a second experience" now' in turn and "We used Redis for the queue." in turn)
+    c.check("and closes when time is up", "Time's up" in coach_ai.build_resume_prompt(interview, state, sample, 31 * 60, "message", "Thanks!"))
+    c.check("one system prompt serves the coach, the interviewer, and the résumé interviewer (so the warm process is reused)", "résumé" in coach_ai.SYSTEM and "coding interview" in coach_ai.SYSTEM)
+
+
+def verify_resume_workflow(interview, home: Path, c: Checker) -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from . import coach_ai
+    from .server import Lab, make_server
+    print(f"\nDashboard workflow without an API key [{interview.id}]")
+    server = make_server(Lab(home, api_config=api.ApiConfig(env={})), port=0)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    sample = (interview.interviewer / "sample_resume.md").read_text(encoding="utf-8")
+
+    def stream(path, body):
+        request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=json.dumps({"interview": interview.id, **body}).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return [json.loads(line) for line in response if line.strip()]
+
+    try:
+        saved = _http(port, "/api/my-resume", {"interview": interview.id, "name": "sample_resume.md", "text": sample})["resume"]
+        c.check("the dashboard saves the résumé you add", saved["name"] == "sample_resume.md" and saved["chars"] > 500)
+        c.check("and gives it back for editing", _http(port, f"/api/my-resume?interview={interview.id}")["resume"]["text"].startswith("Jordan Lee"))
+        state = _http(port, "/api/start", {"interview": interview.id, "reset": True})
+        c.check("the page knows which résumé the interview uses", state["resume"]["name"] == "sample_resume.md")
+        empty = {s["area"]: s["score"] for s in _http(port, "/api/submit", {"interview": interview.id})["report"]["scores"]}
+        c.check("every area is 'not observed' before you answer", all(v is None for v in empty.values()))
+
+        # Without Claude (Roomside isn't running in verify), the scripted interviewer runs the conversation.
+        _http(port, "/api/start", {"interview": interview.id, "reset": True})
+        _http(port, "/api/cue", {"interview": interview.id, "cue": "rs_intro"})
+        opened = stream("/api/coach", {"trigger": "open"})[-1]
+        c.check("when Claude isn't available, the scripted interviewer opens with the walkthrough", "fallback" in opened and "walk me through your background" in opened["entry"]["answer"])
+        prompts = [opened["entry"]["answer"]]
+        for i in range(30):
+            prompt = prompts[-1]
+            if "What questions do you have" in prompt:
+                break
+            answer = SAMPLE_ANSWERS["walkthrough"] if i == 0 else SAMPLE_ANSWERS["teamwork"] if re.search(r"disagree|resolve|differently", prompt) and "deep" not in prompt else SAMPLE_ANSWERS["depth"] + f" Detail {i}: I also profiled one endpoint and cut its queries from {i + 5} to 1."
+            entry = stream("/api/coach", {"message": answer, "voice": True})[-1]["entry"]
+            if entry is None:
+                break
+            prompts.append(entry["answer"])
+        c.check("it asks about your résumé, then teamwork, then takes your questions", any("Brightline" in p for p in prompts) and any("disagreed" in p for p in prompts) and "What questions do you have" in prompts[-1], f"{len(prompts)} prompts")
+        asked = stream("/api/coach", {"message": "What does a typical day look like for you?"})[-1]["entry"]
+        c.check("your questions at the end get an answer", "code reviews" in asked["answer"])
+        report = _http(port, "/api/submit", {"interview": interview.id})["report"]
+        scores = {s["area"]: s["score"] for s in report["scores"]}
+        c.check("all six résumé areas are scored", [x["area"] for x in report["scores"]] == [a for a, _ in grading.RESUME_AREAS] and all(v is not None for v in scores.values()), str(scores))
+        c.check("specific, owned, measured answers score well on depth and ownership", scores["depth"] >= 4 and scores["ownership"] >= 4, str(scores))
+        c.check("the report is a conversation report (no tests)", report["behavioral_only"] and report["lp_breakdown"] is None and "résumé" in report["format_note"])
+        failed = stream("/api/debrief", {})
+        c.check("without Claude, the interviewer's notes explain what's missing", "error" in failed[-1])
+
+        # With Claude: a stand-in for Roomside's bridge, so it's free and repeatable.
+        seen = []
+
+        class Bridge(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body = json.dumps({"available": True, "loggedIn": True}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                seen.append((self.path, request))
+                self.send_response(200 if self.path == "/api/claude-code" else 204)
+                self.end_headers()
+                if self.path == "/api/claude-code":
+                    reply = "## Overall\nSolid." if "interview notes" in request["system"] else "Got it. What did you build yourself on StudySync?"
+                    self.wfile.write((json.dumps({"text": reply}) + "\n").encode() + b'{"done": true}\n')
+
+        bridge = ThreadingHTTPServer(("127.0.0.1", 0), Bridge)
+        threading.Thread(target=bridge.serve_forever, daemon=True).start()
+        previous = os.environ.get("ROOMSIDE_URL")
+        try:
+            os.environ["ROOMSIDE_URL"] = f"http://127.0.0.1:{bridge.server_address[1]}"
+            coach_ai.status(force=True)
+            _http(port, "/api/start", {"interview": interview.id, "reset": True})
+            c.check("the page sees Claude's interviewer when Claude Code is signed in", _http(port, f"/api/state?interview={interview.id}")["coach_ai"]["available"])
+            events = stream("/api/coach", {"message": SAMPLE_ANSWERS["walkthrough"], "voice": True})
+            c.check("Claude's replies stream in and the turn is recorded", events[-1].get("done") and events[-1]["entry"]["question"].startswith("I'm currently a junior") and events[-1]["entry"]["voice"])
+            prompt = next(r for path, r in seen if path == "/api/claude-code")
+            c.check("the interviewer sees your résumé and what you just said, on the shared warm system prompt",
+                    "StudySync" in prompt["prompt"] and "I'm currently a junior" in prompt["prompt"] and prompt["system"] == coach_ai.SYSTEM and "warm" not in prompt)
+            stream("/api/coach", {"message": "I built the batching service myself."})
+            second = [r for path, r in seen if path == "/api/claude-code"][-1]["prompt"]
+            c.check("the conversation so far labels who said what", "Candidate: I'm currently a junior" in second and "Interviewer: Got it. What did you build yourself on StudySync?" in second)
+            _http(port, "/api/submit", {"interview": interview.id})
+            notes = stream("/api/debrief", {})
+            report = _http(port, f"/api/report?interview={interview.id}")["report"]
+            debrief = [r for path, r in seen if path == "/api/claude-code" and "interview notes" in r["system"]]
+            c.check("after you submit, the interviewer writes notes, saved with the report",
+                    notes[-1].get("done") and report["interviewer_notes"].startswith("## Overall") and Path(report["saved_to"], "interviewer_notes.md").exists())
+            c.check("the notes see the transcript and your résumé, in a one-off process", debrief and "Transcript" in debrief[0]["prompt"] and "StudySync" in debrief[0]["prompt"] and debrief[0].get("warm") is False)
+        finally:
+            if previous is None:
+                os.environ.pop("ROOMSIDE_URL", None)
+            else:
+                os.environ["ROOMSIDE_URL"] = previous
+            coach_ai.status(force=True)
+            bridge.shutdown()
+            bridge.server_close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def verify_behavioral_workflow(interview, home: Path, c: Checker) -> None:
     from .server import Lab, make_server
     print(f"\nDashboard workflow without an API key [{interview.id}]")
@@ -434,6 +589,8 @@ def verify_behavioral_workflow(interview, home: Path, c: Checker) -> None:
 def verify_workflow(interview, home: Path, c: Checker) -> None:
     if interview.meta.get("format") == "amazon-behavioral":
         return verify_behavioral_workflow(interview, home, c)
+    if interview.meta.get("format") == "resume":
+        return verify_resume_workflow(interview, home, c)
     if interview.meta.get("format") == "problem":
         if interview.id == "two-sum":  # one problem end to end; the others share the same machinery
             verify_problem_workflow(interview, home, c)

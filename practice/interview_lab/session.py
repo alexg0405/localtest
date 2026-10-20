@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from . import interviewer
+from . import interviewer, resume
 from .catalog import DEFAULT_PHASES, Interview, leadership_bank
 from .workspace import create_workspace, reset_workspace, workspace_path
 
@@ -114,6 +114,9 @@ class Sessions:
         config = interview.meta.get("behavioral")
         if not config:
             return []
+        if config.get("bank") == "resume":  # the scripted résumé interviewer, built from your résumé
+            saved = resume.load(self.home)
+            return resume.plan(saved["text"] if saved else "")
         bank = {entry["lp"]: entry for entry in leadership_bank()}
         history_path = self.home / ".lab" / "behavioral_history.json"
         try:
@@ -210,7 +213,7 @@ class Sessions:
         with LOCK:
             state = self._require(interview.id)
             reply = interviewer.answer(interview, question, state.get("change_revealed_at") is not None, state.get("mode", "real"))
-            entry = {"at": round(self.elapsed(state), 1), "question": question[:2000], **reply, "source": "offline", "voice": voice}
+            entry = {"at": round(self.elapsed(state), 1), "n": self._seq(state), "question": question[:2000], **reply, "source": "offline", "voice": voice}
             state["questions"].append(entry)
             self.save(state)
             return entry
@@ -218,7 +221,7 @@ class Sessions:
     def record_question(self, interview: Interview, entry: Dict[str, Any]) -> None:
         with LOCK:
             state = self._require(interview.id)
-            state["questions"].append({"at": round(self.elapsed(state), 1), **entry})
+            state["questions"].append({"at": round(self.elapsed(state), 1), "n": self._seq(state), **entry})
             self.save(state)
 
     def record_speech(self, interview: Interview, text: str) -> None:
@@ -230,11 +233,17 @@ class Sessions:
             state = self._require(interview.id)
             spoken = state.setdefault("spoken", [])
             if sum(len(s["text"]) for s in spoken) < 400_000:
-                spoken.append({"at": round(self.elapsed(state), 1), "text": text})
+                spoken.append({"at": round(self.elapsed(state), 1), "n": self._seq(state), "text": text})
                 self.save(state)
 
+    @staticmethod
+    def _seq(state: Dict[str, Any]) -> int:
+        """The order things were said in, for lines recorded within the same tenth of a second."""
+        state["seq"] = state.get("seq", 0) + 1
+        return state["seq"]
+
     def _interviewer_message(self, state: Dict[str, Any], text: str, kind: str) -> Dict[str, Any]:
-        entry = {"at": round(self.elapsed(state), 1), "question": "", "answer": text, "topic": None, "matched": True, "source": "interviewer", "kind": kind}
+        entry = {"at": round(self.elapsed(state), 1), "n": self._seq(state), "question": "", "answer": text, "topic": None, "matched": True, "source": "interviewer", "kind": kind}
         state["questions"].append(entry)
         return entry
 
@@ -285,7 +294,7 @@ class Sessions:
             state = self._require(interview.id)
             flow = self._flow(state)
             if flow["answers"] and 0 <= flow["question"] < len(self.behavioral_questions(interview, state)):
-                flow["answers"][-1]["parts"].append({"at": round(self.elapsed(state), 1), "text": text})
+                flow["answers"][-1]["parts"].append({"at": round(self.elapsed(state), 1), "n": self._seq(state), "text": text})
                 flow["awaiting"] = False
                 self.save(state)
                 return
@@ -385,7 +394,7 @@ class Sessions:
             state = self._require(interview.id)
             if trigger == "message" and message.strip():
                 topic = interviewer.best_entry(interview.clarifications(), message).get("topic")
-                entry = {"at": round(self.elapsed(state), 1), "question": message.strip()[:4000], "answer": reply, "topic": topic,
+                entry = {"at": round(self.elapsed(state), 1), "n": self._seq(state), "question": message.strip()[:4000], "answer": reply, "topic": topic,
                          "matched": True, "source": "coach-ai", "voice": voice, "mode": state.get("mode", "real")}
                 state["questions"].append(entry)
             else:

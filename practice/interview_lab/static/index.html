@@ -77,6 +77,26 @@
           <label class="check"><input type="checkbox" id="start-reset"> Reset the workspace to the starter first</label>
         </div>
       </section>
+      <section class="resume-panel" id="resume-panel" hidden aria-labelledby="resume-h">
+        <div class="resume-head">
+          <div class="resume-info">
+            <h3 id="resume-h"><svg><use href="#i-doc"/></svg>Your résumé</h3>
+            <p class="resume-status" id="resume-status">No résumé yet.</p>
+            <p class="muted small" id="resume-items"></p>
+          </div>
+          <div class="resume-actions">
+            <button type="button" class="btn btn-green" id="resume-upload">Upload your résumé</button>
+            <input type="file" id="resume-file" accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" hidden>
+            <button type="button" class="btn btn-ghost" id="resume-edit">Paste or edit</button>
+            <button type="button" class="btn btn-ghost" id="resume-forget" hidden>Remove</button>
+          </div>
+        </div>
+        <div class="resume-editor" id="resume-editor" hidden>
+          <textarea id="resume-text" rows="12" spellcheck="false" placeholder="Paste the text of your résumé here…" aria-label="Résumé text"></textarea>
+          <div class="resume-editor-actions"><button type="button" class="btn btn-green" id="resume-save">Save</button><button type="button" class="btn btn-ghost" id="resume-cancel">Cancel</button></div>
+        </div>
+        <p class="muted small">Your résumé stays on this computer, in <code>~/interview-practice/.lab</code>. Its text goes to Claude with each of the interviewer's turns, on your Claude subscription.</p>
+      </section>
       <ol class="flow">
         <li><b>0–5</b><span>Clarify</span></li>
         <li><b>5–15</b><span>Explore and plan</span></li>

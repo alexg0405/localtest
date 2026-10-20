@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import interviewer
+from . import interviewer, resume
 from .catalog import Interview, leadership_bank, test_python
 from .session import CHANGE_FILE, Sessions
 from .testing import run_pytest, summary
@@ -58,11 +58,20 @@ PROBLEM_AREAS = [
     ("code_quality", "Code quality"),
     ("communication", "Communication"),
 ]
-LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS), **dict(PROBLEM_AREAS)}
+RESUME_AREAS = [
+    ("walkthrough", "Background walkthrough"),
+    ("depth", "Technical depth"),
+    ("ownership", "Ownership and impact"),
+    ("followups", "Handling follow-ups"),
+    ("teamwork", "Teamwork and judgment"),
+    ("communication", "Communication and questions"),
+]
+LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS), **dict(PROBLEM_AREAS), **dict(RESUME_AREAS)}
+CONVERSATION_FORMATS = ("amazon-behavioral", "resume")  # nothing to run or diff: graded from what was said
 
 
 def areas_for(interview: Interview):
-    return {"amazon-final": AMAZON_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS}.get(interview.meta.get("format"), AREAS)
+    return {"amazon-final": AMAZON_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS, "resume": RESUME_AREAS}.get(interview.meta.get("format"), AREAS)
 
 
 def _behavioral_scores(interview, state, notes) -> Dict[str, Any]:
@@ -440,7 +449,7 @@ STAR = [
     ("situation", "set the scene", r"\b(when i was|while i was|as an?|at (my|a|the|our)|during (my|a|the|our)|in my|last (year|summer|semester|spring|fall|winter)|my (first|second|freshman|sophomore|junior|senior) year|internship|project|class|course|club|hackathon|startup|job|team|lab|center|semester)\b"),
     ("task", "said what you had to do", r"\b(my (role|job|task|responsibility|goal|part)|i was (responsible|asked|assigned|supposed|in charge|trying)|we needed to|i needed to|the goal|deadline|had to|i noticed|the problem was|the challenge was|we were asked|needed to)\b"),
     ("action", "said what you did yourself", None),
-    ("result", "said how it turned out", r"\b(as a result|result(ed|s)?|outcome|in the end|eventually|ended up|shipped|launched|delivered|reduced|increased|improved|saved|cut|grew|won|finished|on time|so we)\b"),
+    ("result", "said how it turned out", r"\b(as a result|result(ed|s)?|outcome|in the end|eventually|ended up|shipped|launched|delivered|reduced|increased|improved|saved|cut|grew|won|finished|on time|so we|dropped|fell|rose|went (up|down))\b"),
     ("numbers", "put a number on the result", r"\d+(\.\d+)?\s*(%|percent|x\b|times|hours?|days?|weeks?|months?|users|people|customers|members|teams|ms|seconds|minutes|bugs|points|dollars)|\$\d|\bfrom \d+(\.\d+)? to \d+|\b(doubled|tripled|halved|by half)\b|\b\d+ (out of|of) \d+"),
     ("reflection", "said what you learned or would change", r"\b(learned|learnt|would do differently|next time|in hindsight|looking back|lesson|i realized|i'd change|now i)\b"),
 ]
@@ -530,6 +539,134 @@ def lp_breakdown(interview, state) -> List[Dict[str, Any]]:
     return [{"lp": story["lp"], "question": story["question"], "score": story["score"], "missing": story["missing"]} for story in _stories(interview, state)]
 
 
+# Résumé deep dive: what the candidate said, turn by turn, scored on what a senior engineer listens for.
+DECISION = r"\b(because|so that|instead of|rather than|trade-?offs?|chose|choose|decided|decision|alternatives?|compared|versus|vs\.?|pros and cons|the downside|the reason)\b"
+BUILD = (r"\b(api|apis|endpoint|database|schema|tables?|queries|query|index(es)?|cach(e|ing)|queue|server|client|frontend|front end|backend|back end|service|"
+         r"microservices?|pipeline|model|latency|throughput|scal(e|ed|ing|able)|concurren\w+|threads?|async\w*|deploy\w*|docker|kubernetes|aws|cloud|ci|tests?|"
+         r"websockets?|rest|graphql|react|state|algorithm|data structure|hash ?map|load|memory|cpu|batch\w*|polling|webhooks?|auth\w*)\b")
+DEBUG = r"\b(bug|bugs|debug\w*|root cause|logs?|logging|profil\w*|traced?|reproduc\w+|broke|broken|crash\w*|race condition|memory leak|the issue was|turned out)\b"
+STRUCTURE = r"\b(currently|right now|at the moment|i'?m a|i am a|before that|most recently|previously|last summer|started|looking for|interested in|next|excited about|want to)\b"
+TEAM_PROMPT = r"\b(disagree\w*|conflict|mistake|failure|failed|deadline|teammates?|team ?mates?|feedback|worked with|working with|difficult|tension|pushback)\b"
+WRAP_PROMPT = r"questions?\s+(do you have|for me)|anything you'?d like to ask|what would you like to know"
+
+
+RESUME_IMPROVEMENTS = {
+    "walkthrough": "Practice a two-minute walkthrough: where you are now, the two experiences you most want to discuss and why, and what you're looking for next.",
+    "depth": "For each project on your résumé, be ready to explain how it works end to end, one decision with the alternative you rejected, and the hardest bug you hit.",
+    "ownership": "Say “I” for your own work, and end answers about results with a number: users, latency, time saved, or percent.",
+    "followups": "Answer each follow-up directly in the first sentence, then add one new detail. Avoid one-line answers and repeating an earlier answer.",
+    "teamwork": "Prepare a STAR story about a technical disagreement and one about a mistake, each ending with what you learned.",
+    "communication": "Keep answers to 30–90 seconds and let the interviewer steer, and prepare two thoughtful questions about the team for the end.",
+}
+
+
+def resume_turns(interview: Interview, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The candidate's turns in order, each with the interviewer line it answered and what kind of question it was."""
+    events: List[Tuple[float, float, str, str]] = []  # (time, order, who, text)
+    for q in state.get("questions", []):
+        n = q.get("n", 0)
+        if q.get("source") == "interviewer":
+            events.append((q["at"], n, "interviewer", q["answer"]))
+        else:
+            events.append((q["at"], n - 0.5, "candidate", q.get("question", "")))  # said before the reply was recorded
+            events.append((q["at"], n, "interviewer", q["answer"]))
+    events += [(part["at"], part.get("n", 0), "candidate", part["text"]) for answer in state.get("behavioral", {}).get("answers", []) for part in answer.get("parts", [])]
+    events += [(s["at"], s.get("n", 0), "candidate", s["text"]) for s in state.get("spoken", [])]
+    turns: List[Dict[str, Any]] = []
+    prompt, merging = "", False
+    for at, _, who, text in sorted(events, key=lambda event: event[:2]):
+        if who == "interviewer":
+            prompt, merging = text, False
+        elif text.strip():
+            if merging:
+                turns[-1]["text"] += " " + text.strip()
+            else:
+                turns.append({"at": at, "prompt": prompt, "text": text.strip()})
+                merging = True
+    for i, turn in enumerate(turns):
+        prompt = turn["prompt"].lower()
+        turn["kind"] = ("walkthrough" if i == 0 else "wrap" if re.search(WRAP_PROMPT, prompt) or (turn["at"] >= 27 * 60 and interviewer.is_question(turn["text"]))
+                        else "teamwork" if re.search(TEAM_PROMPT, prompt) else "depth")
+        turn["words"] = len(turn["text"].split())
+    return turns
+
+
+def _resume_scores(interview: Interview, state: Dict[str, Any], resume_text: str) -> Dict[str, Any]:
+    turns = resume_turns(interview, state)
+    if not turns:
+        none = (None, ["Nothing you said was recorded. Turn on the mic and answer out loud, or type in the chat."])
+        return {area: none for area, _ in RESUME_AREAS}
+    named = resume.terms(resume_text)
+    mentions = lambda text: sorted({term for term in named if re.search(rf"(?<![\w]){re.escape(term.lower())}(?![\w])", text.lower())})
+    count = lambda pattern, text: len(re.findall(pattern, text.lower()))
+    scores: Dict[str, Any] = {}
+
+    first = turns[0]
+    covered, structure = mentions(first["text"]), count(STRUCTURE, first["text"])
+    length_ok = 100 <= first["words"] <= 450
+    scores["walkthrough"] = (_clamp(1 + (1.5 if length_ok else 0.75 if 50 <= first["words"] <= 600 else 0) + min(1.5, 0.3 * len(covered)) + (1 if structure >= 2 else 0.5 if structure else 0)), [
+        f"Your walkthrough was {first['words']} words ({'about right: one to three minutes' if length_ok else 'too short to cover your background' if first['words'] < 100 else 'long; aim for two to three minutes'}).",
+        f"It named {len(covered)} thing(s) from your résumé" + (f": {', '.join(covered[:8])}." if covered else "."),
+        "It was organized (where you are now, what you did before, what you want next)." if structure >= 2 else "Organize it: where you are now, the experiences that matter, what you're looking for next.",
+        f"You said: {_quote(first['text'], 140)}"])
+
+    deep = [t for t in turns if t["kind"] == "depth"]
+    if deep:
+        decided = [t for t in deep if count(DECISION, t["text"])]
+        built = sorted({match.group(0) for t in deep for match in re.finditer(BUILD, t["text"].lower())})
+        debugged = [t for t in deep if count(DEBUG, t["text"])]
+        explained = sorted({term for t in deep for term in mentions(t["text"])})
+        unexplained = [term for term in named if term not in explained and term not in covered][:8]
+        best = max(deep, key=lambda t: count(DECISION, t["text"]) + count(BUILD, t["text"]) + count(DEBUG, t["text"]))
+        scores["depth"] = (_clamp(1 + 1.5 * min(1, len(decided) / max(1, len(deep) / 2)) + min(1, len(built) / 8) + (0.75 if debugged else 0) + min(0.75, 0.25 * len(explained))), [
+            f"Explained why (a decision, a tradeoff, an alternative) in {len(decided)} of {len(deep)} deep-dive answers.",
+            f"Talked about how things work: {', '.join(built[:10]) if built else 'no architecture or implementation details'}.",
+            f"Told {len(debugged)} debugging or obstacle stor{'y' if len(debugged) == 1 else 'ies'}." if debugged else "Never described a bug or obstacle and how you tracked it down.",
+            f"Résumé items you explained: {', '.join(explained[:10]) or 'none by name'}." + (f" Not discussed: {', '.join(unexplained)}." if unexplained else ""),
+            f"Strongest answer: {_quote(best['text'], 140)}"])
+    else:
+        scores["depth"] = (None, ["No deep-dive answers were recorded."])
+
+    owned = [t for t in turns if t["kind"] != "wrap"]
+    i_count = sum(count(r"\bi\b", t["text"]) for t in owned)
+    we_count = sum(count(r"\bwe\b", t["text"]) for t in owned)
+    own_share = sum(1 for t in owned if count(r"\bi\b", t["text"]) >= count(r"\bwe\b", t["text"])) / len(owned)
+    measured = [t for t in deep if re.search(STAR[4][2], t["text"].lower())]
+    scores["ownership"] = (_clamp(1 + 2 * own_share + (2 * min(1, len(measured) / max(1, min(3, len(deep)))) if deep else 0)), [
+        f"“I” {i_count} times and “we” {we_count} times; you owned the work in {round(own_share * 100)}% of your answers.",
+        f"Put a number on a result in {len(measured)} answer(s)" + (f", for example: {_quote(measured[0]['text'], 110)}" if measured else ". Interviewers listen for users, latency, time saved, or percent."),
+    ])
+
+    asked = [t for t in turns if t["kind"] != "wrap" and "?" in t["prompt"]] or [t for t in turns if t["kind"] != "wrap"]
+    fresh = [t for i, t in enumerate(asked) if t["words"] >= 15 and _overlap(t["text"], " ".join(x["text"] for x in asked[:i])) < 0.6]
+    short = [t for t in asked if t["words"] < 15]
+    scores["followups"] = (_clamp(1 + 4 * len(fresh) / max(1, len(asked))), [
+        f"Gave a substantive, new answer to {len(fresh)} of {len(asked)} questions.",
+        (f"{len(short)} answer(s) were very short, such as: {_quote(short[0]['text'], 80)} (asked: {_quote(short[0]['prompt'], 80)})" if short else "No one-line answers."),
+    ])
+
+    team = [t for t in turns if t["kind"] == "teamwork"]
+    if team:
+        story = _story({"question": team[0]["prompt"], "lp": None, "prompts": [t["prompt"] for t in team], "parts": [{"text": t["text"]} for t in team]}, {})
+        scores["teamwork"] = (_clamp(1 + story["star"] * 0.75 + (1 if story["reflection"] else 0)), [
+            f"Your teamwork story had {story['star']} of 4 STAR parts" + (f"; missing: {'; '.join(m for m in story['missing'] if 'length' not in m and 'detail' not in m and 'tighter' not in m)}." if story["missing"] else "."),
+            "You said what you learned or would do differently." if story["reflection"] else "End with what you learned or would do differently.",
+            f"You said: {_quote(story['text'], 140)}"])
+    else:
+        scores["teamwork"] = (None, ["The interview didn't get to teamwork (a disagreement, a mistake, a deadline)."])
+
+    talk = [t for t in turns if t["kind"] != "wrap"]
+    paced = [t for t in talk if 25 <= t["words"] <= 350]
+    theirs = [t for t in turns if t["kind"] == "wrap" or t["at"] >= 25 * 60 and "?" in t["text"]]
+    longest = max(talk, key=lambda t: t["words"]) if talk else None
+    scores["communication"] = (_clamp(1 + 3 * len(paced) / max(1, len(talk)) + (1 if theirs else 0)), [
+        f"{len(paced)} of {len(talk)} answers were a good length (about 15 seconds to 2½ minutes).",
+        f"Longest answer: {longest['words']} words." if longest else "",
+        f"You asked {len(theirs)} question(s) at the end, such as: {_quote(theirs[0]['text'], 100)}" if theirs else "You didn't ask the interviewer any questions at the end.",
+    ])
+    return {area: (score, [line for line in evidence if line]) for area, (score, evidence) in scores.items()}
+
+
 def _score_problem_solving(interview, notes, runs):
     text = "\n".join([notes["plan"], notes["explanation"], notes["spoken"]]).lower()
     perf = [c for c in runs["hidden"]["cases"] if interview.cases().get(c["base"], {}).get("area") == "performance"]
@@ -583,6 +720,8 @@ def _score_amazon_communication(interview, state, notes):
 
 
 def _improvement(area: str, context: Dict[str, Any]) -> str:
+    if context["interview"].meta.get("format") == "resume":
+        return RESUME_IMPROVEMENTS.get(area, "")
     if area == "problem_understanding":
         missed = context["coverage"]["missed"][:3]
         return ("Spend the first five minutes on questions. You did not clarify: " + "; ".join(missed) + ". Ask about each, or write your assumption down.") if missed else "Write your assumptions down explicitly, one line each, before you start coding."
@@ -632,6 +771,9 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
 
 
 NOT_OBSERVED_HELP = {
+    "walkthrough": "Answer the interviewer's first question out loud (mic) or in the chat, so your background walkthrough can be assessed.",
+    "depth": "Stay for the deep dives (minutes 3–23), so the interviewer can ask how your projects work.",
+    "teamwork": "Stay for the teamwork questions (minutes 23–27), or ask the interviewer about working with others.",
     "leadership": "Answer the interviewer's Leadership Principles questions out loud (mic) or in the chat, so they can be assessed.",
     "problem_solving": "Say or write your approach and its time and space complexity, so problem solving can be assessed.",
     "problem_understanding": "Ask clarification questions in the dashboard and record your assumptions, so problem understanding can be assessed.",
@@ -656,7 +798,8 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
     if review_file.exists():
         notes["patch_review"] = (notes["patch_review"] + "\n\n" + review_file.read_text(encoding="utf-8")).strip()
 
-    behavioral_only = interview.meta.get("format") == "amazon-behavioral"
+    behavioral_only = interview.meta.get("format") in CONVERSATION_FORMATS
+    resume_round = interview.meta.get("format") == "resume"
     runs = {"hidden": {"ok": True, "returncode": 0, "passed": 0, "failed": 0, "errors": 0, "skipped": 0, "total": 0, "cases": [], "output": ""}, "own": None, "own_on_starter": None, "starter_names": set()} if behavioral_only else _run_all(interview, home)
     tests = _test_evidence(interview, runs)
     raw_diff = diff_against_starter(interview, home)
@@ -706,7 +849,10 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
                 ps_score = min(ps_score, 3)
                 ps_evidence = ps_evidence + ["You opened the reference approach, so this score is capped at 3. Re-solve it in real mode to earn the rest."]
         scores.update({"leadership": (lp_score, lp_evidence), "problem_solving": (ps_score, ps_evidence), "communication": (cm_score, cm_evidence), "testing": (te_score, te_evidence)})
-    if behavioral_only:
+    if resume_round:
+        saved = resume.load(home)
+        scores.update(_resume_scores(interview, state, saved["text"] if saved else ""))
+    elif behavioral_only:
         scores.update(_behavioral_scores(interview, state, notes))
         context["leadership_missing"] = _score_leadership(interview, state)[2]
     areas = areas_for(interview)
@@ -758,13 +904,14 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         "improvements": improvements,
         "follow_up": follow_up,
         "patch_review": {"found": patch["found"], "needed": patch["needed"], "answer": patch["expected"]} if patch["expected"] else None,
-        "format_note": ("No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only
+        "format_note": ("A conversation about your résumé, scored from what you said. The scores are heuristics; the interviewer's written notes below are the fuller picture." if resume_round
+                        else "No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only
                         else (f"Coach mode: you used {len(state.get('hints', []))} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}. Try it again in real mode once it feels easy." if problem and state.get("mode") == "coach"
                               else (f"Real mode: {len(state.get('hints', []))} hint(s) used." if problem else None))),
         "mode": state.get("mode", "real") if problem else None,
         "hints_used": len(state.get("hints", [])) if problem else None,
         "approach": interview.approach() if problem else None,
-        "lp_breakdown": lp_breakdown(interview, state) if amazon or behavioral_only else None,
+        "lp_breakdown": lp_breakdown(interview, state) if amazon or (behavioral_only and not resume_round) else None,
         "behavioral_only": behavioral_only,
         "changed_files": [{"path": f["path"], "status": f["status"], "added": len(f["added_lines"]), "removed": len(f["removed_lines"])} for f in raw_diff["files"]],
         "ai_usage_note": "Coding-assistant usage through the Claude Code app counts toward your Claude subscription and is not measured or scored here.",

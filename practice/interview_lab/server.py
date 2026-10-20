@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
-from . import api, coach_ai, grading, interviewer
+from . import api, coach_ai, grading, interviewer, resume
 from .catalog import all_interviews, get_interview, shell_commands, test_python
 from .session import SessionError, Sessions
 from .testing import run_pytest, summary
@@ -90,6 +90,9 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     interview = self._interview(query.get("interview"))
                     path = self._editor_file(interview, query.get("path", ""))
                     return self._json(200, {"path": query.get("path"), "content": path.read_text(encoding="utf-8"), "mtime": path.stat().st_mtime})
+                if url.path == "/api/my-resume":
+                    saved = resume.load(lab.home)
+                    return self._json(200, {"resume": {**resume.summary(saved), "text": saved["text"]} if saved else None})
                 if url.path == "/api/packet":
                     return self._json(200, {"text": self._packet(self._interview(query.get("interview")), query.get("kind", ""))})
                 return self._error(HTTPStatus.NOT_FOUND, "Not found.")
@@ -104,15 +107,20 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             state = sessions.load(interview.id)
             if not state:
                 raise SessionError("No session yet. Start the interview first.")
-            if interview.meta.get("format") != "problem":
-                raise SessionError("The conversational interviewer is available in the practice problems.")
+            conversation = interview.meta.get("format") == "resume"
+            if interview.meta.get("format") != "problem" and not conversation:
+                raise SessionError("The conversational interviewer is available in the practice problems and the résumé deep dive.")
             trigger = str(body.get("trigger", "message"))
             trigger = trigger if trigger in coach_ai.TRIGGERS else "message"
-            message = str(body.get("message", ""))[:4000]
-            hint = sessions.take_hint(interview) if trigger == "hint" else None
+            message = str(body.get("message", ""))[:6000]
+            hint = sessions.take_hint(interview) if trigger == "hint" and not conversation else None
             status = sessions.status(interview)
-            phase = next((p["name"] for p in status["phases"][status["phase"]:status["phase"] + 1]), "overtime")
-            prompt = coach_ai.build_prompt(interview, sessions.load(interview.id), workspace_path(interview, lab.home), status["elapsed"], phase, trigger, message, hint)
+            if conversation:
+                saved = resume.load(lab.home)
+                prompt = coach_ai.build_resume_prompt(interview, sessions.load(interview.id), saved["text"] if saved else "(no résumé was added)", status["elapsed"], trigger, message)
+            else:
+                phase = next((p["name"] for p in status["phases"][status["phase"]:status["phase"] + 1]), "overtime")
+                prompt = coach_ai.build_prompt(interview, sessions.load(interview.id), workspace_path(interview, lab.home), status["elapsed"], phase, trigger, message, hint)
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -128,6 +136,18 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     text += chunk
                     send({"text": chunk})
             except coach_ai.CoachError as error:
+                if conversation:
+                    # The scripted interviewer takes over: the answer counts, then its next planned question.
+                    if trigger == "message" and message.strip():
+                        if interviewer.is_question(message):
+                            entry = sessions.ask(interview, message, bool(body.get("voice")))
+                        else:
+                            sessions.record_answer(interview, message)
+                            entry = sessions.behavioral_next(interview)
+                    else:
+                        entry = sessions.behavioral_next(interview)
+                    send({"fallback": str(error), "entry": entry})
+                    return
                 # The scripted coach answers instead, without counting a second hint.
                 if trigger == "hint":
                     coach = state.get("mode") == "coach"
@@ -155,6 +175,41 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             entry = sessions.record_coach(interview, trigger, message, reply, bool(body.get("voice")))
             try:
                 send({"done": True, "entry": entry})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def _debrief(self, interview) -> None:
+            """Streams the interviewer's written notes on the latest submission (NDJSON {"text"} chunks, then {"done"}), and saves them with it."""
+            report, folder = grading.latest_report(interview, lab.home)
+            state = lab.sessions.load(interview.id)
+            if not report or not state or interview.meta.get("format") != "resume":
+                raise SessionError("Submit the résumé interview first.")
+            saved = resume.load(lab.home)
+            prompt = coach_ai.build_debrief_prompt(interview, state, saved["text"] if saved else "(no résumé)", report)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            send = lambda event: (self.wfile.write((json.dumps(event) + "\n").encode("utf-8")), self.wfile.flush())
+            text = ""
+            try:
+                for chunk in coach_ai.stream(prompt, timeout=180, system=coach_ai.DEBRIEF_SYSTEM):
+                    text += chunk
+                    send({"text": chunk})
+            except coach_ai.CoachError as error:
+                try:
+                    send({"error": str(error)})
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            if text.strip():
+                report["interviewer_notes"] = text.strip()
+                (folder / "interviewer_notes.md").write_text(text.strip() + "\n", encoding="utf-8")
+                (folder / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+            try:
+                send({"done": True})
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
@@ -231,6 +286,14 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                         sessions.mark_submitted(interview)
                         report = grading.grade(interview, lab.home, sessions)
                     return self._json(200, {"report": report})
+                elif action == "/api/my-resume":
+                    if body.get("forget"):
+                        resume.forget(lab.home)
+                        return self._json(200, {"resume": None})
+                    saved = resume.save(lab.home, str(body.get("name", "")), str(body.get("text", "")))
+                    return self._json(200, {"resume": {**resume.summary(saved), "text": saved["text"]}})
+                elif action == "/api/debrief":
+                    return self._debrief(interview)
                 elif action == "/api/feedback":
                     return self._json(200, self._feedback(interview))
                 else:
@@ -271,13 +334,14 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             workspace = workspace_path(interview, lab.home)
             python = test_python(lab.home)
             coach = None
-            if interview.meta.get("format") == "problem":
+            if interview.meta.get("format") in ("problem", "resume"):
                 coach = coach_ai.status()
                 if coach["available"] and status.get("started") and not getattr(lab, "warmed", {}).get(interview.id):
                     lab.warmed = {**getattr(lab, "warmed", {}), interview.id: True}
                     coach_ai.warm()
             return {
                 "coach_ai": coach,
+                "resume": resume.summary(resume.load(lab.home)) if interview.meta.get("format") == "resume" else None,
                 "interview": interview.public(),
                 "task": interview.task(),
                 "session": status,

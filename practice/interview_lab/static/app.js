@@ -23,13 +23,19 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["resume", "Résumé · Senior engineer"] };
 const AMAZON_NOTES = {
   plan: { hint: "<b>Before you code.</b> Your approach: data structures, time and space complexity, and the edge cases you'll handle. Say it out loud too.", placeholder: "## Approach\n- \n\n## Complexity\n- Time: \n- Space: \n\n## Edge cases\n- " },
   assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },
   explanation: { hint: "<b>40–45 min.</b> Dry-run your code on the example by hand: the state after each step, then the answer.", placeholder: "## Dry run on the example\n1. \n\n## Complexity\n- " },
 };
-const notesFor = () => (latest && latest.interview.format === "amazon-final" ? { ...NOTES, ...AMAZON_NOTES } : NOTES);
+const TALK_NOTES = {   // the behavioral round and the résumé deep dive: nothing to plan in code
+  plan: { hint: "<b>Any time.</b> The stories and numbers you want to bring up, and your questions for the interviewer.", placeholder: "## Stories to tell\n- \n\n## Numbers to mention\n- \n\n## Questions for the interviewer\n- " },
+};
+const notesFor = () => {
+  const format = latest && latest.interview.format;
+  return format === "amazon-final" ? { ...NOTES, ...AMAZON_NOTES } : format === "amazon-behavioral" || format === "resume" ? { ...NOTES, ...TALK_NOTES } : NOTES;
+};
 
 function remember(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable */ } }
 function recall(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
@@ -231,6 +237,93 @@ function renderTimer() {
   }
 }
 
+// Your résumé: you upload it here (PDF, Word, or text) or paste it. Only its text is saved, on this computer.
+const viaRoomside = /^\/practice(\/|$)/.test(location.pathname);   // Roomside's PDF and Word reader is on the same server
+const resumeUi = { saved: undefined, busy: false };
+
+async function readResumeFile(file) {
+  if (file.type.startsWith("text/") || /\.(txt|md|markdown)$/i.test(file.name)) return file.text();
+  if (/\.doc$/i.test(file.name)) throw new Error("Older .doc files can't be read. Save it as PDF or .docx, or paste the text.");
+  if (!viaRoomside) throw new Error("Open Interview Lab through Roomside (npm start) to read PDF and Word files, or paste the text.");
+  const { extractText } = await import("/src/documents.ts");   // Roomside's own reader, served by its dev server
+  return extractText(file);
+}
+
+async function saveResume(name, text) {
+  const data = await call("/api/my-resume", { name, text });
+  resumeUi.saved = data.resume;
+  if (latest) latest.resume = data.resume;
+}
+
+async function withResumeBusy(label, work) {
+  resumeUi.busy = true;
+  $("resume-status").textContent = label;
+  $("resume-status").classList.add("busy");
+  try { await work(); } catch (e) { toast(e.message); }
+  resumeUi.busy = false;
+  $("resume-status").classList.remove("busy");
+  if (latest) render(latest);
+}
+
+function uploadResume(file) {
+  if (!file) return;
+  withResumeBusy(`Reading ${file.name}`, async () => {
+    await saveResume(file.name, await readResumeFile(file));
+    toast(`Using ${file.name}. Check what was read with Paste or edit.`);
+  });
+}
+
+function renderResumePanel(data) {
+  const panel = $("resume-panel");
+  panel.hidden = data.interview.format !== "resume";
+  if (panel.hidden) return;
+  if (data.resume !== undefined) resumeUi.saved = data.resume;
+  if (resumeUi.busy) return;
+  const saved = resumeUi.saved;
+  panel.classList.toggle("missing", !saved);
+  $("resume-status").textContent = saved ? `Using ${saved.name} · ${saved.chars.toLocaleString()} characters` : "No résumé yet. Upload it to start: the interviewer asks about what's on it.";
+  $("resume-items").textContent = saved && saved.items && saved.items.length ? `Found: ${saved.items.join(" · ")}` : saved ? "Check what was read with Paste or edit." : "PDF, Word (.docx), or text. You can also drop the file here.";
+  $("resume-upload").textContent = saved ? "Upload a different file" : "Upload your résumé";
+  $("resume-upload").className = `btn ${saved ? "btn-ghost" : "btn-green"}`;
+  $("resume-forget").hidden = !saved;
+}
+
+async function editResume() {
+  try {
+    const { resume } = await call("/api/my-resume?interview=" + encodeURIComponent(current));
+    $("resume-text").value = resume ? resume.text : "";
+  } catch (e) { $("resume-text").value = ""; }
+  $("resume-editor").hidden = false;
+  $("resume-text").focus();
+}
+
+async function showResumeInTask() {
+  try {
+    const { resume } = await call("/api/my-resume?interview=" + encodeURIComponent(current));
+    if (resume && latest && latest.interview.format === "resume") $("task").insertAdjacentHTML("beforeend", `<h2>Your résumé</h2><div class="resume-copy">${escapeHtml(resume.text)}</div>`);
+  } catch (e) { /* the instructions are enough */ }
+}
+
+function wireResume() {
+  const panel = $("resume-panel");
+  $("resume-upload").onclick = () => $("resume-file").click();
+  $("resume-file").onchange = () => { const file = $("resume-file").files[0]; $("resume-file").value = ""; uploadResume(file); };
+  panel.addEventListener("dragover", event => { event.preventDefault(); panel.classList.add("drop"); });
+  panel.addEventListener("dragleave", event => { if (!panel.contains(event.relatedTarget)) panel.classList.remove("drop"); });
+  panel.addEventListener("drop", event => { event.preventDefault(); panel.classList.remove("drop"); uploadResume(event.dataTransfer.files[0]); });
+  $("resume-edit").onclick = () => editResume();
+  $("resume-cancel").onclick = () => { $("resume-editor").hidden = true; };
+  $("resume-save").onclick = () => withResumeBusy("Saving", async () => {
+    await saveResume(resumeUi.saved ? resumeUi.saved.name : "Pasted résumé", $("resume-text").value);
+    $("resume-editor").hidden = true;
+    toast("Résumé saved.");
+  });
+  $("resume-forget").onclick = () => {
+    if (!confirm("Remove your résumé from Interview Lab?")) return;
+    withResumeBusy("Removing", async () => { await call("/api/my-resume", { forget: true }); resumeUi.saved = null; if (latest) latest.resume = null; });
+  };
+}
+
 function renderFlow(info) {
   const items = info.phases.map(p => `<li><b>${p.start}–${p.end}</b><span>${escapeHtml(p.name)}</span></li>`);
   const at = info.change_at_minutes;
@@ -254,7 +347,7 @@ function applyFormat(info) {
   document.querySelector("#change-locked h3").textContent = `Unlocks at ${info.change_at_minutes}:00`;
   document.querySelector("#change-locked p").textContent = amazon ? "Partway through the coding problem, the interviewer adds a follow-up, as Amazon interviewers usually do. Keep going." : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
   document.querySelector(".change-banner").lastChild.textContent = amazon ? "Follow-up from the interviewer" : "Requirement change from the interviewer";
-  const behavioralOnly = info.format === "amazon-behavioral";
+  const behavioralOnly = info.format === "amazon-behavioral" || info.format === "resume";
   $("change-tab").hidden = info.change_at_minutes === null;
   $("console").hidden = behavioralOnly;
   $("custom-tab").hidden = !(info.editor_files || []).length;
@@ -288,8 +381,8 @@ function applyFormat(info) {
 
 function chatItems(questions, spoken = []) {
   // Questions and replies, think-aloud, and behavioral answers, in the order they happened.
-  const answers = ((latest && latest.session.state.behavioral) || { answers: [] }).answers.flatMap(a => a.parts.map(p => ({ at: p.at, answer: p.text })));
-  return questions.map(q => ({ at: q.at, q })).concat(spoken.map(s => ({ at: s.at, said: s.text })), answers).sort((a, b) => a.at - b.at);
+  const answers = ((latest && latest.session.state.behavioral) || { answers: [] }).answers.flatMap(a => a.parts.map(p => ({ at: p.at, n: p.n, answer: p.text })));
+  return questions.map(q => ({ at: q.at, n: q.n, q })).concat(spoken.map(s => ({ at: s.at, n: s.n, said: s.text })), answers).sort((a, b) => a.at - b.at || (a.n || 0) - (b.n || 0));
 }
 
 function renderQuestions(questions, spoken = []) {
@@ -445,7 +538,7 @@ async function syncCode(files) {
 // The interviewer chat window: the whole conversation, with the reply streaming in at the bottom.
 // Drag it by its title bar, resize it from any edge or corner, minimize or close it; it remembers all of that.
 const pop = { streaming: false, seen: null, lastReply: "" };
-const aiOn = () => problemNow() && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in either role
+const aiOn = () => (problemNow() || resumeNow()) && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in any role
 const coachAiOn = () => aiOn() && latest.session.state.mode === "coach";
 const coachNow = () => !!latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
 const POP_MIN = { w: 280, h: 160 };
@@ -631,6 +724,7 @@ function coachOnThinking(text) {
 
 const HINT_ASK = /\b(hint|i'?m stuck|stuck|give me a clue|clue|nudge|help me out|can you help)\b/i;
 const problemNow = () => latest && latest.session.started && latest.interview.format === "problem";
+const resumeNow = () => latest && latest.session.started && latest.interview.format === "resume";
 let lastActivity = Date.now(), lastNudge = 0;
 const active = () => { lastActivity = Date.now(); };
 
@@ -705,16 +799,22 @@ function render(data) {
   $("show-approach").hidden = !isProblem || !(data.session.started && data.session.state.mode === "coach");
   renderModeToggles();
   renderFlow(info);
+  renderResumePanel(data);
   applyFormat(info);
   const session = data.session;
   const started = session.started;
   $("start").textContent = started ? (session.state.status === "submitted" ? "Open interview" : "Continue interview") : "Start interview";
+  const needsResume = info.format === "resume" && !data.resume && !started;
+  $("start").disabled = needsResume;
+  $("start").title = needsResume ? "Add your résumé first" : "";
+  $("start-reset").parentElement.hidden = info.format === "resume";
   $("show-report").hidden = !data.has_report;
   showView();
   if (!started) return;
   tickBase = { elapsed: session.elapsed, at: Date.now() };
   if (renderedFor !== current) {
     $("task").innerHTML = markdown(data.task);
+    if (info.format === "resume") showResumeInTask();
     $("test-result").className = "test-empty";
     $("test-result").innerHTML = info.run_tests_allowed
       ? "You haven't run the tests yet. Press <b>Run tests</b>; every run counts as evidence of how you checked your work."
@@ -900,7 +1000,7 @@ async function behavioralNext() {
     const { entry } = await call("/api/behavioral", {});
     await refresh();
     if (entry) { say(entry.answer); return; }
-    if (!behavioralNext.done && latest.session.state.behavioral && latest.session.state.behavioral.question >= 0) {
+    if (!behavioralNext.done && latest.interview.format === "amazon-final" && latest.session.state.behavioral && latest.session.state.behavioral.question >= 0) {
       behavioralNext.done = true;
       const line = "Thanks, that's all the behavioral questions I have. We'll move to the coding problem shortly.";
       toast(line);
@@ -920,9 +1020,28 @@ async function answerBehavioral(text, typed) {
   }, 3500);
 }
 
+// In the résumé interview everything you say is your answer; the interviewer replies once you pause for a moment.
+let resumeTurn = [], resumeTimer = null;
+function resumeHeard(text) {
+  resumeTurn.push(text);
+  setVoiceUi("Listening…", `“${resumeTurn.join(" ").slice(-180)}”`);
+  clearTimeout(resumeTimer);
+  const spokeAt = voice.spokeAt;
+  const send = () => {
+    if (voice.spokeAt !== spokeAt) return;   // you started talking again; the next pause sends it all
+    if (voice.speaking || pop.streaming) { resumeTimer = setTimeout(send, 800); return; }
+    const said = resumeTurn.join(" ");
+    resumeTurn = [];
+    if (said.trim()) coachChat({ message: said.slice(-6000), voice: true });
+  };
+  resumeTimer = setTimeout(send, 2000);
+}
+
 async function handleUtterance(text) {
   text = text.trim();
-  if (text.split(/\s+/).length < 2 || !latest || !latest.session.started) return;
+  if (!latest || !latest.session.started) return;
+  if (resumeNow() && aiOn()) { if (text) resumeHeard(text); return; }   // short answers count here ("Yes, I did.")
+  if (text.split(/\s+/).length < 2) return;
   if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
   if (aiOn()) {
     if (isQuestion(text)) { coachChat({ message: text, voice: true }); return; }
@@ -1030,7 +1149,9 @@ async function cues(session) {
       if (entry) {
         say(entry.answer);
         await refresh();
-        if (phase && phase.kind === "behavioral" && name === phase.cue) behavioralNext();
+        if (phase && phase.kind === "behavioral" && name === phase.cue) {
+          if (resumeNow() && aiOn()) coachChat({ trigger: "open" }); else behavioralNext();
+        }
       }
     } catch (e) { /* try again on the next refresh */ }
     cues.pending.delete(name);
@@ -1056,7 +1177,21 @@ function renderReport(report) {
   const lpSection = lps.length ? `<h3 class="section-title">Leadership Principles, story by story</h3>
     <div class="box"><table class="lp-table">${lps.map(l => `<tr><td class="lp">${escapeHtml(l.lp || "Story")}<div class="q">${escapeHtml(l.question)}</div></td><td class="n" style="color:${lpColor(l.score)}">${l.score}/5</td><td>${l.missing.length ? "Missing: " + escapeHtml(l.missing.join("; ")) : "Hit every signal."}</td></tr>`).join("")}</table></div>` : "";
   const lpAverage = lps.length ? lps.reduce((sum, l) => sum + l.score, 0) / lps.length : 0;
-  const summary = report.behavioral_only ? `
+  const resumeRound = !!(latest && latest.interview.id === report.interview && latest.interview.format === "resume") || report.scores.some(s => s.area === "walkthrough");
+  const scoreColor = n => (n >= 4 ? "var(--green)" : n >= 3 ? "var(--amber)" : "var(--red)");
+  const resumeSummary = resumeRound ? `
+    <section class="summary">
+      <div class="ring" style="--p:${scored.length ? average * 20 : 0};--ring:${scored.length ? scoreColor(Math.round(average)) : "var(--line-2)"}"><div><b>${average}</b><span>avg score</span></div></div>
+      <div>
+        <p class="eyebrow">Résumé deep dive report</p>
+        <h2>${scored.length} of ${report.scores.length} areas observed · ${report.elapsed_minutes} min</h2>
+        <p>Scored from what you said. The interviewer's notes below are the fuller picture.</p>
+        <div class="chips">${report.scores.map(s => `<span class="chip">${escapeHtml(s.label)} <b>${s.score === null ? "–" : s.score + "/5"}</b></span>`).join("")}</div>
+      </div>
+    </section>
+    <h3 class="section-title">The interviewer's notes</h3>
+    <div class="notes-box"><div class="md" id="interviewer-notes">${report.interviewer_notes ? markdown(report.interviewer_notes) : '<p class="writing">Sam is writing up notes…</p>'}</div></div>` : null;
+  const summary = resumeSummary || (report.behavioral_only ? `
     <section class="summary">
       <div class="ring" style="--p:${lpAverage * 20};--ring:${lpColor(Math.round(lpAverage))}"><div><b>${lps.length ? lpAverage.toFixed(1) : "–"}</b><span>avg story score</span></div></div>
       <div>
@@ -1065,7 +1200,7 @@ function renderReport(report) {
         <p>Average rubric score <b>${average}</b> across ${scored.length} observed area${scored.length === 1 ? "" : "s"} · ${report.elapsed_minutes} min</p>
         <div class="chips">${lps.map(l => `<span class="chip">${escapeHtml(l.lp || "Story")} <b>${l.score}/5</b></span>`).join("")}</div>
       </div>
-    </section>` : null;
+    </section>` : null);
   $("report-body").innerHTML = (summary || `
     <section class="summary">
       <div class="ring" style="--p:${percent};--ring:${ringColor}"><div><b>${percent}%</b><span>grading tests</span></div></div>
@@ -1109,6 +1244,49 @@ function renderReport(report) {
   $("report").hidden = false;
   showView();
   $("report").querySelector(".results-body").scrollTop = 0;
+  if (resumeRound && !report.interviewer_notes) writeNotes(report);
+}
+
+// After the résumé deep dive, the interviewer writes up notes (Claude, on your subscription), saved with the report.
+const notesWriting = new Set();
+async function writeNotes(report) {
+  const box = () => $("interviewer-notes");
+  const key = report.saved_to || report.submitted;
+  if (notesWriting.has(key)) return;
+  if (!latest || !latest.coach_ai || !latest.coach_ai.available) {
+    box().innerHTML = `<p class="writing">${escapeHtml((latest && latest.coach_ai && latest.coach_ai.message) || "Start Roomside (npm start) so Claude can write the interviewer's notes.")}</p><button type="button" class="btn btn-ghost" id="notes-retry">Try again</button>`;
+    $("notes-retry").onclick = async () => { await refresh(); writeNotes(report); };
+    return;
+  }
+  notesWriting.add(key);
+  let text = "";
+  try {
+    const response = await fetch("api/debrief", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interview: report.interview }) });
+    if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || `The notes couldn't be written (${response.status}).`); }
+    const reader = response.body.getReader(), decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index;
+      while ((index = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, index).trim();
+        buffer = buffer.slice(index + 1);
+        if (!line) continue;
+        const event = JSON.parse(line);
+        if (event.error) throw new Error(event.error);
+        if (event.text) { text += event.text; if (box()) box().innerHTML = markdown(text); }
+      }
+    }
+    if (!text.trim()) throw new Error("The interviewer didn't write anything. Try again.");
+    report.interviewer_notes = text.trim();
+  } catch (e) {
+    if (box()) {
+      box().innerHTML = (text ? markdown(text) : "") + `<p class="writing">${escapeHtml(e.message)}</p><button type="button" class="btn btn-ghost" id="notes-retry">Try again</button>`;
+      $("notes-retry").onclick = () => writeNotes(report);
+    }
+  } finally { notesWriting.delete(key); }
 }
 
 async function copyText(text, label) {
@@ -1191,6 +1369,7 @@ function wirePop() {
 }
 
 function wire() {
+  wireResume();
   $("start").onclick = async () => {
     if (latest && latest.session.started) { inLobby = false; showView(); return; }
     try {

@@ -25,17 +25,15 @@ MODEL = os.environ.get("PRACTICE_COACH_MODEL") or "claude-sonnet-5-5"
 def roomside() -> str:
     """Roomside's dev server, which hosts the Claude Code bridge (read each time, so tests can point it elsewhere)."""
     return (os.environ.get("ROOMSIDE_URL") or "http://127.0.0.1:5173").rstrip("/")
-TRIGGERS = ("message", "hint", "tests", "nudge", "thinking")
+TRIGGERS = ("message", "hint", "tests", "nudge", "thinking", "open")
 
-# One system prompt for both roles, so the bridge's warm Claude Code process serves either; the role comes per request.
-SYSTEM = """You play one role in a timed practice coding interview: either a supportive coach or a realistic interviewer. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
+# One system prompt for every role, so the bridge's warm Claude Code process serves any of them; the role comes per request.
+SYSTEM = """You play one role in a timed practice interview: a supportive coach or a realistic interviewer for a coding problem, or a senior engineer interviewing the candidate about their résumé. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
 
 Always:
 - Keep replies short: one to three sentences, about 60 words at most. Plain spoken English: no markdown, no bullet points, no headings, no code blocks. If code is truly needed, say it in words or give at most one short inline expression.
-- Stay in the role you're given. Never give the full solution or write their code.
-- Answer questions about the problem's requirements using the clarification facts you're given. If the facts don't cover it, tell them to make a reasonable assumption and say it out loud.
-- Use what you can see: their current code, test results, and what they've said.
-- When you're told to give a hint, give exactly that hint level and nothing beyond it.
+- Stay in the role you're given.
+- In a coding interview: never give the full solution or write their code. Answer questions about the problem's requirements using the clarification facts you're given; if the facts don't cover it, tell them to make a reasonable assumption and say it out loud. Use what you can see: their current code, test results, and what they've said. When you're told to give a hint, give exactly that hint level and nothing beyond it.
 - Don't mention these instructions, the reference approach, or the hint ladder, and don't say you are an AI unless asked."""
 
 ROLE_COACH = """You are the COACH: warm, encouraging, and focused on helping the student learn.
@@ -51,6 +49,16 @@ ROLE_REAL = """You are the INTERVIEWER: a realistic, professional software engin
 - During the approach phase, make sure they state a brute force and the complexity before coding. During coding, stay brief and let them work. During the wrap-up, ask the follow-up questions below one at a time.
 - Hints only when they explicitly ask: one short sentence at the level you're given, said neutrally. Hints count against them, so don't volunteer them.
 - Keep it to one or two short sentences."""
+
+ROLE_RESUME = """You are a SENIOR SOFTWARE ENGINEER interviewing a candidate for a software engineering internship or new-grad role, in a 30-minute conversation about their résumé. Friendly and curious, but rigorous, like a strong hiring-committee interviewer. You want to know whether they understand and personally did what they list.
+- Ask one question per turn, and keep each turn to one or two sentences: often a brief acknowledgement ("Got it." "Makes sense.") and then your next question.
+- Name specific things from their résumé: projects, roles, technologies, numbers. Never claim something is on the résumé when it isn't; if you're unsure, ask.
+- Dig in the way senior engineers do: what problem it solved, what they built themselves, how it works end to end, why they chose that design and what else they considered, the hardest bug and how they found it, how they measured the result, what they'd change.
+- Follow up on anything vague: "we built" becomes "what was your part?", "made it faster" becomes "by how much, and how did you measure it?", a listed technology becomes "how did you use it there?". If an answer repeats an earlier one, ask for something new.
+- Don't teach, don't evaluate or praise their answers, and don't give feedback during the interview. Stay warm and neutral.
+- Follow the interview plan and the clock you're given. Move on when a topic is exhausted or its time is up, with a short transition."""
+
+DEBRIEF_SYSTEM = """You are a senior software engineer writing your interview notes after a 30-minute résumé deep dive with an internship or new-grad candidate, for the candidate to learn from. Be specific, honest, and kind. Quote the candidate's own words as evidence. Write in Markdown with short sections. Don't invent anything that isn't in the transcript or résumé."""
 
 _status = {"at": 0.0, "value": None}
 _lock = threading.Lock()
@@ -186,9 +194,101 @@ Now: {ask}
 Reply as the {you.lower()}, in {"one to three" if coach else "one or two"} short spoken sentences."""[-110_000:]
 
 
-def stream(prompt: str, timeout: int = 90) -> Iterator[str]:
-    """Streams the coach's reply from the bridge, chunk by chunk."""
-    body = json.dumps({"model": MODEL, "system": SYSTEM, "prompt": prompt}).encode("utf-8")
+def _resume_conversation(state: Dict[str, Any]) -> str:
+    """The whole conversation, oldest first: the interviewer's lines and the candidate's answers."""
+    # Interviewer lines and exchanges come from the questions list; the candidate's spoken and scripted-round answers are marked "said".
+    events = [((q["at"], q.get("n", 0)), q) for q in state.get("questions", [])] + [((s["at"], s.get("n", 0)), {"said": s["text"]}) for s in state.get("spoken", [])]
+    events += [((part["at"], part.get("n", 0)), {"said": part["text"]}) for answer in state.get("behavioral", {}).get("answers", []) for part in answer.get("parts", [])]
+    lines: List[str] = []
+    for _, item in sorted(events, key=lambda pair: pair[0]):
+        if "said" in item:
+            lines.append(f"Candidate: {item['said']}")
+        elif item.get("source") == "interviewer":
+            lines.append(f"Interviewer: {item['answer']}")
+        else:
+            lines.append(f"Candidate: {item['question']}")
+            lines.append(f"Interviewer: {item['answer']}")
+    return "\n".join(lines)
+
+
+def build_resume_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, elapsed: float, trigger: str, message: str = "") -> str:
+    """One turn of the résumé deep dive: the résumé, the plan and where the clock is, and everything said so far."""
+    minutes = elapsed / 60
+    duration = interview.meta.get("duration_minutes", 30)
+    phases = interview.phases()
+    current = next((p for p in phases if p["start"] <= minutes < p["end"]), None)
+    plan = "\n".join(f"- {p['start']}–{p['end']} min: {p['name']}. {p.get('goal', '')}" for p in phases)
+    if current is None:
+        pacing = "Time's up. Thank them warmly in one or two sentences and say you'll be in touch, then stop asking questions."
+    else:
+        left = current["end"] - minutes
+        pacing = f"You're in \"{current['name']}\" with about {max(0, round(left))} minute(s) left in it. {current.get('goal', '')}"
+        if left < 1 and current is not phases[-1]:
+            following = phases[phases.index(current) + 1]
+            pacing += f" Wrap this part up and move to \"{following['name']}\" now."
+    name = interview.meta.get("interviewer_name", "Sam")
+    if trigger == "open":
+        ask = "You've just greeted them (above). Ask them to walk you through their background in two or three minutes. You may mention one thing from their résumé to show you've read it."
+    elif trigger == "nudge":
+        ask = "They've been quiet for a while. Gently check whether they'd like you to rephrase the question, or ask a simpler one."
+    else:
+        ask = f"The candidate just said: \"{message}\"\nReply as the interviewer: a brief acknowledgement if natural, then your next question (a follow-up or the next topic, as the plan and clock say)."
+    conversation = _resume_conversation(state)[-60_000:] or "(nothing yet)"
+    return f"""Your role (your name is {name}):
+{ROLE_RESUME}
+
+The candidate's résumé:
+<<<
+{resume_text[:14_000]}
+>>>
+
+Interview plan ({duration} minutes):
+{plan}
+
+Clock: minute {minutes:.0f} of {duration}. {pacing}
+
+Conversation so far (oldest first):
+{conversation}
+
+Now: {ask}
+
+Reply as {name}, the interviewer, in one or two short spoken sentences."""[-110_000:]
+
+
+def build_debrief_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, report: Dict[str, Any]) -> str:
+    """The interviewer's written notes after the interview, with the automatic scores as a starting point."""
+    scores = "\n".join(f"- {s['label']}: {s['score'] if s['score'] is not None else 'not observed'}/5" for s in report.get("scores", []))
+    return f"""Write your notes on this résumé deep dive for the candidate.
+
+Their résumé:
+<<<
+{resume_text[:14_000]}
+>>>
+
+Transcript (oldest first):
+{_resume_conversation(state)[-70_000:] or "(nothing was said)"}
+
+Automatic heuristic scores, for reference (you may disagree):
+{scores}
+
+Rules for evidence: quote only what the candidate said (the "Candidate:" lines). Never present résumé text as something they said; refer to it as "your résumé says". If the transcript is short, say how far the interview got and keep each section brief instead of padding it.
+
+Write these sections, in Markdown, about 250–400 words in all (less for a short transcript):
+## Overall
+Two or three sentences: how it went and whether you'd push to move them forward, and why.
+## What came across well
+Two to four bullets, each quoting them.
+## What to work on
+Three bullets: specific, each with a quote and what a stronger answer would have included.
+## Résumé claims to be ready for
+Items on their résumé that they didn't explain well or weren't asked about yet, and the question you'd expect for each.
+## Practice next
+One concrete exercise for before their next interview."""
+
+
+def stream(prompt: str, timeout: int = 90, system: str = SYSTEM) -> Iterator[str]:
+    """Streams the coach's reply from the bridge, chunk by chunk. Anything but the shared system prompt gets a one-off process."""
+    body = json.dumps({"model": MODEL, "system": system, "prompt": prompt, **({} if system == SYSTEM else {"warm": False})}).encode("utf-8")
     request = urllib.request.Request(f"{roomside()}/api/claude-code", data=body, headers={"Content-Type": "application/json"}, method="POST")
     try:
         response = urllib.request.urlopen(request, timeout=timeout)

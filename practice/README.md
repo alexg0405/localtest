@@ -19,6 +19,7 @@ key. It runs on macOS, Linux, and Windows.
 | `amazon-final-1` | Amazon SDE intern final round 1 (45 min, no AI): two Leadership Principles questions with follow-ups, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | STAR stories, hash maps and heaps, complexity, testing |
 | `amazon-final-2` | Amazon SDE intern final round 2 (45 min, no AI): two different Leadership Principles, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, testing |
 | `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
+| `resume-deep-dive` | Résumé deep dive (30 min): Claude plays a senior engineer who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks about teamwork, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups |
 
 These are original simulations, not reproductions of any company's interviews.
 Each one has:
@@ -197,6 +198,47 @@ Problems are graded on six areas:
 
 Every report ends with **How to solve it**. The lobby tile shows your last
 score and which mode you used.
+
+## Résumé deep dive
+
+A 30-minute conversation about your own résumé with a senior engineer, played
+by Claude on your subscription (through Roomside, like the conversational
+coach).
+
+- **Your résumé:** pick **Résumé deep dive with a senior engineer**, then
+  **Upload your résumé** (PDF, Word .docx, or text), or drop the file on the
+  panel. **Paste or edit** shows the text that was read, so you can fix it or
+  paste it instead. Only the text is saved, in
+  `~/interview-practice/.lab/resume.json`; **Remove** deletes it. Reading PDF
+  and Word files uses Roomside's reader, so open the lab through Roomside
+  (`npm start`); on its own it takes text files and pasted text.
+- **The interview:**
+
+  | Minutes | What happens |
+  |---|---|
+  | 0–3 | The interviewer introduces themselves; you walk through your background. |
+  | 3–14 | A deep dive into your strongest project or role. |
+  | 14–23 | A deep dive into a second experience, especially claims you haven't explained yet. |
+  | 23–27 | Teamwork and judgment: a disagreement, a mistake, a deadline. |
+  | 27–30 | Your questions for the interviewer, then the close. |
+
+  The interviewer names things from your résumé, asks one question at a time,
+  and follows up on anything vague ("what was your part?", "how did you
+  measure it?"). It keeps the clock and moves on as each part's time runs out.
+- **Talking:** turn on the mic and answer out loud. Everything you say is your
+  answer, and the interviewer replies once you pause for about three seconds,
+  so a short pause mid-thought doesn't cut you off. You can also type in the
+  chat window. Everything the interviewer says is read aloud, and your résumé
+  is in the Problem tab for reference.
+- **Without Claude** (Roomside not running), a scripted interviewer asks a
+  fixed set of questions built from the roles and projects it finds in your
+  résumé.
+- **Grading:** six areas, scored from what you said: background walkthrough,
+  technical depth, ownership and impact, handling follow-ups, teamwork and
+  judgment, and communication and questions. After you submit, the
+  interviewer writes notes: an overall view, what came across well, what to
+  work on (with your own words quoted), the résumé claims to be ready for, and
+  an exercise. The notes are saved with the report as `interviewer_notes.md`.
 
 ## Amazon final-round mode
 

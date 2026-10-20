@@ -333,6 +333,31 @@ details.raw pre { margin-top: 8px; padding: 10px 12px; max-height: 260px; overfl
 .msg.said .bubble { background: transparent; border: 1px dashed rgba(46, 200, 102, .3); color: var(--text-2); }
 .msg.cue .bubble { border-color: rgba(91, 157, 255, .3); }
 .domain.amazon { color: #ff9900; }
+.domain.resume { color: #f0abfc; }
+
+/* The résumé deep dive: your résumé in the lobby and in the interview */
+.resume-panel { margin-top: 14px; padding: 18px 22px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); }
+.resume-panel.missing { border-color: rgba(245, 165, 36, .45); }
+.resume-panel.drop { border-style: dashed; border-color: #f0abfc; background: rgba(240, 171, 252, .06); }
+.resume-head { display: flex; gap: 18px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.resume-info { flex: 1 1 320px; min-width: 0; }
+.resume-info h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 15px; }
+.resume-info h3 svg { color: #f0abfc; }
+.resume-status { margin: 0 0 4px; color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+.resume-status.busy::after { content: "…"; animation: pulse 1.2s ease-in-out infinite; }
+.resume-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.resume-actions .btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.resume-editor { margin-top: 14px; }
+.resume-editor textarea { width: 100%; min-height: 220px; resize: vertical; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--text); font: 13px/1.55 "JetBrains Mono", ui-monospace, monospace; outline: none; }
+.resume-editor textarea:focus { border-color: #f0abfc; }
+.resume-editor-actions { display: flex; gap: 8px; margin-top: 8px; }
+.resume-panel > .muted { margin: 12px 0 0; }
+.resume-copy { white-space: pre-wrap; font: 12.5px/1.6 "JetBrains Mono", ui-monospace, monospace; color: var(--text-2); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.notes-box { padding: 18px 22px; border-radius: 14px; border: 1px solid rgba(240, 171, 252, .35); background: var(--panel); }
+.notes-box .md h2 { font-size: 15px; margin: 16px 0 6px; }
+.notes-box .md h2:first-child { margin-top: 0; }
+.notes-box .writing { color: var(--muted); }
+@media (max-width: 760px) { .resume-actions { justify-content: stretch; } .resume-actions .btn { flex: 1 1 100%; justify-content: center; } }
 .tag.tag-warn { color: var(--amber); border-color: rgba(245, 165, 36, .35); }
 
 /* Code editor */

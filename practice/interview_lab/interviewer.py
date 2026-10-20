@@ -23,6 +23,17 @@ def _matches(keyword: str, text: str) -> bool:
     return keyword in text
 
 
+FILLERS = re.compile(r"^(?:(?:so|oh|okay|ok|um+|uh+|hmm+|and|also|alright|all right|right|hey|well|yeah|wait|quick question|one more thing)[\s,]+)+", re.I)
+ASKS = re.compile(r"^(what|how|why|when|where|which|who|whose|should|shall|can|could|would|will|is|are|am|was|were|do|does|did|have|has|may|might|must|any)\b|\?\s*$"
+                  r"|\b(can i|can you|could you|do you|should i|should we|is it|is there|are there|are we|what if|what about|how about|i was wondering|do we need|am i allowed)\b", re.I)
+
+
+def is_question(text: str) -> bool:
+    """A short question for the interviewer, rather than part of an answer (the dashboard's rule, for spoken and typed text)."""
+    text = text.strip()
+    return len(text.split()) < 20 and bool(ASKS.search(FILLERS.sub("", text).strip()))
+
+
 def best_entry(entries: List[Dict[str, Any]], text: str) -> Dict[str, Any]:
     text = text.lower()
     best, best_score = None, 0

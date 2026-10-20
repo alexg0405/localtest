@@ -1,0 +1,101 @@
+[
+  {
+    "topic": "How long to answer",
+    "important": false,
+    "keywords": [
+      "how long",
+      "too long",
+      "detail",
+      "should i keep",
+      "how much detail"
+    ],
+    "answer": "A minute or two per answer is plenty. I'll ask follow-ups if I want more."
+  },
+  {
+    "topic": "Which project to talk about",
+    "important": false,
+    "keywords": [
+      "which project",
+      "which one",
+      "any project",
+      "school project",
+      "side project",
+      "doesn't have to be"
+    ],
+    "answer": "Pick whichever one you did the most on yourself. School, internship, or side projects are all fine."
+  },
+  {
+    "topic": "A typical day",
+    "important": false,
+    "keywords": [
+      "typical day",
+      "day to day",
+      "day-to-day",
+      "a normal day",
+      "what do you do"
+    ],
+    "answer": "Most of my day is design reviews, code reviews, and pairing with newer engineers, plus a few hours of my own coding on our backend services."
+  },
+  {
+    "topic": "Interns and new grads on the team",
+    "important": false,
+    "keywords": [
+      "intern",
+      "new grad",
+      "onboard",
+      "mentor",
+      "ramp up",
+      "first few weeks"
+    ],
+    "answer": "Interns get a mentor and a real project that ships. The first couple of weeks are setup and small fixes, then you own a feature end to end and present it at the end."
+  },
+  {
+    "topic": "What the team works on",
+    "important": false,
+    "keywords": [
+      "team work on",
+      "the team",
+      "what does your team",
+      "projects",
+      "tech stack",
+      "stack"
+    ],
+    "answer": "We own a set of backend services and the internal tools around them. Mostly services, data pipelines, and the APIs other teams build on."
+  },
+  {
+    "topic": "What makes someone successful",
+    "important": false,
+    "keywords": [
+      "successful",
+      "stand out",
+      "do well",
+      "best interns",
+      "advice"
+    ],
+    "answer": "The people who do best ask questions early, write things down, and close the loop: they say what they're stuck on and what they shipped."
+  },
+  {
+    "topic": "What you like about working here",
+    "important": false,
+    "keywords": [
+      "like about",
+      "favorite",
+      "enjoy",
+      "why do you work",
+      "best part"
+    ],
+    "answer": "The people and the ownership. You get real problems, and senior folks have time to help you think them through."
+  },
+  {
+    "topic": "Feedback and next steps",
+    "important": false,
+    "keywords": [
+      "next steps",
+      "feedback",
+      "how did i do",
+      "hear back",
+      "timeline"
+    ],
+    "answer": "I'll write up my notes today, and the recruiter will follow up on next steps. You can press Submit to see feedback on this practice session."
+  }
+]

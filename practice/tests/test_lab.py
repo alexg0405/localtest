@@ -497,3 +497,62 @@ def test_workspace_points_vs_code_and_claude_code_at_the_right_places(tmp_path):
     assert vscode["python.defaultInterpreterPath"] == str(venv_python(tmp_path / ".venv"))
     deny = json.loads((workspace / ".claude" / "settings.json").read_text(encoding="utf-8"))["permissions"]["deny"]
     assert f"Read({claude_rule_path(LAB_ROOT)}/**)" in deny
+
+
+def test_resume_parser_finds_roles_and_projects_and_builds_the_scripted_plan(tmp_path):
+    from interview_lab import resume
+    text = ("Alex Example\nalex@example.com\n\nEXPERIENCE\nAmazon — Software Development Engineer Intern\nSeattle, WA  June 2025 – Aug 2025\n"
+            "• Built a service\n\nPROJECTS\nChess Engine | C++, Python\n• Fast search\n\nSKILLS\nC++, Go, Python\n")
+    assert resume.items(text) == [("role", "your Software Development Engineer Intern role at Amazon"), ("project", "Chess Engine")]
+    assert {"Amazon", "C++", "Python"} <= set(resume.terms(text)) and "Built" not in resume.terms(text) and "Alex" not in resume.terms(text)
+    # The common two-line layout: company and city, then role and dates; wrapped bullet lines lose their bullet.
+    two_line = ("Experience\nGoogle Mountain View, CA\nSoftware Engineering Intern, Search Jun 2025 – Aug 2025\n• Cut p95 latency by\n30% across the service.\n"
+                "Northwind Labs Bedford, MA\nRobotics Intern – Automation Jan 2025 – May 2025\nProjects & Activities\nTrailMix — 1st Place, Campus Hack July 2026\n"
+                "Python, SQLite, TypeScript\nSoftware & Firmware Engineer\n")
+    assert resume.items(two_line) == [("role", "your Software Engineering Intern role at Google"), ("role", "your Robotics Intern role at Northwind Labs"), ("project", "TrailMix")]
+    plan = resume.plan(text)
+    assert "walk me through your background" in plan[0]["question"]
+    assert "Amazon" in plan[1]["question"] and "Chess Engine" in plan[2]["question"] and "questions do you have" in plan[-1]["question"]
+    with pytest.raises(ValueError):
+        resume.save(tmp_path, "empty.pdf", "   ")
+    resume.save(tmp_path, "cv.pdf", text)
+    assert resume.summary(resume.load(tmp_path))["name"] == "cv.pdf"
+    resume.forget(tmp_path)
+    assert resume.load(tmp_path) is None
+
+
+def test_resume_turns_keep_the_order_things_were_said_in_the_same_moment():
+    from interview_lab import grading
+    interview = get_interview("resume-deep-dive")
+    state = {"questions": [
+        {"at": 5.0, "n": 1, "source": "interviewer", "answer": "Walk me through your background."},
+        {"at": 5.0, "n": 3, "source": "interviewer", "answer": "Tell me about a time you disagreed with a teammate."},
+    ], "behavioral": {"answers": [{"parts": [{"at": 5.0, "n": 2, "text": "I'm a junior studying CS, most recently an intern."},
+                                             {"at": 5.0, "n": 4, "text": "I disagreed about caching and I measured it."}]}]}}
+    turns = grading.resume_turns(interview, state)
+    assert [t["kind"] for t in turns] == ["walkthrough", "teamwork"]
+    assert turns[1]["prompt"].startswith("Tell me about a time")
+
+
+def test_resume_interviewer_keeps_time_and_closes():
+    from interview_lab import coach_ai
+    interview = get_interview("resume-deep-dive")
+    state = {"questions": [], "spoken": []}
+    early = coach_ai.build_resume_prompt(interview, state, "Jordan Lee\nPROJECTS\nStudySync", 60, "message", "I built StudySync.")
+    assert '"Your background"' in early and "I built StudySync." in early and "StudySync" in early.split("Interview plan")[0]
+    assert 'move to "Your questions for me" now' in coach_ai.build_resume_prompt(interview, state, "x", 26.5 * 60, "message", "ok")
+    assert "Time's up" in coach_ai.build_resume_prompt(interview, state, "x", 30.5 * 60, "message", "ok")
+
+
+def test_resume_transcript_labels_who_said_what():
+    from interview_lab import coach_ai
+    state = {"questions": [
+        {"at": 1.0, "n": 1, "source": "interviewer", "answer": "Walk me through your background."},
+        {"at": 9.0, "n": 3, "source": "coach-ai", "question": "I interned at Acme on payments.", "answer": "What did you build there?"},
+    ], "spoken": [], "behavioral": {"answers": [{"parts": [{"at": 5.0, "n": 2, "text": "I'm a junior studying CS."}]}]}}
+    assert coach_ai._resume_conversation(state).splitlines() == [
+        "Interviewer: Walk me through your background.",
+        "Candidate: I'm a junior studying CS.",
+        "Candidate: I interned at Acme on payments.",
+        "Interviewer: What did you build there?",
+    ]

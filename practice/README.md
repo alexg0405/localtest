@@ -19,7 +19,7 @@ key. It runs on macOS, Linux, and Windows.
 | `amazon-final-1` | Amazon SDE intern final round 1 (45 min, no AI): two Leadership Principles questions with follow-ups, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | STAR stories, hash maps and heaps, complexity, testing |
 | `amazon-final-2` | Amazon SDE intern final round 2 (45 min, no AI): two different Leadership Principles, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, testing |
 | `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
-| `resume-deep-dive` | Résumé deep dive (30 min): Claude plays a senior engineer who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks about teamwork, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups |
+| `resume-deep-dive` | Résumé deep dive (30 min): Claude plays an Amazon engineer interviewing you for the SDE internship, who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks about teamwork, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups |
 
 These are original simulations, not reproductions of any company's interviews.
 Each one has:
@@ -201,11 +201,11 @@ score and which mode you used.
 
 ## Résumé deep dive
 
-A 30-minute conversation about your own résumé with a senior engineer, played
-by Claude on your subscription (through Roomside, like the conversational
-coach).
+A 30-minute conversation about your own résumé with an Amazon engineer
+interviewing you for the SDE internship, played by Claude on your subscription
+(through Roomside, like the conversational coach).
 
-- **Your résumé:** pick **Résumé deep dive with a senior engineer**, then
+- **Your résumé:** pick **Résumé deep dive with an Amazon engineer**, then
   **Upload your résumé** (PDF, Word .docx, or text), or drop the file on the
   panel. **Paste or edit** shows the text that was read, so you can fix it or
   paste it instead. Only the text is saved, in
@@ -222,9 +222,13 @@ coach).
   | 23–27 | Teamwork and judgment: a disagreement, a mistake, a deadline. |
   | 27–30 | Your questions for the interviewer, then the close. |
 
-  The interviewer names things from your résumé, asks one question at a time,
-  and follows up on anything vague ("what was your part?", "how did you
-  measure it?"). It keeps the clock and moves on as each part's time runs out.
+  The interviewer names things from your résumé and asks one short question at
+  a time, pitched at intern level: which part you built, how it works step by
+  step, why you chose it over a simpler option (it pushes back once), a what-if
+  or two about your own system (ten times the users, a crash halfway), the
+  hardest bug, where your numbers came from, and who it helped. It keeps
+  digging until you reach the edge of what you know, talks like a person
+  rather than a script, and keeps the clock.
 - **Talking:** turn on the mic and answer out loud. Everything you say is your
   answer, and the interviewer replies once you pause for about three seconds,
   so a short pause mid-thought doesn't cut you off. You can also type in the

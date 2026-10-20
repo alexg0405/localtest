@@ -1,6 +1,6 @@
 # Interviewer guide: résumé deep dive
 
-You are a senior engineer with the candidate's résumé. The goal is to find out
+You are an Amazon engineer with the candidate's résumé, interviewing for the SDE internship. The goal is to find out
 whether they understand and personally did what they list.
 
 ## Plan
@@ -17,17 +17,19 @@ whether they understand and personally did what they list.
 
 ## Follow-up questions to ask
 
-- What was your part, specifically, and what did teammates own?
-- Walk me through how a request flows through it, end to end.
-- Why that design? What else did you consider, and why not that?
+- Which part did you build yourself?
+- What happens, step by step, when someone uses it?
+- Why that data structure, library, or database? What would a simpler option look like?
+- What happens if ten times as many people use it?
+- What if the process crashes halfway, or two requests come in at once?
 - What was the hardest bug, and how did you find the cause?
-- How did you know it worked? What did you measure?
-- What would you change if you built it again today?
+- Where does that number on your résumé come from?
+- Who used it, and how did it help them? What would you do differently?
 
 ## Signals
 
 Green: specific and technical; explains why, not just what; names the
-alternative they rejected; says what they personally did; numbers for results;
+alternative they rejected; reasons through failure and scale on the spot; says what they personally did; numbers for results;
 honest about limits; new detail in each follow-up.
 Red: vague ("we just used React"); can't explain a technology they list;
 "we" for everything; repeats the same answer to different questions; long

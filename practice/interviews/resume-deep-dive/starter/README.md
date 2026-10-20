@@ -1,9 +1,9 @@
-# Résumé deep dive with a senior engineer (practice)
+# Résumé deep dive with an Amazon engineer (practice)
 
-A senior engineer has your résumé in front of them. For half an hour they'll
-pick things off it and keep asking why, how, and what you did yourself, to see
-whether you really understand what you built. Claude plays the interviewer,
-using your own résumé.
+An Amazon engineer interviewing you for the SDE internship has your résumé in
+front of them. For half an hour they'll pick things off it and keep asking
+why, how, and what you did yourself, to see whether you really understand what
+you built. Claude plays the interviewer, using your own résumé.
 
 ## How this round works
 
@@ -17,9 +17,10 @@ using your own résumé.
 
 - Turn on the mic and answer out loud, as you would in the real interview, or
   type in the chat. When you pause, the interviewer replies.
-- Expect "why?" and "what did you do yourself?" over and over. Be specific:
-  name the pieces, the decision you made, the alternative you rejected, and a
-  number for the result.
+- Expect "why?" and "what did you do yourself?" over and over, plus a what-if
+  or two about your own system ("what if ten times as many people used it?").
+  Be specific: name the pieces, the decision you made, the simpler option you
+  didn't pick, and where your numbers came from.
 - Say "I", not "we", for your own work, and be honest about what you didn't do.
 - Keep answers to a minute or two, then let the interviewer steer.
 - Use `notes.md` to jot anything down. No AI.

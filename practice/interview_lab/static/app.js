@@ -23,7 +23,7 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["resume", "Résumé · Senior engineer"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"] };
 const AMAZON_NOTES = {
   plan: { hint: "<b>Before you code.</b> Your approach: data structures, time and space complexity, and the edge cases you'll handle. Say it out loud too.", placeholder: "## Approach\n- \n\n## Complexity\n- Time: \n- Space: \n\n## Edge cases\n- " },
   assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },

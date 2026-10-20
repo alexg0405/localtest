@@ -545,6 +545,7 @@ BUILD = (r"\b(api|apis|endpoint|database|schema|tables?|queries|query|index(es)?
          r"microservices?|pipeline|model|latency|throughput|scal(e|ed|ing|able)|concurren\w+|threads?|async\w*|deploy\w*|docker|kubernetes|aws|cloud|ci|tests?|"
          r"websockets?|rest|graphql|react|state|algorithm|data structure|hash ?map|load|memory|cpu|batch\w*|polling|webhooks?|auth\w*)\b")
 DEBUG = r"\b(bug|bugs|debug\w*|root cause|logs?|logging|profil\w*|traced?|reproduc\w+|broke|broken|crash\w*|race condition|memory leak|the issue was|turned out)\b"
+FAILURE = r"\b(crash\w*|fail(s|ed|ure|over)?|retr(y|ies|ied)|idempoten\w*|duplicates?|out of order|timeouts?|fallback|backpressure|rate limit\w*|lost|durab\w*|persist\w*|consisten\w*|race|locks?|bottleneck\w*|10x|100x|ten times|hundred times|at scale|shard\w*|replica\w*)\b"
 STRUCTURE = r"\b(currently|right now|at the moment|i'?m a|i am a|before that|most recently|previously|last summer|started|looking for|interested in|next|excited about|want to)\b"
 TEAM_PROMPT = r"\b(disagree\w*|conflict|mistake|failure|failed|deadline|teammates?|team ?mates?|feedback|worked with|working with|difficult|tension|pushback)\b"
 WRAP_PROMPT = r"questions?\s+(do you have|for me)|anything you'?d like to ask|what would you like to know"
@@ -615,13 +616,15 @@ def _resume_scores(interview: Interview, state: Dict[str, Any], resume_text: str
         decided = [t for t in deep if count(DECISION, t["text"])]
         built = sorted({match.group(0) for t in deep for match in re.finditer(BUILD, t["text"].lower())})
         debugged = [t for t in deep if count(DEBUG, t["text"])]
+        reasoned = [t for t in deep if count(FAILURE, t["text"])]
         explained = sorted({term for t in deep for term in mentions(t["text"])})
         unexplained = [term for term in named if term not in explained and term not in covered][:8]
         best = max(deep, key=lambda t: count(DECISION, t["text"]) + count(BUILD, t["text"]) + count(DEBUG, t["text"]))
-        scores["depth"] = (_clamp(1 + 1.5 * min(1, len(decided) / max(1, len(deep) / 2)) + min(1, len(built) / 8) + (0.75 if debugged else 0) + min(0.75, 0.25 * len(explained))), [
+        scores["depth"] = (_clamp(1 + 1.5 * min(1, len(decided) / max(1, len(deep) / 2)) + min(1, len(built) / 8) + (0.375 if debugged else 0) + (0.375 if reasoned else 0) + min(0.75, 0.25 * len(explained))), [
             f"Explained why (a decision, a tradeoff, an alternative) in {len(decided)} of {len(deep)} deep-dive answers.",
             f"Talked about how things work: {', '.join(built[:10]) if built else 'no architecture or implementation details'}.",
             f"Told {len(debugged)} debugging or obstacle stor{'y' if len(debugged) == 1 else 'ies'}." if debugged else "Never described a bug or obstacle and how you tracked it down.",
+            f"Reasoned about failure or scale (crashes, retries, duplicates, 10x load) in {len(reasoned)} answer(s)." if reasoned else "Never reasoned through a failure or scale scenario (a crash halfway, duplicates, 10x load).",
             f"Résumé items you explained: {', '.join(explained[:10]) or 'none by name'}." + (f" Not discussed: {', '.join(unexplained)}." if unexplained else ""),
             f"Strongest answer: {_quote(best['text'], 140)}"])
     else:

@@ -115,9 +115,17 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             message = str(body.get("message", ""))[:6000]
             hint = sessions.take_hint(interview) if trigger == "hint" and not conversation else None
             status = sessions.status(interview)
+            opening = None  # the reply that opens the Leadership Principles section
             if conversation:
                 saved = resume.load(lab.home)
-                prompt = coach_ai.build_resume_prompt(interview, sessions.load(interview.id), saved["text"] if saved else "(no résumé was added)", status["elapsed"], trigger, message)
+                current = sessions.load(interview.id)
+                section = next((p for p in interview.phases() if p.get("principles")), None)
+                # It starts with your first answer once its time comes (a minute early, like the interviewer's other transitions).
+                if (section and trigger == "message" and message.strip() and coach_ai.principles(current) and not coach_ai.section_started(current)
+                        and section["start"] - 1 <= status["elapsed"] / 60 < section["end"]):
+                    opening = resume.LP_SECTION
+                prompt = coach_ai.build_resume_prompt(interview, current, saved["text"] if saved else "(no résumé was added)", status["elapsed"], trigger, message,
+                                                      start_section=opening is not None)
             else:
                 phase = next((p["name"] for p in status["phases"][status["phase"]:status["phase"] + 1]), "overtime")
                 prompt = coach_ai.build_prompt(interview, sessions.load(interview.id), workspace_path(interview, lab.home), status["elapsed"], phase, trigger, message, hint)
@@ -132,6 +140,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
 
             text = ""
             try:
+                if opening:
+                    send({"section": opening, "count": len(coach_ai.principles(sessions.load(interview.id)))})
                 for chunk in coach_ai.stream(prompt):
                     text += chunk
                     send({"text": chunk})
@@ -172,7 +182,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             except (BrokenPipeError, ConnectionResetError):
                 return
             reply = text.strip() or "Tell me what you're thinking, and we'll take it from there."
-            entry = sessions.record_coach(interview, trigger, message, reply, bool(body.get("voice")))
+            entry = sessions.record_coach(interview, trigger, message, reply, bool(body.get("voice")), section=opening)
             try:
                 send({"done": True, "entry": entry})
             except (BrokenPipeError, ConnectionResetError):

@@ -10,9 +10,9 @@ you built. Claude plays the interviewer, using your own résumé.
 | Minutes | What happens |
 |---|---|
 | 0–3 | Introductions, then you walk the interviewer through your background. |
-| 3–14 | A deep dive into the strongest project or role on your résumé. |
-| 14–23 | A deep dive into a second experience. |
-| 23–27 | How you work with others: disagreements, mistakes, deadlines. |
+| 3–12 | A deep dive into the strongest project or role on your résumé. |
+| 12–19 | A deep dive into a second experience. |
+| 19–27 | **Leadership Principles:** two behavioral questions based on Amazon's Leadership Principles, with follow-ups. |
 | 27–30 | Your questions for the interviewer. |
 
 - Turn on the mic and answer out loud, as you would in the real interview, or
@@ -22,6 +22,9 @@ you built. Claude plays the interviewer, using your own résumé.
   Be specific: name the pieces, the decision you made, the simpler option you
   didn't pick, and where your numbers came from.
 - Say "I", not "we", for your own work, and be honest about what you didn't do.
+- In the Leadership Principles section, answer with one real example (from your
+  résumé is best) in STAR form: the situation in a sentence, what you did
+  yourself, the result with a number if you have one, and what you learned.
 - Keep answers to a minute or two, then let the interviewer steer.
 - Use `notes.md` to jot anything down. No AI.
 - Press **Submit** at the end for scores and the interviewer's written notes.

@@ -67,8 +67,8 @@ How you talk, like a real engineer on a video call:
 - Casual, plain spoken English with contractions: "Why Redis there?" "What happens if that worker dies mid-batch?" "How'd you know it was 40 percent?"
 - Vary how you start. Often jump straight to the question; sometimes react briefly to what they actually said ("Oh, so it's just a Redis list." "Huh, okay."). Don't open every turn with "Got it" or "Okay".
 - Name the specific things they mention or that are on their résumé. Never claim something is on the résumé when it isn't.
-- If they dodge, ask again more simply once; if they still can't answer, move on to something else.
-- No hints, no teaching, no evaluating or praising. If they're stuck, you can narrow it once ("Say it crashes right after the pop. Then what?").
+- If they dodge, ask again more simply once. Never ask the same thing a third time: if they still don't answer, move on to something else.
+- No hints, no teaching, no evaluating or praising: never call an answer good, solid, nice, or the right call, or say what it shows ("that shows initiative"). If they're stuck, you can narrow it once ("Say it crashes right after the pop. Then what?").
 - Follow the interview plan and the clock, and switch topics with a quick, natural transition ("Cool, let's switch to StudySync.")."""
 
 DEBRIEF_SYSTEM = """You are a senior software engineer at Amazon writing your interview notes after a 30-minute résumé deep dive with a candidate for the Amazon SDE internship, for the candidate to learn from. Judge them as an intern candidate, not as an experienced engineer. Be specific, honest, and kind. Quote the candidate's own words as evidence. Write in Markdown with short sections. Don't invent anything that isn't in the transcript or résumé."""
@@ -224,23 +224,78 @@ def _resume_conversation(state: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def build_resume_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, elapsed: float, trigger: str, message: str = "") -> str:
+def principles(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """This session's Leadership Principles questions, in the order they're asked."""
+    return [item for item in state.get("behavioral", {}).get("plan", []) if item.get("lp")]
+
+
+def section_started(state: Dict[str, Any]) -> bool:
+    return any(q.get("section") for q in state.get("questions", []))
+
+
+def _section_pacing(state: Dict[str, Any], asked: List[Dict[str, Any]], minutes: float, phase: Optional[Dict[str, Any]]) -> str:
+    """Which principles question the interviewer is on, and when to move to the next, from when the section really started."""
+    from .resume import closest_principle
+    opened = [q for q in state.get("questions", []) if q.get("section")]
+    if not opened:
+        return "start the section with question 1."
+    start = opened[0]["at"] / 60
+    end = phase["end"] if phase and phase.get("principles") else start + 8
+    on = 0
+    for q in state.get("questions", []):
+        if q["at"] / 60 >= start:
+            on = max(on, closest_principle(q.get("answer", ""), asked) or 0)
+    due = start + (end - start) * (on + 1) / len(asked)
+    if on + 1 < len(asked) and minutes >= due:
+        return f"time's up for question {on + 1}. Move on now with a short transition and ask question {on + 2}."
+    if on + 1 < len(asked):
+        return f"you're on question {on + 1}. Ask a follow-up about their story, and move to question {on + 2} by minute {due:.0f}."
+    return f"you're on the last question ({on + 1}). Ask follow-ups about their story until the section's time is up."
+
+
+def _plain_question(item: Dict[str, Any]) -> str:
+    from .resume import LP_INTRO
+    return item["question"].replace(LP_INTRO, "")
+
+
+def build_resume_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, elapsed: float, trigger: str, message: str = "",
+                        start_section: bool = False) -> str:
     """One turn of the résumé deep dive: the résumé, the plan and where the clock is, and everything said so far."""
     minutes = elapsed / 60
     duration = interview.meta.get("duration_minutes", 30)
     phases = interview.phases()
     current = next((p for p in phases if p["start"] <= minutes < p["end"]), None)
+    lp_phase = next((p for p in phases if p.get("principles")), None)
+    if lp_phase and section_started(state) and minutes < lp_phase["end"]:
+        current = lp_phase  # the section opened a little early; it runs until its end, not the deep dive's
     plan = "\n".join(f"- {p['start']}–{p['end']} min: {p['name']}. {p.get('goal', '')}" for p in phases)
     if current is None:
         pacing = "Time's up. Thank them warmly in one or two sentences and say you'll be in touch, then stop asking questions."
     else:
-        left = current["end"] - minutes
+        left = current["end"] - max(minutes, current["start"])
         pacing = f"You're in \"{current['name']}\" with about {max(0, round(left))} minute(s) left in it. {current.get('goal', '')}"
         if left < 1 and current is not phases[-1]:
             following = phases[phases.index(current) + 1]
             pacing += f" Wrap this part up and move to \"{following['name']}\" now."
+    asked = principles(state)
+    in_section = bool(current and current.get("principles")) or start_section
+    section = ""
+    if asked and in_section:
+        listed = "\n".join(f"{i + 1}. [{item['lp']}] {_plain_question(item)}\n   Follow-ups to draw on: {' / '.join(item.get('followups', []))}\n   Listen for: {item.get('look_for', '')}"
+                            for i, item in enumerate(asked))
+        section = f"""
+Leadership Principles section (its own part of the interview). This session's questions, asked in order, in your own words, without naming the principle:
+{listed}
+Spend about half the section on each question. On each, ask two or three follow-ups tied to their story: what they did themselves, why, the result (with a number if they have one), and what they learned. The technical deep dives are over: keep these follow-ups on the story, not on implementation details. A vague or hypothetical answer gets "Can you think of a specific time?"
+Right now: {_section_pacing(state, asked, minutes, current)}
+"""
     name = interview.meta.get("interviewer_name", "Sam")
-    if trigger == "open":
+    if start_section and asked:
+        ask = (f"The candidate just said: \"{message}\"\nNow start the Leadership Principles section, which should feel like its own part of the interview. "
+               "In at most three short sentences: acknowledge their answer in a few words, say you're switching to a couple of behavioral questions based on "
+               "Amazon's Leadership Principles and that they should use a specific example and say what they did themselves, then ask the first question "
+               f"in your own words: \"{_plain_question(asked[0])}\"")
+    elif trigger == "open":
         ask = "You've just greeted them (above). Ask them to walk you through their background in two or three minutes. You may mention one thing from their résumé to show you've read it."
     elif trigger == "nudge":
         ask = "They've been quiet for a while. Gently check whether they'd like you to rephrase the question, or ask a simpler one."
@@ -259,13 +314,13 @@ Interview plan ({duration} minutes):
 {plan}
 
 Clock: minute {minutes:.0f} of {duration}. {pacing}
-
+{section}
 Conversation so far (oldest first):
 {conversation}
 
 Now: {ask}
 
-Reply as {name}, the interviewer, in one or two short spoken sentences."""[-110_000:]
+Reply as {name}, the interviewer, in {"up to three" if start_section else "one or two"} short spoken sentences."""[-110_000:]
 
 
 def build_debrief_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, report: Dict[str, Any]) -> str:
@@ -281,6 +336,9 @@ Their résumé:
 Transcript (oldest first):
 {_resume_conversation(state)[-70_000:] or "(nothing was said)"}
 
+Leadership Principles questions asked in their own section, near the end:
+{chr(10).join(f"- {item['lp']}: {_plain_question(item)} (listen for: {item.get('look_for', '')})" for item in principles(state)) or "- (none)"}
+
 Automatic heuristic scores, for reference (you may disagree):
 {scores}
 
@@ -293,6 +351,8 @@ Two or three sentences: how it went and whether you'd push to move them forward,
 Two to four bullets, each quoting them.
 ## What to work on
 Three bullets: specific, each with a quote and what a stronger answer would have included.
+## Leadership Principles
+One or two sentences per principle asked: how well the story showed it (STAR, what they did themselves, a result, what they learned), quoting them.
 ## Résumé claims to be ready for
 Items on their résumé that they didn't explain well or weren't asked about yet, and the question you'd expect for each.
 ## Practice next

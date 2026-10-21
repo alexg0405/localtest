@@ -433,9 +433,18 @@ def verify_resume_round(interview, home: Path, workspace: Path, scratch: Path, c
     state = sessions.load(interview.id)
     opening = coach_ai.build_resume_prompt(interview, state, sample, 20, "open")
     c.check("Claude's interviewer gets your résumé, the plan, and its role", "StudySync" in opening and "SENIOR SOFTWARE ENGINEER" in opening and "Deep dive: a second experience" in opening and "walk you through their background" in opening)
-    turn = coach_ai.build_resume_prompt(interview, state, sample, 13.6 * 60, "message", "We used Redis for the queue.")
+    turn = coach_ai.build_resume_prompt(interview, state, sample, 11.6 * 60, "message", "We used Redis for the queue.")
     c.check("it keeps time: near the end of a part it moves to the next one", 'move to "Deep dive: a second experience" now' in turn and "We used Redis for the queue." in turn)
     c.check("and closes when time is up", "Time's up" in coach_ai.build_resume_prompt(interview, state, sample, 31 * 60, "message", "Thanks!"))
+    asked = coach_ai.principles(state)
+    focus = interview.meta["behavioral"]["focus"]
+    c.check("each session asks two different Leadership Principles from the intern-relevant ones", len({item["lp"] for item in asked}) == 2 and all(item["lp"] in focus for item in asked), ", ".join(item["lp"] for item in asked))
+    c.check("they come after the deep dives, in their own section", plan[3].get("section") == "Leadership Principles" and plan[3]["question"].startswith("Let's switch gears") and plan[4].get("lp") and "questions do you have" in plan[5]["question"])
+    opening = coach_ai.build_resume_prompt(interview, state, sample, 18.4 * 60, "message", "That's how StudySync matched schedules.", start_section=True)
+    first = asked[0]["question"].replace(resume.LP_INTRO, "")
+    c.check("Claude opens the section out loud: a transition, then the first principles question", "Now start the Leadership Principles section" in opening and first in opening and "up to three" in opening)
+    during = coach_ai.build_resume_prompt(interview, state, sample, 22 * 60, "message", "I owned the migration.")
+    c.check("during the section, Claude has both questions, their follow-ups, and what to listen for", all(item["lp"] in during and item["followups"][0] in during for item in asked) and "Spend about half the section" in during)
     c.check("one system prompt serves the coach, the interviewer, and the résumé interviewer (so the warm process is reused)", "résumé" in coach_ai.SYSTEM and "coding interview" in coach_ai.SYSTEM)
 
 
@@ -444,7 +453,8 @@ def verify_resume_workflow(interview, home: Path, c: Checker) -> None:
     from . import coach_ai
     from .server import Lab, make_server
     print(f"\nDashboard workflow without an API key [{interview.id}]")
-    server = make_server(Lab(home, api_config=api.ApiConfig(env={})), port=0)
+    lab = Lab(home, api_config=api.ApiConfig(env={}))
+    server = make_server(lab, port=0)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     sample = (interview.interviewer / "sample_resume.md").read_text(encoding="utf-8")
@@ -465,6 +475,8 @@ def verify_resume_workflow(interview, home: Path, c: Checker) -> None:
 
         # Without Claude (Roomside isn't running in verify), the scripted interviewer runs the conversation.
         _http(port, "/api/start", {"interview": interview.id, "reset": True})
+        plan = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]["behavioral"]["plan"]
+        principle_prompts = {p for item in plan if item.get("lp") for p in [item["question"], *item["followups"]]}
         _http(port, "/api/cue", {"interview": interview.id, "cue": "rs_intro"})
         opened = stream("/api/coach", {"trigger": "open"})[-1]
         c.check("when Claude isn't available, the scripted interviewer opens with the walkthrough", "fallback" in opened and "walk me through your background" in opened["entry"]["answer"])
@@ -473,19 +485,24 @@ def verify_resume_workflow(interview, home: Path, c: Checker) -> None:
             prompt = prompts[-1]
             if "What questions do you have" in prompt:
                 break
-            answer = SAMPLE_ANSWERS["walkthrough"] if i == 0 else SAMPLE_ANSWERS["teamwork"] if re.search(r"disagree|resolve|differently", prompt) and "deep" not in prompt else SAMPLE_ANSWERS["depth"] + f" Detail {i}: I also profiled one endpoint and cut its queries from {i + 5} to 1."
+            answer = SAMPLE_ANSWERS["walkthrough"] if i == 0 else SAMPLE_ANSWERS["teamwork"] if prompt in principle_prompts else SAMPLE_ANSWERS["depth"] + f" Detail {i}: I also profiled one endpoint and cut its queries from {i + 5} to 1."
             entry = stream("/api/coach", {"message": answer, "voice": True})[-1]["entry"]
             if entry is None:
                 break
             prompts.append(entry["answer"])
-        c.check("it asks about your résumé, then teamwork, then takes your questions", any("Brightline" in p for p in prompts) and any("disagreed" in p for p in prompts) and "What questions do you have" in prompts[-1], f"{len(prompts)} prompts")
+        c.check("it asks about your résumé, then the Leadership Principles section, then takes your questions",
+                any("Brightline" in p for p in prompts) and any(p.startswith("Let's switch gears") for p in prompts) and "What questions do you have" in prompts[-1], f"{len(prompts)} prompts")
+        entries = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]["questions"]
+        c.check("the section's first question is marked, so the page shows where it starts", [e.get("section") for e in entries if e.get("section")] == ["Leadership Principles"])
         asked = stream("/api/coach", {"message": "What does a typical day look like for you?"})[-1]["entry"]
         c.check("your questions at the end get an answer", "code reviews" in asked["answer"])
         report = _http(port, "/api/submit", {"interview": interview.id})["report"]
         scores = {s["area"]: s["score"] for s in report["scores"]}
         c.check("all six résumé areas are scored", [x["area"] for x in report["scores"]] == [a for a, _ in grading.RESUME_AREAS] and all(v is not None for v in scores.values()), str(scores))
         c.check("specific, owned, measured answers score well on depth and ownership", scores["depth"] >= 4 and scores["ownership"] >= 4, str(scores))
-        c.check("the report is a conversation report (no tests)", report["behavioral_only"] and report["lp_breakdown"] is None and "résumé" in report["format_note"])
+        c.check("the report is a conversation report (no tests)", report["behavioral_only"] and "résumé" in report["format_note"])
+        c.check("and breaks the Leadership Principles down story by story", [row["lp"] for row in report["lp_breakdown"]] == [item["lp"] for item in plan if item.get("lp")]
+                and not report["lp_breakdown"][0]["question"].startswith("Let's switch gears"), str([row["lp"] for row in report["lp_breakdown"]]))
         failed = stream("/api/debrief", {})
         c.check("without Claude, the interviewer's notes explain what's missing", "error" in failed[-1])
 
@@ -528,6 +545,16 @@ def verify_resume_workflow(interview, home: Path, c: Checker) -> None:
             stream("/api/coach", {"message": "I built the batching service myself."})
             second = [r for path, r in seen if path == "/api/claude-code"][-1]["prompt"]
             c.check("the conversation so far labels who said what", "Candidate: I'm currently a junior" in second and "Interviewer: Got it. What did you build yourself on StudySync?" in second)
+            # 18.5 minutes in: your next answer opens the Leadership Principles section.
+            state = lab.sessions.load(interview.id)
+            state["started_at"] -= 18.5 * 60
+            lab.sessions.save(state)
+            events = stream("/api/coach", {"message": "That's how the matching worked.", "voice": True})
+            sent = [r for path, r in seen if path == "/api/claude-code"][-1]["prompt"]
+            c.check("when its time comes, your next answer opens the Leadership Principles section", events[0].get("section") == "Leadership Principles"
+                    and events[-1]["entry"].get("section") == "Leadership Principles" and "Now start the Leadership Principles section" in sent)
+            again = stream("/api/coach", {"message": "During my internship I owned the migration."})
+            c.check("and it opens only once", not any(e.get("section") for e in again) and not again[-1]["entry"].get("section"))
             _http(port, "/api/submit", {"interview": interview.id})
             notes = stream("/api/debrief", {})
             report = _http(port, f"/api/report?interview={interview.id}")["report"]

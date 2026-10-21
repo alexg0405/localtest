@@ -19,7 +19,7 @@ key. It runs on macOS, Linux, and Windows.
 | `amazon-final-1` | Amazon SDE intern final round 1 (45 min, no AI): two Leadership Principles questions with follow-ups, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | STAR stories, hash maps and heaps, complexity, testing |
 | `amazon-final-2` | Amazon SDE intern final round 2 (45 min, no AI): two different Leadership Principles, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, testing |
 | `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
-| `resume-deep-dive` | Résumé deep dive (30 min): Claude plays an Amazon engineer interviewing you for the SDE internship, who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks about teamwork, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups |
+| `resume-deep-dive` | Résumé deep dive (30 min): Claude plays an Amazon engineer interviewing you for the SDE internship, who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks two Leadership Principles questions in their own section, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups, STAR stories |
 
 These are original simulations, not reproductions of any company's interviews.
 Each one has:
@@ -217,9 +217,9 @@ interviewing you for the SDE internship, played by Claude on your subscription
   | Minutes | What happens |
   |---|---|
   | 0–3 | The interviewer introduces themselves; you walk through your background. |
-  | 3–14 | A deep dive into your strongest project or role. |
-  | 14–23 | A deep dive into a second experience, especially claims you haven't explained yet. |
-  | 23–27 | Teamwork and judgment: a disagreement, a mistake, a deadline. |
+  | 3–12 | A deep dive into your strongest project or role. |
+  | 12–19 | A deep dive into a second experience, especially claims you haven't explained yet. |
+  | 19–27 | **Leadership Principles**, its own section: two behavioral questions with follow-ups. |
   | 27–30 | Your questions for the interviewer, then the close. |
 
   The interviewer names things from your résumé and asks one short question at
@@ -229,6 +229,18 @@ interviewing you for the SDE internship, played by Claude on your subscription
   hardest bug, where your numbers came from, and who it helped. It keeps
   digging until you reach the edge of what you know, talks like a person
   rather than a script, and keeps the clock.
+- **Leadership Principles section:** with your first answer after minute 18,
+  the interviewer says it's switching to behavioral questions based on
+  Amazon's Leadership Principles, and a divider marks the start of the section
+  in the chat window and the Interviewer tab (the top bar shows it too). It
+  asks two principles per session, from the ones most often asked of interns
+  (Customer Obsession, Ownership, Learn and Be Curious, Have Backbone; Disagree
+  and Commit, Deliver Results, Bias for Action, Earn Trust, Insist on the
+  Highest Standards, Invent and Simplify, Are Right, A Lot), rotating with the
+  Amazon rounds so repeat sessions get new ones. It doesn't name the principle.
+  Each gets two or three follow-ups on your story (what you did, the result,
+  what you learned), and an example that doesn't fit the principle gets
+  "can you think of a time when…?"
 - **Talking:** turn on the mic and answer out loud. Everything you say is your
   answer, and the interviewer replies once you pause for about three seconds,
   so a short pause mid-thought doesn't cut you off. You can also type in the
@@ -238,8 +250,9 @@ interviewing you for the SDE internship, played by Claude on your subscription
   fixed set of questions built from the roles and projects it finds in your
   résumé.
 - **Grading:** six areas, scored from what you said: background walkthrough,
-  technical depth, ownership and impact, handling follow-ups, teamwork and
-  judgment, and communication and questions. After you submit, the
+  technical depth, ownership and impact, handling follow-ups, Leadership
+  Principles (each principle scored as its own STAR story, with a table in the
+  report), and communication and questions. After you submit, the
   interviewer writes notes: an overall view, what came across well, what to
   work on (with your own words quoted), the résumé claims to be ready for, and
   an exercise. The notes are saved with the report as `interviewer_notes.md`.

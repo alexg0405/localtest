@@ -510,9 +510,13 @@ def test_resume_parser_finds_roles_and_projects_and_builds_the_scripted_plan(tmp
                 "Northwind Labs Bedford, MA\nRobotics Intern – Automation Jan 2025 – May 2025\nProjects & Activities\nTrailMix — 1st Place, Campus Hack July 2026\n"
                 "Python, SQLite, TypeScript\nSoftware & Firmware Engineer\n")
     assert resume.items(two_line) == [("role", "your Software Engineering Intern role at Google"), ("role", "your Robotics Intern role at Northwind Labs"), ("project", "TrailMix")]
-    plan = resume.plan(text)
+    principles = [{"lp": "Ownership", "id": "own-1", "question": "Tell me about a time you owned something.", "followups": ["What did you do?"]},
+                  {"lp": "Earn Trust", "id": "trust-1", "question": "Tell me about a time you rebuilt trust.", "followups": ["How?"]}]
+    plan = resume.plan(text, principles)
     assert "walk me through your background" in plan[0]["question"]
     assert "Amazon" in plan[1]["question"] and "Chess Engine" in plan[2]["question"] and "questions do you have" in plan[-1]["question"]
+    assert plan[3]["section"] == "Leadership Principles" and plan[3]["question"] == resume.LP_INTRO + "Tell me about a time you owned something."
+    assert plan[4]["lp"] == "Earn Trust" and "section" not in plan[4]
     with pytest.raises(ValueError):
         resume.save(tmp_path, "empty.pdf", "   ")
     resume.save(tmp_path, "cv.pdf", text)
@@ -526,12 +530,12 @@ def test_resume_turns_keep_the_order_things_were_said_in_the_same_moment():
     interview = get_interview("resume-deep-dive")
     state = {"questions": [
         {"at": 5.0, "n": 1, "source": "interviewer", "answer": "Walk me through your background."},
-        {"at": 5.0, "n": 3, "source": "interviewer", "answer": "Tell me about a time you disagreed with a teammate."},
+        {"at": 5.0, "n": 3, "source": "interviewer", "answer": "Let's switch gears. Tell me about a time you disagreed with a teammate.", "section": "Leadership Principles"},
     ], "behavioral": {"answers": [{"parts": [{"at": 5.0, "n": 2, "text": "I'm a junior studying CS, most recently an intern."},
                                              {"at": 5.0, "n": 4, "text": "I disagreed about caching and I measured it."}]}]}}
     turns = grading.resume_turns(interview, state)
-    assert [t["kind"] for t in turns] == ["walkthrough", "teamwork"]
-    assert turns[1]["prompt"].startswith("Tell me about a time")
+    assert [t["kind"] for t in turns] == ["walkthrough", "leadership"]
+    assert turns[1]["prompt"].startswith("Let's switch gears") and turns[1]["principle"] == 0
 
 
 def test_resume_interviewer_keeps_time_and_closes():
@@ -556,3 +560,33 @@ def test_resume_transcript_labels_who_said_what():
         "Candidate: I interned at Acme on payments.",
         "Interviewer: What did you build there?",
     ]
+
+
+def test_resume_principles_follow_the_interviewer_to_the_next_question():
+    from interview_lab import grading
+    interview = get_interview("resume-deep-dive")
+    asked = [{"lp": "Ownership", "question": "Tell me about a time you took on something that wasn't your responsibility because you saw it needed doing.", "followups": []},
+             {"lp": "Earn Trust", "question": "Tell me about a time you had to rebuild trust with someone after something went wrong.", "followups": []}]
+    state = {"behavioral": {"plan": asked, "answers": []}, "questions": [
+        {"at": 60.0, "n": 1, "source": "interviewer", "answer": "Walk me through your background."},
+        {"at": 1100.0, "n": 2, "source": "coach-ai", "question": "I'm a junior.", "section": "Leadership Principles",
+         "answer": "Switching gears to behavioral questions. Tell me about a time you took on something that wasn't your job because it needed doing."},
+        {"at": 1200.0, "n": 3, "source": "coach-ai", "question": "At my internship I owned the flaky test suite nobody fixed. I rewrote it and failures dropped 80%.", "answer": "What did you learn?"},
+        {"at": 1300.0, "n": 4, "source": "coach-ai", "question": "I learned to ask early.", "answer": "Okay. Tell me about a time you had to rebuild trust with someone after something went wrong."},
+        {"at": 1400.0, "n": 5, "source": "coach-ai", "question": "I missed a deadline for my teammate, so I told them right away and stayed late to fix it.", "answer": "What questions do you have for me?"},
+    ]}
+    turns = grading.resume_turns(interview, state)
+    assert [(t["kind"], t["principle"]) for t in turns] == [("walkthrough", None), ("leadership", 0), ("leadership", 0), ("leadership", 1)]
+    assert [s["lp"] for s in grading.resume_principles(interview, state, turns)] == ["Ownership", "Earn Trust"]
+
+
+def test_the_principles_section_shows_as_the_current_phase_once_it_starts(tmp_path):
+    interview = get_interview("resume-deep-dive")
+    now = [1000.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    sessions.start(interview)
+    now[0] += 18.5 * 60
+    names = lambda: sessions.status(interview)["phases"][sessions.status(interview)["phase"]]["name"]
+    assert names() == "Deep dive: a second experience"
+    sessions.record_coach(interview, "message", "That's how the matcher worked.", "Let's switch gears. Tell me about a time…", section="Leadership Principles")
+    assert names() == "Leadership Principles"

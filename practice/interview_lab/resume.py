@@ -173,9 +173,31 @@ def terms(text: str) -> List[str]:
     return list(seen.values())[:80]
 
 
-def plan(text: str) -> List[Dict[str, Any]]:
-    """The scripted interviewer's questions, used when Claude isn't available: a walkthrough, two deep dives on things
-    from the résumé, teamwork, then the candidate's questions."""
+LP_SECTION = "Leadership Principles"
+LP_INTRO = ("Let's switch gears. For the next few minutes I'll ask a couple of behavioral questions, based on Amazon's Leadership Principles. "
+            "Use a specific example, and tell me what you did yourself. ")
+
+
+CONTENT_WORD = re.compile(r"[a-z]{4,}")
+COMMON = {"tell", "about", "time", "when", "what", "that", "your", "with", "have", "were", "they", "them", "this", "there", "something", "someone", "would", "could", "how", "did"}
+
+
+def _words(text: str) -> set:
+    return {w for w in CONTENT_WORD.findall(text.lower()) if w not in COMMON}
+
+
+def closest_principle(line: str, asked: List[Dict[str, Any]]) -> Optional[int]:
+    """Which principles question an interviewer's line asks (Claude words it its own way), if it's clearly one of them."""
+    said = _words(line)
+    best = max(((len(said & _words(item["question"].replace(LP_INTRO, ""))) / max(1, len(_words(item["question"].replace(LP_INTRO, "")))), i)
+                for i, item in enumerate(asked)), default=(0, None))
+    return best[1] if best[0] >= 0.4 else None
+
+
+def plan(text: str, principles: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """The interview's questions: a walkthrough, two deep dives on things from the résumé, the Leadership Principles section
+    (this session's principles, from the shared bank), then the candidate's questions. Claude's interviewer gets the
+    principles questions from here; the scripted one, used when Claude isn't available, asks all of them in order."""
     found = items(text)
     projects = [label for kind, label in found if kind == "project"]
     roles = [label for kind, label in found if kind == "role"]
@@ -196,7 +218,7 @@ def plan(text: str) -> List[Dict[str, Any]]:
               ["Who used it, and how did it help them?",
                "Why that tech stack? How did you use it there?",
                "If you built it again, what would you change?"]),
-        entry("teamwork", "teamwork", "Tell me about a time you disagreed with a teammate about a technical decision. What happened?",
-              ["What did you do yourself to resolve it?", "Looking back, what would you do differently?"]),
+        *[{**item, "kind": "leadership", **({"section": LP_SECTION, "question": LP_INTRO + item["question"]} if i == 0 else {})}
+          for i, item in enumerate(principles or [])],
         entry("questions", "wrap", "That's all I had. What questions do you have for me?", []),
     ]

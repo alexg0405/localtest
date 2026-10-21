@@ -404,7 +404,9 @@ function renderQuestions(questions, spoken = []) {
   $("questions").innerHTML = items.map(({ at, q, said, answer }) => {
     if (answer) return you(answer, at, "", "answer · ");
     if (said) return you(said, at, "said", "said aloud · ");
-    if (q.source === "coach-ai") return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, q.mode === "real" ? "Interviewer · Claude" : "Coach · Claude", q.mode === "real" ? "" : "coach");
+    const divider = q.section ? sectionDivider(q.section) : "";
+    if (q.source === "coach-ai") return you(q.question, at, "", q.voice ? "🎙 " : "") + divider + them(q.answer, q.mode === "real" ? "Interviewer · Claude" : "Coach · Claude", q.mode === "real" ? "" : "coach");
+    if (divider && q.source === "interviewer") return divider + them(q.answer, `Interviewer · ${clock(at)}`);
     if (q.source === "interviewer") {
       const kind = (q.kind || "").startsWith("hint") || q.kind === "coach-ai:hint" ? "hint" : (q.kind || "").startsWith("coach") || q.kind === "approach" ? "coach" : "cue";
       const label = kind === "hint" ? "Hint" : q.kind === "approach" ? "Approach" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer";
@@ -597,6 +599,14 @@ function popHeader(state) {
 
 function scrollPop() { const body = $("pop-body"); body.scrollTop = body.scrollHeight; }
 
+function sectionDivider(name) {
+  // Marks where a section of the interview starts, such as the résumé interview's Leadership Principles questions.
+  const asked = ((latest && latest.session.state.behavioral && latest.session.state.behavioral.plan) || []).filter(item => item.lp).length;
+  const principles = name === "Leadership Principles";
+  return `<div class="section-divider" role="separator"><span><em><b>${escapeHtml(name)}</b></em></span>`
+    + (principles ? `<small>${asked ? `${asked} behavioral questions. ` : ""}Answer each with one real example: the situation, what you did yourself, the result, and what you learned.</small>` : "") + "</div>";
+}
+
 function popLine(cls, text, label, title) {
   return `<div class="pop-line ${cls}"${title ? ` title="${title}"` : ""}>${label ? `<small>${escapeHtml(label)}</small>` : ""}${escapeHtml(text)}</div>`;
 }
@@ -609,12 +619,13 @@ function renderPop(questions, spoken) {
   $("pop-log").innerHTML = items.length ? items.map(({ q, said, answer }) => {
     if (answer) return popLine("you", answer, "Your answer");
     if (said) return popLine("said", said, "", "Said aloud");
+    const divider = q.section ? sectionDivider(q.section) : "";
     if (q.source === "interviewer") {
       const hint = (q.kind || "").includes("hint");
       if (q.kind === "approach") return `<button type="button" class="pop-line them pop-link" data-open-tab="interviewer"><small>Approach</small>The full approach is in the Interviewer tab. Open it</button>`;
-      return popLine(hint ? "them hint" : "them", q.answer, hint ? "Hint" : who);
+      return divider + popLine(hint ? "them hint" : "them", q.answer, hint ? "Hint" : who);
     }
-    return popLine("you", q.question, q.voice ? "🎙 You" : "") + popLine("them", q.answer, q.source === "api" ? "API interviewer" : who);
+    return popLine("you", q.question, q.voice ? "🎙 You" : "") + divider + popLine("them", q.answer, q.source === "api" ? "API interviewer" : who);
   }).join("") : `<p class="pop-empty">${coachNow() ? "Your coach's replies show up here. Ask anything, or ask for a hint." : "The interviewer's replies show up here. Type below or turn on the mic."}</p>`;
   const replies = questions.filter(q => q.answer && q.kind !== "approach");
   pop.lastReply = replies.length ? replies[replies.length - 1].answer : "";
@@ -676,7 +687,10 @@ async function coachChat(body) {
         buffer = buffer.slice(index + 1);
         if (!line) continue;
         const event = JSON.parse(line);
-        if (event.text) {
+        if (event.section) {
+          stream.parentElement.insertAdjacentHTML("beforebegin", sectionDivider(event.section));
+          toast(`${event.section}: a new section of the interview`);
+        } else if (event.text) {
           text += event.text;
           stream.textContent = text;
           scrollPop();

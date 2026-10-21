@@ -114,9 +114,15 @@ class Sessions:
         config = interview.meta.get("behavioral")
         if not config:
             return []
-        if config.get("bank") == "resume":  # the scripted résumé interviewer, built from your résumé
+        principles = self._pick_principles(config.get("focus"), config.get("count", 2))
+        if config.get("bank") == "resume":  # the résumé interview: questions from your résumé, then its principles section
             saved = resume.load(self.home)
-            return resume.plan(saved["text"] if saved else "")
+            return resume.plan(saved["text"] if saved else "", principles)
+        return principles
+
+    def _pick_principles(self, focus: Optional[List[str]], count: int) -> List[Dict[str, Any]]:
+        """This session's principles questions, shared by every round that asks them, so a principle you were just asked
+        in one round comes up later in another."""
         bank = {entry["lp"]: entry for entry in leadership_bank()}
         history_path = self.home / ".lab" / "behavioral_history.json"
         try:
@@ -124,13 +130,13 @@ class Sessions:
         except (OSError, ValueError, AttributeError):
             history = {}
         rng = random.Random()
-        focus = [lp for lp in config.get("focus", list(bank)) if lp in bank]
+        focus = [lp for lp in (focus or list(bank)) if lp in bank]
         rng.shuffle(focus)
         # Principles you've been asked least come first (then the longest ago), so sessions rotate through the bank.
         asked = lambda q: history.get(q["id"], [0, 0])  # [times asked, last asked]
         focus.sort(key=lambda lp: (sum(asked(q)[0] for q in bank[lp]["questions"]), max(asked(q)[1] for q in bank[lp]["questions"])))
         plan = []
-        for lp in focus[: config.get("count", 2)]:
+        for lp in focus[:count]:
             question = min(bank[lp]["questions"], key=lambda q: (asked(q)[0], asked(q)[1], rng.random()))
             plan.append({"lp": lp, "id": question["id"], "question": question["q"], "followups": question["followups"],
                          "signals": bank[lp]["signals"], "look_for": bank[lp]["look_for"]})
@@ -190,6 +196,9 @@ class Sessions:
             minutes = elapsed / 60
             phases = interview.phases()
             phase = next((i for i, p in enumerate(phases) if p["start"] <= minutes < p["end"]), len(phases))
+            section = next((i for i, p in enumerate(phases) if p.get("principles")), None)
+            if section is not None and phase < section and minutes < phases[section]["end"] and any(q.get("section") for q in state.get("questions", [])):
+                phase = section  # the Leadership Principles section opened a little early
             revealed = state.get("change_revealed_at") is not None
             return {
                 "started": True,
@@ -327,6 +336,8 @@ class Sessions:
             flow["answers"][-1]["prompts"].append(text)
             flow["awaiting"] = True
             entry = self._interviewer_message(state, text, kind)
+            if kind == "behavioral:question" and current.get("section"):
+                entry["section"] = current["section"]
             self.save(state)
             return entry
 
@@ -388,7 +399,7 @@ class Sessions:
             self.save(state)
             return {"level": len(used), "total": len(hints), "text": hints[len(used) - 1], "repeat": False}
 
-    def record_coach(self, interview: Interview, trigger: str, message: str, reply: str, voice: bool = False) -> Dict[str, Any]:
+    def record_coach(self, interview: Interview, trigger: str, message: str, reply: str, voice: bool = False, section: Optional[str] = None) -> Dict[str, Any]:
         """Keeps a conversational coach exchange: the student's message and the reply, or the coach speaking up on its own."""
         with LOCK:
             state = self._require(interview.id)
@@ -399,6 +410,8 @@ class Sessions:
                 state["questions"].append(entry)
             else:
                 entry = self._interviewer_message(state, reply, f"coach-ai:{trigger}")
+            if section:
+                entry["section"] = section  # this reply opens a new section of the interview
             self.save(state)
             return entry
 

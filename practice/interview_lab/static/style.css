@@ -353,6 +353,14 @@ details.raw pre { margin-top: 8px; padding: 10px 12px; max-height: 260px; overfl
 .resume-editor-actions { display: flex; gap: 8px; margin-top: 8px; }
 .resume-panel > .muted { margin: 12px 0 0; }
 .resume-copy { white-space: pre-wrap; font: 12.5px/1.6 "JetBrains Mono", ui-monospace, monospace; color: var(--text-2); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.section-divider { display: flex; flex-direction: column; align-items: center; gap: 3px; margin: 10px 0 4px; text-align: center; }
+.section-divider span { display: flex; align-items: center; gap: 10px; width: 100%; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #ff9900; }
+.section-divider span::before, .section-divider span::after { content: ""; flex: 1; height: 1px; background: rgba(255, 153, 0, .45); }
+.section-divider em { font-style: normal; flex: 0 1 auto; text-align: center; }
+.section-divider span::before, .section-divider span::after { min-width: 16px; }
+.section-divider b { font-weight: 800; }
+.section-divider small { font-size: 11.5px; color: var(--muted); max-width: 46ch; line-height: 1.45; }
+#questions .section-divider { margin: 16px 0 8px; }
 .notes-box { padding: 18px 22px; border-radius: 14px; border: 1px solid rgba(240, 171, 252, .35); background: var(--panel); }
 .notes-box .md h2 { font-size: 15px; margin: 16px 0 6px; }
 .notes-box .md h2:first-child { margin-top: 0; }

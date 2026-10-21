@@ -4,7 +4,7 @@
   "format": "resume",
   "inspired_by": "Amazon interviewers often pick a project off your résumé and keep asking how it works, why you built it that way, and what you did yourself (Dive Deep, Ownership). Claude plays that engineer, at SDE intern level, using your own résumé. An original simulation, not Amazon's questions.",
   "level": "Amazon SDE intern résumé interview",
-  "summary": "A senior engineer reads your résumé, asks you to walk through your background, goes deep on two of your projects or roles, asks how you work with others, then takes your questions. Graded on depth, ownership, follow-ups, and communication, with the interviewer's written notes.",
+  "summary": "An Amazon engineer reads your résumé, asks you to walk through your background, goes deep on two of your projects or roles, then asks two Leadership Principles questions in their own section, and takes your questions. Graded on depth, ownership, follow-ups, each principle, and communication, with the interviewer's written notes.",
   "tags": [
     "30 min",
     "your résumé",
@@ -20,7 +20,20 @@
   },
   "source_files": [],
   "behavioral": {
-    "bank": "resume"
+    "bank": "resume",
+    "count": 2,
+    "focus": [
+      "Customer Obsession",
+      "Ownership",
+      "Learn and Be Curious",
+      "Have Backbone; Disagree and Commit",
+      "Deliver Results",
+      "Bias for Action",
+      "Earn Trust",
+      "Insist on the Highest Standards",
+      "Invent and Simplify",
+      "Are Right, A Lot"
+    ]
   },
   "interviewer_name": "Sam",
   "phases": [
@@ -34,24 +47,25 @@
     },
     {
       "start": 3,
-      "end": 14,
+      "end": 12,
       "name": "Deep dive: your strongest project",
       "kind": "behavioral",
       "goal": "Pick the most technically substantial project or internship on their résumé (or the one they highlighted) and dig in at intern level: exactly what they built, how their part works step by step, why that choice over a simpler option (push back once), one or two what-ifs about their own system, the hardest bug, and where their numbers came from."
     },
     {
-      "start": 14,
-      "end": 23,
+      "start": 12,
+      "end": 19,
       "name": "Deep dive: a second experience",
       "kind": "behavioral",
       "goal": "Switch to a different project or internship and dig in the same way. Focus on what they haven't explained yet: why they chose the technologies they list and how they used them, who it helped, and one what-if or bug."
     },
     {
-      "start": 23,
+      "start": 19,
       "end": 27,
-      "name": "Teamwork and judgment",
+      "name": "Leadership Principles",
       "kind": "behavioral",
-      "goal": "Ask about working with others, tied to what they've told you: a disagreement about a technical decision, a mistake they made, feedback they got, or a tight deadline. Probe for what they did themselves and what they learned."
+      "goal": "Its own section: two behavioral questions based on Amazon's Leadership Principles (listed below), asked in order. On each, two or three follow-ups tied to their story: what they did themselves, the result (with a number if they have one), and what they learned.",
+      "principles": true
     },
     {
       "start": 27,
@@ -70,7 +84,7 @@
     "depth": "For each project on your résumé, write the architecture in five boxes, one decision with the alternative you rejected and why, and the hardest bug you hit. Then explain one of them aloud without notes.",
     "ownership": "Go through every bullet on your résumé and write one sentence on what you personally did, and one number for the result (users, time saved, percent, latency). Change any bullet you can't back up.",
     "followups": "Pick one project and have a friend (or this interview) ask \"why?\" five times in a row about one decision. Practice short, specific answers that add something new each time.",
-    "teamwork": "Prepare three short STAR stories from your résumé: a technical disagreement, a mistake you made, and a tight deadline. End each with what you learned.",
+    "leadership": "Map six stories from your résumé to the principles Amazon asks interns about most (Customer Obsession, Ownership, Learn and Be Curious, Have Backbone; Disagree and Commit, Deliver Results, Bias for Action). Write each as four STAR lines with a number in the result, then tell two aloud.",
     "communication": "Record yourself answering three questions about your résumé. Aim for 30–90 seconds per answer, then stop and let the interviewer ask. Prepare two questions to ask at the end."
   }
 }

@@ -195,6 +195,7 @@ function showView() {
     else hush();
   }
   document.body.classList.toggle("locked-scroll", view !== "lobby");
+  placeResumePanel();
 }
 
 // Interview view
@@ -273,15 +274,31 @@ function uploadResume(file) {
   });
 }
 
+// The résumé interview needs your résumé; in the Leadership Principles rounds it's optional, and Claude draws on it.
+const RESUME_FORMATS = ["resume", "amazon-behavioral", "amazon-final"];
+let resumeHome = null;   // the panel's place in the lobby; during an interview it moves into the Problem tab
+
+function placeResumePanel() {
+  const panel = $("resume-panel");
+  resumeHome = resumeHome || panel.nextElementSibling;
+  const inSession = !!(latest && latest.session.started && !inLobby);
+  const tab = document.querySelector('[data-panel="problem"]');
+  if (inSession && panel.parentElement !== tab) tab.appendChild(panel);
+  else if (!inSession && panel.nextElementSibling !== resumeHome) resumeHome.before(panel);
+  panel.classList.toggle("in-session", inSession);
+}
+
 function renderResumePanel(data) {
   const panel = $("resume-panel");
-  panel.hidden = data.interview.format !== "resume";
+  panel.hidden = !RESUME_FORMATS.includes(data.interview.format);
   if (panel.hidden) return;
   if (data.resume !== undefined) resumeUi.saved = data.resume;
   if (resumeUi.busy) return;
-  const saved = resumeUi.saved;
-  panel.classList.toggle("missing", !saved);
-  $("resume-status").textContent = saved ? `Using ${saved.name} · ${saved.chars.toLocaleString()} characters` : "No résumé yet. Upload it to start: the interviewer asks about what's on it.";
+  const saved = resumeUi.saved, needed = data.interview.format === "resume";
+  panel.classList.toggle("missing", !saved && needed);
+  $("resume-status").textContent = saved ? `Using ${saved.name} · ${saved.chars.toLocaleString()} characters`
+    : needed ? "No résumé yet. Upload it to start: the interviewer asks about what's on it."
+      : "Optional. Add it, and the interviewer can tie its questions to your own experiences.";
   $("resume-items").textContent = saved && saved.items && saved.items.length ? `Found: ${saved.items.join(" · ")}` : saved ? "Check what was read with Paste or edit." : "PDF, Word (.docx), or text. You can also drop the file here.";
   $("resume-upload").textContent = saved ? "Upload a different file" : "Upload your résumé";
   $("resume-upload").className = `btn ${saved ? "btn-ghost" : "btn-green"}`;
@@ -377,6 +394,7 @@ function applyFormat(info) {
   }
   $("question").placeholder = amazon || behavioralOnly ? "Answer the interviewer, or ask a question…" : "Ask the interviewer a clarifying question…";
   if (behavioralOnly) showTab("interviewer");
+  if (!voice.on) setVoiceUi("Talk to your interviewer", idleVoiceText());
 }
 
 function chatItems(questions, spoken = []) {
@@ -658,8 +676,10 @@ function speakNewSentences(text, from) {
   return from + match[0].length;
 }
 
-async function coachChat(body) {
-  if (pop.streaming) return;
+// Streams a reply from Claude into the chat window and reads it aloud: the coach or interviewer (api/coach), or the
+// behavioral interviewer's next prompt (api/behavioral). Resolves to { entry, failed } once it's in the conversation.
+async function coachChat(body, path = "api/coach") {
+  if (pop.streaming) return null;
   pop.streaming = true;
   $("pop-toggle").classList.add("busy");
   const live = $("pop-text");
@@ -670,9 +690,9 @@ async function coachChat(body) {
   const stream = live.querySelector(".pop-stream");
   popHeader("typing…");
   scrollPop();
-  let text = "", spoken = 0, failed = false;
+  let text = "", spoken = 0, failed = false, entry;
   try {
-    const response = await fetch("api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interview: current, ...body }) });
+    const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interview: current, ...body }) });
     if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || `The coach is unavailable (${response.status}).`); }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -696,10 +716,13 @@ async function coachChat(body) {
           scrollPop();
           spoken = speakNewSentences(text, spoken);
         } else if ("fallback" in event) {
-          text = event.entry ? event.entry.answer : "";
+          entry = event.entry || null;
+          text = entry ? entry.answer : "";
           if (text) { stream.textContent = text; say(text); spoken = text.length; }
           latest.coach_ai = { ...latest.coach_ai, available: false };
-          toast("Claude isn't reachable, so the scripted coach answered.");
+          toast(`Claude isn't reachable, so the scripted ${coachNow() ? "coach" : "interviewer"} answered.`);
+        } else if (event.done) {
+          entry = event.entry === undefined ? null : event.entry;
         }
       }
     }
@@ -712,9 +735,10 @@ async function coachChat(body) {
   pop.streaming = false;
   $("pop-toggle").classList.remove("busy");
   await refresh();   // the reply is now in the conversation, so the live copy goes
-  if (!failed) live.innerHTML = "";
+  if (!failed) { live.innerHTML = ""; showTurn(); }   // anything you said meanwhile is still yours to send
   popHeader();
   scrollPop();
+  return { entry, failed };
 }
 
 // A statement said aloud gets a short reply from the coach when you pause, at most every 20 seconds.
@@ -895,7 +919,7 @@ function renderTests(result) {
 // Voice: the interviewer listens through the browser's speech recognition and answers with speech synthesis.
 
 const recognitionClass = () => window.SpeechRecognition || window.webkitSpeechRecognition;
-const voice = { on: false, rec: null, finals: "", silence: null, speaking: false, lastNudge: 0, nudgeTimer: null, local: false, spokeAt: 0 };
+const voice = { on: false, rec: null, finals: "", interim: "", silence: null, speaking: false, lastNudge: 0, nudgeTimer: null, local: false, spokeAt: 0, failed: new Set() };
 const FILLERS = /^(?:(?:so|oh|okay|ok|um+|uh+|hmm+|and|also|alright|all right|right|hey|well|yeah|wait|quick question|one more thing)[\s,]+)+/i;
 const ASKS = /^(what|how|why|when|where|which|who|whose|should|shall|can|could|would|will|is|are|am|was|were|do|does|did|have|has|may|might|must|any)\b|\?\s*$|\b(can i|can you|could you|do you|should i|should we|is it|is there|are there|are we|what if|what about|how about|i was wondering|do we need|am i allowed)\b/i;
 
@@ -921,11 +945,48 @@ function setVoiceUi(stateText, live) {
   if (live !== undefined) $("voice-live").textContent = live;
 }
 
+// The interviewer's voice: the one you chose (… menu, Interviewer's voice), or the most natural one this browser has.
+// Premium and Enhanced voices (downloaded in macOS settings), Edge's Natural ones, and Chrome's Google ones sound far more
+// human than the built-in compact voices; the novelty and decades-old voices are never used.
+const ROBOTIC = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Eddy|Flo|Fred|Good News|Grandma|Grandpa|Jester|Junior|Kathy|Organ|Ralph|Reed|Rocko|Sandy|Shelley|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/;
+function voiceRank(v) {
+  if (ROBOTIC.test(v.name)) return 0;
+  if (/\(Premium\)/.test(v.name)) return 6;
+  if (/\(Enhanced\)|Online \(Natural\)/.test(v.name)) return 5;
+  if (/^Google (US|UK) English/.test(v.name)) return 4;   // Chrome's, spoken by Google's servers
+  return 2;
+}
+const naturalVoice = v => voiceRank(v) >= 4;
+const englishVoices = () => ("speechSynthesis" in window ? speechSynthesis.getVoices() : []).filter(v => /^en(-|_|$)/i.test(v.lang) && voiceRank(v) > 0 && !voice.failed.has(v.name));
+function bestVoice() {
+  const score = v => voiceRank(v) + (/en[-_]US/i.test(v.lang) ? 0.5 : 0) + (v.default ? 0.1 : 0);
+  return englishVoices().sort((a, b) => score(b) - score(a))[0] || null;
+}
 function pickVoice() {
-  const voices = speechSynthesis.getVoices().filter(v => /^en(-|_|$)/i.test(v.lang));
-  // macOS, then Edge's natural voices on Windows, then Chrome's, then the older Windows voices.
-  const preferred = ["Samantha", "Ava", "Aria", "Jenny", "Online (Natural)", "Google US English", "Allison", "Daniel", "Karen", "Alex", "Zira", "David"];
-  return preferred.map(name => voices.find(v => v.name.includes(name))).find(Boolean) || voices.find(v => v.lang === "en-US") || voices[0] || null;
+  const chosen = recall("lab.voice");
+  return (chosen && englishVoices().find(v => v.name === chosen)) || bestVoice();
+}
+
+function renderVoiceChoices() {
+  const voices = englishVoices().sort((a, b) => voiceRank(b) - voiceRank(a) || a.name.localeCompare(b.name));
+  const best = bestVoice(), chosen = recall("lab.voice") || "";
+  const label = v => `${v.name}${naturalVoice(v) ? " · natural" : ""}${v.localService ? "" : " · online"}`;
+  $("voice-select").innerHTML = `<option value="">Most natural available${best ? ` (${escapeHtml(best.name)})` : ""}</option>`
+    + voices.map(v => `<option value="${escapeHtml(v.name)}"${v.name === chosen ? " selected" : ""}>${escapeHtml(label(v))}</option>`).join("");
+  const premium = voices.some(v => voiceRank(v) >= 5);
+  $("voice-tip").textContent = !voices.length ? "This browser has no English voices to read the interviewer aloud."
+    : MAC && !premium ? "For the most natural voice, download one on your Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices (try Ava or Zoe, Premium). Then reload this page and choose it here."
+      : !MAC && !premium ? "Microsoft Edge has the most natural voices on Windows (the ones marked natural)."
+        : "Voices marked natural sound the most human. Online ones are spoken by your browser's speech service.";
+}
+
+function sampleVoice() {
+  if (!("speechSynthesis" in window)) return;
+  hush();
+  const utterance = new SpeechSynthesisUtterance("Hi, thanks for joining. To start, tell me about a time you took on something outside your usual role.");
+  const chosen = pickVoice();
+  if (chosen) utterance.voice = chosen;
+  speechSynthesis.speak(utterance);
 }
 
 // Everything the interviewer says is read aloud unless you turn it off with the speaker button (separate from the mic).
@@ -981,7 +1042,7 @@ function speakNext() {
   const utterance = new SpeechSynthesisUtterance(text.replace(/_/g, " "));
   const chosen = pickVoice();
   if (chosen) utterance.voice = chosen;
-  utterance.rate = 1.03;
+  utterance.rate = chosen && naturalVoice(chosen) ? 1 : 1.03;
   utterance.onstart = () => {
     voice.speaking = true;                       // stop listening, so the interviewer does not hear itself
     try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
@@ -991,11 +1052,15 @@ function speakNext() {
   const done = () => {
     voice.speaking = false;
     if ((voice.queue || []).length) { speakNext(); return; }
-    if (voice.on) { setTimeout(listen, 250); setVoiceUi("Listening…", "Go ahead, I'm listening."); } else setVoiceUi("Talk to your interviewer");
+    if (voice.on) { setTimeout(listen, 250); showTurn(); } else setVoiceUi("Talk to your interviewer", idleVoiceText());
     renderSpeaker();
   };
   utterance.onend = done;
-  utterance.onerror = done;
+  utterance.onerror = event => {
+    // An online voice (Chrome's Google ones) that can't be reached: say it again in the best voice on this computer.
+    if (chosen && !chosen.localService && !["interrupted", "canceled"].includes(event.error)) { voice.failed.add(chosen.name); voice.queue.unshift(text); }
+    done();
+  };
   voice.speaking = true;
   speechSynthesis.speak(utterance);
 }
@@ -1008,53 +1073,131 @@ function listen() {
 const phaseNow = () => (latest && latest.session.started ? latest.session.phases[latest.session.phase] || {} : {});
 const behavioralNow = () => phaseNow().kind === "behavioral";
 
-// While the interviewer asks Leadership Principles questions, what you say is your answer. After a pause it digs in.
-async function behavioralNext() {
+// Rounds where Claude words the interviewer's Leadership Principles questions and follow-ups (the plan still picks them).
+const claudeBehavioral = () => !!latest && ["amazon-behavioral", "amazon-final"].includes(latest.interview.format) && !!latest.coach_ai && latest.coach_ai.available;
+
+// While the interviewer asks Leadership Principles questions, what you say is your answer. When you send it, it digs in.
+async function behavioralNext(extra = {}) {
+  if (claudeBehavioral()) {
+    const result = await coachChat({ claude: true, ...extra }, "api/behavioral");
+    if (result && !result.failed && result.entry === null) behavioralDone();
+    return;
+  }
   try {
     const { entry } = await call("/api/behavioral", {});
     await refresh();
     if (entry) { say(entry.answer); return; }
-    if (!behavioralNext.done && latest.interview.format === "amazon-final" && latest.session.state.behavioral && latest.session.state.behavioral.question >= 0) {
-      behavioralNext.done = true;
-      const line = "Thanks, that's all the behavioral questions I have. We'll move to the coding problem shortly.";
-      toast(line);
-      say(line);
-    }
+    behavioralDone();
   } catch (e) { toast(e.message); }
 }
 
-async function answerBehavioral(text, typed) {
-  try { await call("/api/answer", { text }); await refresh(); } catch (e) { toast(e.message); return; }
-  if (typed) { behavioralNext(); return; }
-  clearTimeout(voice.nudgeTimer);
-  const spokeAt = voice.spokeAt;
-  voice.nudgeTimer = setTimeout(() => {
-    if (voice.spokeAt !== spokeAt || voice.speaking) return;   // still talking
-    behavioralNext();
-  }, 3500);
+// Every question has been asked: the coding problem comes next in the Amazon rounds, your questions in the behavioral one.
+async function behavioralDone() {
+  const flow = latest.session.state.behavioral;
+  if (behavioralNext.done || !flow || flow.question < (flow.plan || []).length) return;   // not when an answer is still owed
+  behavioralNext.done = true;
+  if (latest.interview.format === "amazon-final") {
+    const line = "Thanks, that's all the behavioral questions I have. We'll move to the coding problem shortly.";
+    toast(line);
+    say(line);
+    return;
+  }
+  const wrap = (latest.session.phases || []).find(p => p.kind === "wrap");
+  if (latest.interview.format !== "amazon-behavioral" || !wrap || !wrap.cue) return;
+  try { const { entry } = await call("/api/cue", { cue: wrap.cue }); await refresh(); if (entry) say(entry.answer); } catch (e) { toast(e.message); }
 }
 
-// In the résumé interview everything you say is your answer; the interviewer replies once you pause for a moment.
-let resumeTurn = [], resumeTimer = null;
-function resumeHeard(text) {
-  resumeTurn.push(text);
-  setVoiceUi("Listening…", `“${resumeTurn.join(" ").slice(-180)}”`);
-  clearTimeout(resumeTimer);
-  const spokeAt = voice.spokeAt;
-  const send = () => {
-    if (voice.spokeAt !== spokeAt) return;   // you started talking again; the next pause sends it all
-    if (voice.speaking || pop.streaming) { resumeTimer = setTimeout(send, 800); return; }
-    const said = resumeTurn.join(" ");
-    resumeTurn = [];
-    if (said.trim()) coachChat({ message: said.slice(-6000), voice: true });
-  };
-  resumeTimer = setTimeout(send, 2000);
+// Your turn, in rounds where what you say is your answer (the behavioral round, the résumé interview, and the Leadership
+// Principles part of the Amazon rounds): everything you say adds up until you press Enter, then the interviewer replies.
+const turn = { parts: [], interim: "" };
+const conversationRound = () => !!latest && ["amazon-behavioral", "resume"].includes(latest.interview.format);
+const answeringNow = () => !!latest && latest.session.started && latest.session.state.status === "running" && !inLobby && (conversationRound() || behavioralNow());
+const turnText = () => [...turn.parts, turn.interim].join(" ").replace(/\s+/g, " ").trim();
+const idleVoiceText = () => (conversationRound() || answeringNow()
+  ? "Press the mic and answer out loud. When you're done, press Enter and the interviewer replies."
+  : "Press the mic and speak. Questions get answered out loud; everything else is kept as your think-aloud.");
+
+function showTurn() {
+  if (!voice.on || voice.speaking) return;
+  const answering = answeringNow(), said = answering ? turnText() : "";
+  setVoiceUi(said ? "Press Enter when you're done" : "Listening…", said ? `“${said.slice(-240)}”` : answering ? "Go ahead. Press Enter when you're done." : "Go ahead, I'm listening.");
+  if (said && !$("voice-bar").classList.contains("hearing")) $("mic-caption").textContent = "Press Enter when done";
+  if (answering && !pop.streaming) {   // the chat window shows it too, until you send it
+    $("pop-text").innerHTML = said ? popLine("you turn", said, "You · press Enter when you're done") : "";
+    if (said) scrollPop();
+  }
+}
+
+function addToTurn(text) { turn.parts.push(text); turn.interim = ""; showTurn(); }
+
+// Everything said this turn, including words the recognizer hasn't finished yet; the next turn starts empty.
+function takeTurn() {
+  clearTimeout(voice.silence);
+  const said = [...turn.parts, voice.finals, voice.interim].join(" ").replace(/\s+/g, " ").trim();
+  turn.parts = []; turn.interim = ""; voice.finals = ""; voice.interim = "";
+  $("voice-bar").classList.remove("hearing");
+  // The recognizer would send its own final copy of those last words; stopping it drops that, and it restarts by itself.
+  if (said && voice.rec) { try { voice.rec.abort(); } catch (e) { /* not running */ } }
+  return said;
+}
+
+// Enter, or the send button with nothing typed, ends your turn. True when it handled the key.
+function sendTurn() {
+  if (!answeringNow() || !(turnText() || voice.finals.trim() || voice.interim.trim())) return false;
+  if (pop.streaming || voice.speaking) { toast("Let the interviewer finish first. What you said is kept."); return true; }
+  submitAnswer(takeTurn(), true);
+  return true;
+}
+
+// Your answer, spoken or typed: Claude replies in the résumé interview; otherwise the plan's next prompt follows.
+async function submitAnswer(text, spoken) {
+  if (!text.trim()) return;
+  if (!pop.streaming) $("pop-text").innerHTML = "";
+  active();
+  if (resumeNow() && aiOn()) { coachChat({ message: text.slice(-6000), voice: spoken }); return; }
+  // A quick question of your own ("Could you repeat that?") gets an answer instead of counting as part of your story.
+  if (isQuestion(text) && text.split(/\s+/).length < 20) { askInterviewer(text, spoken); return; }
+  const handing = introPending();
+  turn.sending = true;   // the clock's own cues wait until the interviewer has replied
+  try {
+    await call("/api/answer", { text });
+    await refresh();
+    const flow = latest.session.state.behavioral || {};
+    if (handing) await handOff();
+    else if (flow.question >= 0 && flow.question < (flow.plan || []).length && phaseNow().kind !== "wrap") await behavioralNext();
+  } catch (e) { toast(e.message); }
+  turn.sending = false;
+}
+
+async function askInterviewer(text, spoken) {
+  setVoiceUi("Thinking…", `“${text}”`);
+  try {
+    const data = await call("/api/ask", { question: text, use_api: $("use-api").checked, voice: spoken });
+    if (data.entry.api_error) toast(`API: ${data.entry.api_error.message} Answered offline instead.`);
+    await refresh();
+    say(data.entry.answer);
+    if (!$("speak-replies").checked) setVoiceUi("Listening…", data.entry.answer);
+  } catch (e) { toast(e.message); }
+}
+
+// The behavioral round opens with "tell me about yourself". When you finish, the interviewer moves on to its questions,
+// even before the clock gets there.
+const lpPhase = () => (latest.session.phases || []).find(p => p.kind === "behavioral");
+function introPending() {
+  const lp = lpPhase(), flow = latest.session.state.behavioral || {};
+  return latest.interview.format === "amazon-behavioral" && !!lp && !!lp.cue && !(flow.question >= 0) && !(latest.session.state.cues || []).includes(lp.cue);
+}
+async function handOff() {
+  const lp = lpPhase();
+  if (claudeBehavioral()) return behavioralNext({ cue: lp.cue });   // Claude picks up on your introduction, then asks question 1
+  try { const { entry } = await call("/api/cue", { cue: lp.cue }); if (entry) say(entry.answer); } catch (e) { toast(e.message); return; }
+  return behavioralNext();
 }
 
 async function handleUtterance(text) {
   text = text.trim();
   if (!latest || !latest.session.started) return;
-  if (resumeNow() && aiOn()) { if (text) resumeHeard(text); return; }   // short answers count here ("Yes, I did.")
+  if (answeringNow()) { if (text) addToTurn(text); return; }   // it goes when you press Enter (short answers too, like "Yes, I did.")
   if (text.split(/\s+/).length < 2) return;
   if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
   if (aiOn()) {
@@ -1064,22 +1207,7 @@ async function handleUtterance(text) {
     coachOnThinking(text);
     return;
   }
-  if (behavioralNow() && !(isQuestion(text) && text.split(/\s+/).length < 20)) {
-    setVoiceUi("Listening…", `“${text}”`);
-    answerBehavioral(text, false);
-    return;
-  }
-  if (isQuestion(text)) {
-    setVoiceUi("Thinking…", `“${text}”`);
-    try {
-      const data = await call("/api/ask", { question: text, use_api: $("use-api").checked, voice: true });
-      if (data.entry.api_error) toast(`API: ${data.entry.api_error.message} Answered offline instead.`);
-      await refresh();
-      say(data.entry.answer);
-      if (!$("speak-replies").checked) setVoiceUi("Listening…", data.entry.answer);
-    } catch (e) { toast(e.message); }
-    return;
-  }
+  if (isQuestion(text)) { askInterviewer(text, true); return; }
   try { await call("/api/speech", { text }); refresh(); } catch (e) { toast(e.message); }
   setVoiceUi("Listening…", `Noted: “${text}”`);
   // While you plan or explain, the interviewer asks a follow-up when you pause after saying something substantial.
@@ -1114,14 +1242,16 @@ async function startVoice() {
       const piece = event.results[i][0].transcript;
       if (event.results[i].isFinal) voice.finals += " " + piece; else interim += piece;
     }
+    voice.interim = interim;
     voice.spokeAt = Date.now();
     active();
     $("voice-bar").classList.add("hearing");
-    setVoiceUi("Listening…", (voice.finals + " " + interim).trim());
+    if (answeringNow()) { turn.interim = (voice.finals + " " + interim).trim(); showTurn(); }
+    else setVoiceUi("Listening…", (voice.finals + " " + interim).trim());
     clearTimeout(voice.silence);
     voice.silence = setTimeout(() => {
       $("voice-bar").classList.remove("hearing");
-      const text = voice.finals; voice.finals = "";
+      const text = voice.finals; voice.finals = ""; voice.interim = "";
       handleUtterance(text);
     }, 1300);
   };
@@ -1135,7 +1265,8 @@ async function startVoice() {
   voice.on = true;
   remember("lab.mic", "on");
   listen();
-  setVoiceUi("Listening…", voice.local ? "Speech is transcribed on this device." : "Your browser's speech service transcribes what you say (in Chrome, audio goes to Google).");
+  setVoiceUi("Listening…", (voice.local ? "Speech is transcribed on this device." : "Your browser's speech service transcribes what you say (in Chrome, audio goes to Google).")
+    + (answeringNow() ? " Press Enter when you're done answering." : ""));
 }
 
 function stopVoice(forget = true) {
@@ -1143,14 +1274,17 @@ function stopVoice(forget = true) {
   voice.on = false;
   clearTimeout(voice.silence); clearTimeout(voice.nudgeTimer);
   try { voice.rec && voice.rec.abort(); } catch (e) { /* not running */ }
-  voice.rec = null; voice.finals = "";
+  if (answeringNow() && voice.finals.trim()) turn.parts.push(voice.finals.trim());   // still yours to send with Enter
+  voice.rec = null; voice.finals = ""; voice.interim = ""; turn.interim = "";
   $("voice-bar").classList.remove("hearing");
-  setVoiceUi("Talk to your interviewer", "Press the mic and speak. Questions get answered out loud; everything else is kept as your think-aloud.");
+  setVoiceUi("Talk to your interviewer", turnText() ? `Not sent yet: “${turnText().slice(-160)}” Press Enter to send it.` : idleVoiceText());
 }
 
 // The interviewer speaks up at each phase and when the requirement changes. The server says each line once.
 async function cues(session) {
   if (session.state.status !== "running") return;
+  // Never mid-answer: the next part of the interview starts once you've sent what you're saying (or stayed quiet).
+  if (answeringNow() && (turnText() || voice.finals.trim() || pop.streaming || turn.sending)) return;
   const wanted = [];
   const phase = session.phases[session.phase];
   if (phase && phase.cue) wanted.push(phase.cue);
@@ -1371,11 +1505,12 @@ function wirePop() {
   $("pop-reply").onsubmit = event => {
     event.preventDefault();
     const text = $("pop-input").value.trim();
-    if (!text) return;
+    if (!text) { sendTurn(); return; }   // nothing typed: send what you said out loud
+    if (answeringNow() && pop.streaming) { toast("Let the interviewer finish first."); return; }
     $("pop-input").value = "";
     active();
     if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) askForHint();
-    else if (aiOn()) coachChat({ message: text });
+    else if (aiOn() && !answeringNow()) coachChat({ message: text });
     else { $("question").value = text; $("ask-form").requestSubmit(); }
   };
   window.addEventListener("resize", () => { if (popOpen()) placePop(); });
@@ -1388,7 +1523,7 @@ function wire() {
     if (latest && latest.session.started) { inLobby = false; showView(); return; }
     try {
       const reset = $("start-reset").checked;
-      inLobby = false; changeSeen = false; behavioralNext.done = false;
+      inLobby = false; changeSeen = false; behavioralNext.done = false; turn.parts = []; turn.interim = "";
       render(await call("/api/start", { reset, mode: lobbyMode }));
       showTab("problem");
       toast(reset ? "Workspace reset. The clock is running." : "The clock is running. Good luck!");
@@ -1407,7 +1542,7 @@ function wire() {
   $("restart").onclick = async () => {
     if (!confirm("Restart the interview? The timer, questions, and notes start over.")) return;
     const reset = confirm("Also reset the workspace to the starter? Your changed and added files are moved to .practice-backup in the workspace, not deleted.\n\nOK = reset the workspace, Cancel = keep your files.");
-    try { changeSeen = false; render.announced = null; behavioralNext.done = false; render(await call("/api/start", { reset, mode: latest && latest.session.state.mode || lobbyMode })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
+    try { changeSeen = false; render.announced = null; behavioralNext.done = false; turn.parts = []; turn.interim = ""; render(await call("/api/start", { reset, mode: latest && latest.session.state.mode || lobbyMode })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
   };
   $("pause").onclick = async () => { try { render(await call("/api/pause", {})); toast("Paused. Paused time doesn't count."); } catch (e) { toast(e.message); } };
   $("resume").onclick = async () => { try { render(await call("/api/resume", {})); } catch (e) { toast(e.message); } };
@@ -1429,7 +1564,7 @@ function wire() {
   $("ask-form").onsubmit = async event => {
     event.preventDefault();
     const question = $("question").value.trim();
-    if (!question) return;
+    if (!question) { sendTurn(); return; }   // nothing typed: send what you said out loud
     $("question").disabled = true;
     active();
     if (problemNow() && HINT_ASK.test(question) && question.split(/\s+/).length < 15) {
@@ -1438,17 +1573,20 @@ function wire() {
       await askForHint();
       return;
     }
+    if (answeringNow()) {
+      // Typed, it's your answer straight away; anything you'd said out loud this turn comes first.
+      $("question").disabled = false;
+      if (pop.streaming) { toast("Let the interviewer finish first."); return; }
+      $("question").value = "";
+      const said = takeTurn();
+      await submitAnswer([said, question].filter(Boolean).join(" "), !!said);
+      $("question").focus();
+      return;
+    }
     if (aiOn()) {
       $("question").value = "";
       $("question").disabled = false;
       coachChat({ message: question });
-      return;
-    }
-    if (behavioralNow() && !(isQuestion(question) && question.split(/\s+/).length < 20)) {
-      $("question").value = "";
-      await answerBehavioral(question, true);
-      $("question").disabled = false;
-      $("question").focus();
       return;
     }
     try {
@@ -1584,13 +1722,23 @@ function wire() {
   document.addEventListener("keydown", event => {
     if (event.altKey && event.code === "KeyM" && latest && latest.session.started && !inLobby) { event.preventDefault(); toggleMic(); }
   });
+  // Enter ends your spoken answer, wherever the focus is (even on the mic button), except while you type in a field or
+  // editor: there Enter does its usual thing, and the reply fields send what you said when they're empty.
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+    if (event.target.closest && event.target.closest("input, textarea, select, [contenteditable], .CodeMirror, dialog")) return;
+    if (sendTurn()) event.preventDefault();
+  });
   $("mic").onclick = () => { if (voice.on) stopVoice(); else { showTab("interviewer"); startVoice(); } };
 
   $("speak-replies").checked = recall("lab.readAloud") !== "off";
   $("speak-replies").onchange = () => setReadAloud($("speak-replies").checked);
   $("pop-speak").onclick = () => setReadAloud(!$("speak-replies").checked);
   renderSpeaker();
-  if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => pickVoice();
+  if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => { pickVoice(); if ($("voice-dialog").open) renderVoiceChoices(); };
+  $("voice-choose").onclick = () => { $("menu").hidden = true; renderVoiceChoices(); $("voice-dialog").showModal(); };
+  $("voice-select").onchange = () => { remember("lab.voice", $("voice-select").value); sampleVoice(); };
+  $("voice-test").onclick = () => sampleVoice();
     document.querySelectorAll(".copy").forEach(button => { button.onclick = () => copyText($(button.dataset.copy).textContent, "Command"); });
 
   // Draggable split between the problem and the editor.

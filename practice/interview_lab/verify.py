@@ -608,9 +608,82 @@ def verify_behavioral_workflow(interview, home: Path, c: Checker) -> None:
         c.check("reusing one story for every principle is marked down", all(row["score"] <= 3 for row in report["lp_breakdown"][1:]) and scores["leadership"] <= 3, f"Leadership {scores['leadership']}")
         prompt = _http(port, f"/api/packet?interview={interview.id}&kind=interviewer")["text"]
         c.check("the interviewer prompt includes the principles bank", "Customer Obsession" in prompt and "Follow-ups" in prompt)
+        verify_behavioral_claude(interview, port, story, c)
     finally:
         server.shutdown()
         server.server_close()
+
+
+def verify_behavioral_claude(interview, port: int, story: str, c: Checker) -> None:
+    """Claude words the behavioral interviewer's prompts, against a stand-in for Roomside's bridge (free and repeatable)."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from . import coach_ai
+    reply = "Okay, the signup page. What did you change first?"
+    seen = []
+
+    class Bridge(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            body = json.dumps({"available": True, "loggedIn": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append((self.path, request))
+            self.send_response(200 if self.path == "/api/claude-code" else 204)
+            self.end_headers()
+            if self.path == "/api/claude-code":
+                self.wfile.write((json.dumps({"text": reply}) + "\n").encode() + b'{"done": true}\n')
+
+    def stream(body):
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/api/behavioral", data=json.dumps({"interview": interview.id, **body}).encode(),
+                                         headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return [json.loads(line) for line in response if line.strip()]
+
+    bridge = ThreadingHTTPServer(("127.0.0.1", 0), Bridge)
+    threading.Thread(target=bridge.serve_forever, daemon=True).start()
+    previous = os.environ.get("ROOMSIDE_URL")
+    try:
+        os.environ["ROOMSIDE_URL"] = f"http://127.0.0.1:{bridge.server_address[1]}"
+        coach_ai.status(force=True)
+        _http(port, "/api/start", {"interview": interview.id, "reset": True})
+        _http(port, "/api/my-resume", {"interview": interview.id, "name": "resume.md", "text": "Jordan Lee\nSoftware Engineering Intern, Northwind Labs (Summer 2025)\n- Rebuilt the signup loader"})
+        state = _http(port, f"/api/state?interview={interview.id}")
+        c.check("the behavioral round sees Claude and your résumé", state["coach_ai"]["available"] and state["resume"]["name"] == "resume.md")
+        _http(port, "/api/answer", {"interview": interview.id, "text": "Hi, I'm Jordan, a junior studying computer science, and last summer I interned at Northwind Labs."})
+        events = stream({"claude": True, "cue": "amz_behavioral"})
+        sent = [r for path, r in seen if path == "/api/claude-code"][-1]
+        after = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]
+        first = after["behavioral"]["plan"][0]
+        c.check("finish your introduction early and Claude picks up on it, then asks the first question in its own words",
+                events[-1].get("done") and events[-1]["entry"]["answer"] == reply and "amz_behavioral" in after["cues"] and "finished introducing themselves" in sent["prompt"]
+                and first["question"] in sent["prompt"] and "Northwind Labs (Summer 2025)" in sent["prompt"] and sent["system"] == coach_ai.SYSTEM)
+        c.check("and the minute-2 line isn't said on top of it", _http(port, "/api/cue", {"interview": interview.id, "cue": "amz_behavioral"})["entry"] is None)
+        _http(port, "/api/answer", {"interview": interview.id, "text": story})
+        events = stream({"claude": True})
+        sent = [r for path, r in seen if path == "/api/claude-code"][-1]["prompt"]
+        c.check("each follow-up is the plan's, asked by Claude about your story",
+                events[-1]["entry"]["kind"] == "behavioral:followup" and f'The planned one is: "{first["followups"][0]}"' in sent and "blocking scripts" in sent)
+        os.environ["ROOMSIDE_URL"] = "http://127.0.0.1:9"
+        _http(port, "/api/answer", {"interview": interview.id, "text": story})
+        events = stream({"claude": True})
+        c.check("when Claude is unreachable, the scripted follow-up comes instead", "fallback" in events[-1] and events[-1]["entry"]["answer"] == first["followups"][1])
+        flow = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]["behavioral"]
+        c.check("grading sees every prompt in the words it was asked", flow["answers"][0]["prompts"] == [reply, reply, first["followups"][1]])
+    finally:
+        if previous is None:
+            os.environ.pop("ROOMSIDE_URL", None)
+        else:
+            os.environ["ROOMSIDE_URL"] = previous
+        coach_ai.status(force=True)
+        bridge.shutdown()
+        bridge.server_close()
 
 
 def verify_workflow(interview, home: Path, c: Checker) -> None:

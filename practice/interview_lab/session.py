@@ -270,6 +270,16 @@ class Sessions:
             self.save(state)
             return entry
 
+    def skip_cue(self, interview: Interview, name: str) -> None:
+        """Counts a cue as said without saying it, when the interviewer moves on before its time in other words."""
+        if name not in interviewer.cues_for(interview, (self.load(interview.id) or {}).get("mode", "real")):
+            raise SessionError(f"Unknown cue {name!r}.")
+        with LOCK:
+            state = self._require(interview.id)
+            if name not in state.setdefault("cues", []):
+                state["cues"].append(name)
+                self.save(state)
+
     def follow_up(self, interview: Interview, phase: str) -> Optional[Dict[str, Any]]:
         """The next follow-up question the interviewer has not asked yet, or None when there are no more."""
         phase = "plan" if phase == "plan" else "explain"
@@ -310,8 +320,14 @@ class Sessions:
         self.record_speech(interview, text)
 
     def behavioral_next(self, interview: Interview) -> Optional[Dict[str, Any]]:
-        """The next behavioral prompt: a follow-up on the current story, or the next question. None while an answer is
-        still owed, or when every question has been asked."""
+        """The next behavioral prompt, in its scripted words: a follow-up on the current story, or the next question. None
+        while an answer is still owed, or when every question has been asked."""
+        step = self.behavioral_step(interview)
+        return self.record_behavioral_prompt(interview, step, step["text"]) if step else None
+
+    def behavioral_step(self, interview: Interview) -> Optional[Dict[str, Any]]:
+        """Moves the plan on to its next prompt and says what it is (its kind, scripted words, and question), without
+        saying it yet: record_behavioral_prompt keeps the words the interviewer used. None, as for behavioral_next."""
         with LOCK:
             state = self._require(interview.id)
             flow = self._flow(state)
@@ -320,9 +336,8 @@ class Sessions:
                 return None
             current = questions[flow["question"]] if flow["question"] >= 0 else None
             if current and flow["followup"] < len(current.get("followups", [])):
-                text = current["followups"][flow["followup"]]
+                step = {"kind": "behavioral:followup", "text": current["followups"][flow["followup"]], "followup": flow["followup"]}
                 flow["followup"] += 1
-                kind = "behavioral:followup"
             else:
                 flow["question"] += 1
                 flow["followup"] = 0
@@ -331,13 +346,22 @@ class Sessions:
                     return None
                 current = questions[flow["question"]]
                 flow["answers"].append({"question": current["question"], "lp": current.get("lp"), "id": current.get("id"), "prompts": [], "parts": []})
-                text = current["question"]
-                kind = "behavioral:question"
-            flow["answers"][-1]["prompts"].append(text)
+                step = {"kind": "behavioral:question", "text": current["question"]}
             flow["awaiting"] = True
-            entry = self._interviewer_message(state, text, kind)
-            if kind == "behavioral:question" and current.get("section"):
-                entry["section"] = current["section"]
+            self.save(state)
+            return {**step, "index": flow["question"], "item": current}
+
+    def record_behavioral_prompt(self, interview: Interview, step: Dict[str, Any], text: str) -> Dict[str, Any]:
+        """Says the prompt behavioral_step chose, in the words given (its scripted ones, or Claude's)."""
+        text = " ".join(str(text).split()) or step["text"]
+        with LOCK:
+            state = self._require(interview.id)
+            flow = self._flow(state)
+            if flow["answers"]:
+                flow["answers"][-1]["prompts"].append(text)
+            entry = self._interviewer_message(state, text, step["kind"])
+            if step["kind"] == "behavioral:question" and step["item"].get("section"):
+                entry["section"] = step["item"]["section"]
             self.save(state)
             return entry
 

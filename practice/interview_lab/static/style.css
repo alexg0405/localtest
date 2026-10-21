@@ -122,6 +122,13 @@ a { color: var(--blue); }
 .menu-list button, .menu-list a { text-align: left; padding: 8px 10px; border-radius: 7px; border: 0; background: transparent; color: var(--text); font-size: 13px; cursor: pointer; text-decoration: none; }
 .menu-list button:hover, .menu-list a:hover { background: var(--line); }
 .menu-list hr { border: 0; border-top: 1px solid var(--line-2); margin: 5px 4px; }
+.voice-dialog { width: min(440px, calc(100vw - 32px)); padding: 20px 22px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.voice-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.voice-dialog h3 { margin: 0 0 14px; font-size: 15px; }
+.voice-field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.voice-field select { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); color: var(--text); font: inherit; font-size: 13.5px; }
+.voice-dialog p { margin: 12px 0 0; line-height: 1.5; }
+.voice-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
 .progress { flex: none; position: relative; height: 4px; background: var(--panel); }
 .progress-segments { position: absolute; inset: 0; display: flex; gap: 2px; }
@@ -352,6 +359,7 @@ details.raw pre { margin-top: 8px; padding: 10px 12px; max-height: 260px; overfl
 .resume-editor textarea:focus { border-color: #f0abfc; }
 .resume-editor-actions { display: flex; gap: 8px; margin-top: 8px; }
 .resume-panel > .muted { margin: 12px 0 0; }
+.resume-panel.in-session { margin: 22px 0 0; padding: 14px 16px; }
 .resume-copy { white-space: pre-wrap; font: 12.5px/1.6 "JetBrains Mono", ui-monospace, monospace; color: var(--text-2); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
 .section-divider { display: flex; flex-direction: column; align-items: center; gap: 3px; margin: 10px 0 4px; text-align: center; }
 .section-divider span { display: flex; align-items: center; gap: 10px; width: 100%; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #ff9900; }
@@ -478,6 +486,7 @@ body.coach-mode .pop-avatar { background: linear-gradient(135deg, #a78bfa, #f0ab
 .pop-line.them { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-top-left-radius: 3px; }
 .pop-line.you { align-self: flex-end; background: var(--green-soft); border: 1px solid rgba(46, 200, 102, .25); color: var(--text); border-top-right-radius: 3px; }
 .pop-line.said { align-self: flex-end; background: transparent; border: 1px dashed rgba(46, 200, 102, .3); color: var(--text-2); font-size: 12.5px; }
+.pop-line.you.turn { border-style: dashed; background: transparent; }   /* what you're saying, not sent yet */
 .pop-line.hint { border-color: rgba(245, 165, 36, .4); background: var(--amber-soft); }
 body.coach-mode .pop-line.them { border-color: rgba(167, 139, 250, .3); background: rgba(167, 139, 250, .08); }
 .pop-line small { display: block; margin-bottom: 2px; font-size: 10.5px; color: var(--muted); font-weight: 600; letter-spacing: .02em; }

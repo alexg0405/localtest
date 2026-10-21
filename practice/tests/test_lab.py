@@ -293,6 +293,44 @@ def test_amazon_behavioral_flow_asks_every_question_and_follow_up_in_order(tmp_p
     assert state["spoken"][0]["text"].startswith("Hi, I'm a sophomore")
 
 
+def test_claude_words_behavioral_prompts_without_changing_the_plan(tmp_path):
+    from interview_lab import coach_ai
+    sessions = Sessions(tmp_path)
+    round_ = get_interview("amazon-behavioral")
+    sessions.start(round_)
+    plan = sessions.load("amazon-behavioral")["behavioral"]["plan"]
+    sessions.record_answer(round_, "Hi, I'm Jordan, a junior. I interned at Northwind Labs last summer.")  # the introduction
+    before = sessions.load("amazon-behavioral")
+    step = sessions.behavioral_step(round_)
+    assert step["kind"] == "behavioral:question" and step["index"] == 0
+    assert sessions.behavioral_step(round_) is None  # one prompt at a time, even before it's said
+    opening = coach_ai.build_behavioral_prompt(round_, before, "Jordan Lee\nNorthwind Labs, Software Intern", 70, step, opening=True)
+    assert "finished introducing themselves" in opening and plan[0]["question"] in opening and f"[{plan[0]['lp']}]" in opening
+    assert "Northwind Labs, Software Intern" in opening and "Candidate: Hi, I'm Jordan" in opening
+    entry = sessions.record_behavioral_prompt(round_, step, "Thanks, Jordan. Tell me about a time you owned something end to end.")
+    assert entry["kind"] == "behavioral:question" and entry["source"] == "interviewer"
+    sessions.record_answer(round_, "At Northwind I rebuilt the signup loader myself.")
+    step = sessions.behavioral_step(round_)
+    followup = coach_ai.build_behavioral_prompt(round_, sessions.load("amazon-behavioral"), "", 300, step)
+    assert f'The planned one is: "{plan[0]["followups"][0]}"' in followup and "rebuilt the signup loader" in followup and "hasn't added a résumé" in followup
+    sessions.record_behavioral_prompt(round_, step, "  ")  # nothing usable came back: the plan's own words
+    answers = sessions.load("amazon-behavioral")["behavioral"]["answers"]
+    assert answers[0]["prompts"] == ["Thanks, Jordan. Tell me about a time you owned something end to end.", plan[0]["followups"][0]]
+    assert len(coach_ai.SYSTEM) < 8000
+
+
+def test_a_skipped_cue_is_not_said_later(tmp_path):
+    from interview_lab.session import SessionError
+    sessions = Sessions(tmp_path)
+    round_ = get_interview("amazon-behavioral")
+    sessions.start(round_)
+    sessions.skip_cue(round_, "amz_behavioral")
+    assert sessions.cue(round_, "amz_behavioral") is None
+    assert not any(q.get("kind") == "cue:amz_behavioral" for q in sessions.load(round_.id)["questions"])
+    with pytest.raises(SessionError):
+        sessions.skip_cue(round_, "nonsense")
+
+
 def test_leadership_scores_owned_specific_stories_above_vague_ones():
     round1 = get_interview("amazon-final-1")
     strong = ("Last summer during my internship I noticed our test suite took 40 minutes and nobody owned it. My goal was to get it under ten. "

@@ -28,7 +28,7 @@ def roomside() -> str:
 TRIGGERS = ("message", "hint", "tests", "nudge", "thinking", "open")
 
 # One system prompt for every role, so the bridge's warm Claude Code process serves any of them; the role comes per request.
-SYSTEM = """You play one role in a timed practice interview: a supportive coach or a realistic interviewer for a coding problem, or a senior engineer interviewing the candidate about their résumé. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
+SYSTEM = """You play one role in a timed practice interview: a supportive coach or a realistic interviewer for a coding problem, an engineer asking behavioral (Leadership Principles) questions, or a senior engineer interviewing the candidate about their résumé. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
 
 Always:
 - Keep replies short: one to three sentences, about 60 words at most. Plain spoken English: no markdown, no bullet points, no headings, no code blocks. If code is truly needed, say it in words or give at most one short inline expression.
@@ -70,6 +70,18 @@ How you talk, like a real engineer on a video call:
 - If they dodge, ask again more simply once. Never ask the same thing a third time: if they still don't answer, move on to something else.
 - No hints, no teaching, no evaluating or praising: never call an answer good, solid, nice, or the right call, or say what it shows ("that shows initiative"). If they're stuck, you can narrow it once ("Say it crashes right after the pop. Then what?").
 - Follow the interview plan and the clock, and switch topics with a quick, natural transition ("Cool, let's switch to StudySync.")."""
+
+ROLE_BEHAVIORAL = """You are an ENGINEER AT AMAZON running the behavioral part of an interview (Amazon's Leadership Principles) with a candidate for the Amazon SDE internship, usually a sophomore or junior. Friendly, calm, and curious: you want the real story behind each example, with specifics.
+
+The questions and the order of follow-ups are planned for you; each turn says which one comes next. Your job is to say it the way a person would, tied to what the candidate just told you.
+
+How you talk, like a real interviewer on a video call:
+- Exactly one short question per turn, usually under 25 words. Never two questions at once.
+- Plain spoken English with contractions. Vary how you start: often go straight to the question, sometimes react in a few words to something specific they said ("Two weeks before the demo, okay."). Don't open every turn with "Great" or "Got it".
+- Use their words: name the project, team, tool, person, or number they mentioned.
+- Never evaluate or praise ("great answer", "nice", "makes sense", "that shows ownership"), never coach or teach, and never name the principle behind a question.
+- Never talk about the plan: don't say you'll ask something different, that they already covered something, or how many questions are left. Just ask.
+- A vague, hypothetical, or "we did" answer gets pulled back to one specific time and what they did themselves."""
 
 DEBRIEF_SYSTEM = """You are a senior software engineer at Amazon writing your interview notes after a 30-minute résumé deep dive with a candidate for the Amazon SDE internship, for the candidate to learn from. Judge them as an intern candidate, not as an experienced engineer. Be specific, honest, and kind. Quote the candidate's own words as evidence. Write in Markdown with short sections. Don't invent anything that isn't in the transcript or résumé."""
 
@@ -321,6 +333,59 @@ Conversation so far (oldest first):
 Now: {ask}
 
 Reply as {name}, the interviewer, in {"up to three" if start_section else "one or two"} short spoken sentences."""[-110_000:]
+
+
+def build_behavioral_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, elapsed: float, step: Dict[str, Any],
+                            opening: bool = False) -> str:
+    """One Leadership Principles prompt in the interviewer's own words: the planned step (a follow-up, or the next
+    question), the story so far, the résumé if there is one, and everything said before it. `state` is from before the
+    step, and `opening` means the candidate just finished introducing themselves, ahead of the clock."""
+    minutes = elapsed / 60
+    duration = interview.meta.get("duration_minutes", 45)
+    asked = state.get("behavioral", {}).get("plan") or interview.behavioral()
+    listed = "\n".join(f"{i + 1}. [{item.get('lp') or 'Behavioral'}] {_plain_question(item)}" for i, item in enumerate(asked))
+    section = next((p for p in interview.phases() if p.get("kind") == "behavioral"), None)
+    clock = f"minute {minutes:.0f} of {duration}" + (f"; the questions run until minute {section['end']}" if section else "")
+    index, item = step["index"], step["item"]
+    answers = state.get("behavioral", {}).get("answers", [])
+    if step["kind"] == "behavioral:followup":
+        story = " ".join(part["text"] for part in answers[-1]["parts"])[-4000:] if answers else ""
+        others = " / ".join(item.get("followups", [])[step["followup"] + 1:]) or "(none: ask what they learned or would do differently)"
+        ask = (f"They're answering question {index + 1}. Their story so far: \"{story or '(nothing yet)'}\"\n"
+               f"Ask the next follow-up. The planned one is: \"{step['text']}\" Ask it in your own words, tied to a specific detail of their story. "
+               f"If they've already answered it, ask one they haven't covered instead: {others}. If the story is vague or isn't about one real time, ask for a specific example.")
+    else:
+        question = _plain_question(item)
+        if opening and index == 0:
+            ask = ("They just finished introducing themselves (their last lines above). Acknowledge it in a few words, naming one specific thing they said, "
+                   f"say you'll move on to some questions about situations they've been in, then ask question 1 in your own words: \"{question}\"")
+        elif index == 0:
+            ask = f"You've just told them you're starting the questions. Ask question 1 in your own words, without another greeting: \"{question}\""
+        else:
+            ask = (f"They've finished their story for question {index}. Move on with a short, natural transition (a few words, without judging their answer), "
+                   f"then ask question {index + 1} in your own words: \"{question}\"")
+        if resume_text.strip():
+            ask += (" If one experience on their résumé clearly fits, you may suggest it as a starting point (\"maybe from your internship at X?\") but let them "
+                    "pick the story. Do that for at most half of the questions, and only name things that are really on the résumé.")
+    background = (f"The candidate's résumé, so you know their background (don't quiz them on it):\n<<<\n{resume_text[:14_000]}\n>>>" if resume_text.strip()
+                  else "The candidate hasn't added a résumé.")
+    conversation = _resume_conversation(state)[-20_000:] or "(nothing yet)"
+    return f"""Your role:
+{ROLE_BEHAVIORAL}
+
+{background}
+
+This session's questions, in order (the principle in brackets is for you only; never say it):
+{listed}
+
+Clock: {clock}.
+
+Conversation so far (oldest first):
+{conversation}
+
+Now: {ask}
+
+Reply as the interviewer, in {"up to three" if opening else "one or two"} short spoken sentences with exactly one question."""[-110_000:]
 
 
 def build_debrief_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, report: Dict[str, Any]) -> str:

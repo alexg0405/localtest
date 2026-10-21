@@ -77,9 +77,10 @@ put them somewhere else.
    isn't a question is kept as your think-aloud and counts as evidence. The
    browser transcribes your speech: on this device when it can, otherwise with
    its speech service (Chrome sends the audio to Google). Everything the
-   interviewer says is read aloud in your computer's built-in voice, with or
-   without the mic; the speaker button in the chat window (or **Read aloud** in
-   the Interviewer tab) mutes it. Run tests with **Run visible tests** (each run is recorded as
+   interviewer says is read aloud, with or without the mic, in the most natural
+   voice your browser has; the speaker button in the chat window (or **Read
+   aloud** in the Interviewer tab) mutes it. See [The interviewer's voice](#the-interviewers-voice)
+   to pick another. Run tests with **Run visible tests** (each run is recorded as
    evidence) or with `pytest` in your terminal.
 5. Write your plan, assumptions, patch review, and final explanation in the
    dashboard. Optionally paste your Claude Code conversation into
@@ -211,7 +212,9 @@ interviewing you for the SDE internship, played by Claude on your subscription
   paste it instead. Only the text is saved, in
   `~/interview-practice/.lab/resume.json`; **Remove** deletes it. Reading PDF
   and Word files uses Roomside's reader, so open the lab through Roomside
-  (`npm start`); on its own it takes text files and pasted text.
+  (`npm start`); on its own it takes text files and pasted text. The Amazon
+  rounds use the same résumé, and so does the panel at the bottom of the
+  Problem tab during an interview, where you can add or change it mid-session.
 - **The interview:**
 
   | Minutes | What happens |
@@ -242,10 +245,10 @@ interviewing you for the SDE internship, played by Claude on your subscription
   what you learned), and an example that doesn't fit the principle gets
   "can you think of a time when…?"
 - **Talking:** turn on the mic and answer out loud. Everything you say is your
-  answer, and the interviewer replies once you pause for about three seconds,
-  so a short pause mid-thought doesn't cut you off. You can also type in the
-  chat window. Everything the interviewer says is read aloud, and your résumé
-  is in the Problem tab for reference.
+  answer, and the interviewer waits until you **press Enter**, however long you
+  pause to think (see [Answering out loud](#answering-out-loud)). You can also
+  type in the chat window. Everything the interviewer says is read aloud, and
+  your résumé is in the Problem tab for reference.
 - **Without Claude** (Roomside not running), a scripted interviewer asks a
   fixed set of questions built from the roles and projects it finds in your
   résumé.
@@ -256,6 +259,35 @@ interviewing you for the SDE internship, played by Claude on your subscription
   interviewer writes notes: an overall view, what came across well, what to
   work on (with your own words quoted), the résumé claims to be ready for, and
   an exercise. The notes are saved with the report as `interviewer_notes.md`.
+
+## Answering out loud
+
+In the behavioral round, the résumé deep dive, and the Leadership Principles
+part of the Amazon rounds, what you say is your answer:
+- Turn on the mic and answer. Your words add up in the chat window and the
+  Interviewer tab, marked "press Enter when you're done", and nothing is sent
+  while you pause to think.
+- Press **Enter** to finish: anywhere on the page except while you type in a
+  field or your notes, or with the send button when the reply field is empty.
+  The interviewer replies then.
+- Typing in a reply field sends what you typed, after anything you'd already
+  said out loud.
+- A quick question of your own ("Could you repeat that?", "Can it be a school
+  project?") gets an answer and doesn't count as part of your story.
+- The interviewer's timed lines wait for you: it won't start the questions at
+  minute 2, or move to the next part of the interview, while you're mid-answer.
+
+## The interviewer's voice
+
+The interviewer reads aloud in the most natural voice your browser has:
+Premium or Enhanced voices on a Mac if you've downloaded one, Edge's Natural
+voices on Windows, or Chrome's Google voices. The Google voices are spoken by
+Google's servers, so they need a connection; if one can't be reached, the lab
+switches to the best voice on your computer. To choose another, open the **…**
+menu and pick **Interviewer's voice…**, which plays a sample; the lab
+remembers your choice. For the most natural voice on a Mac, download one in
+System Settings → Accessibility → Spoken Content → System voice → Manage
+Voices (for example Ava or Zoe, Premium), then reload the page.
 
 ## Amazon final-round mode
 
@@ -291,8 +323,18 @@ These rounds differ from the other three:
     Deep, Learn and Be Curious, Are Right, A Lot, Hire and Develop the Best,
     and Think Big.
   - The behavioral round draws from all 16.
-  - From minute 2, the interviewer asks out loud. Whatever you say or type is
-    your answer, and when you pause it digs in with the next follow-up.
+  - The interviewer asks out loud. Whatever you say or type is your answer,
+    and when you press Enter it digs in with the next follow-up (see
+    [Answering out loud](#answering-out-loud)). In the behavioral round your
+    introduction gets a reply too: press Enter after "tell me about yourself"
+    and the questions start, even before minute 2. Finish all four early and
+    the interviewer moves on to your questions.
+  - While Roomside is running, Claude puts each question and follow-up in its
+    own words: it reacts to what you actually said, picks the follow-up you
+    haven't answered yet, and, if you've added your résumé, may suggest an
+    experience from it as an example. The questions and the order of
+    follow-ups still come from the bank, so grading is the same. Without
+    Claude, the scripted interviewer asks them as written.
 - **Graded on everything.** The coding rounds score seven areas:
   - problem understanding
   - Leadership Principles, scored story by story

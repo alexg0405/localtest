@@ -137,6 +137,7 @@
           <div class="menu-list" id="menu" hidden>
             <button id="show-approach" hidden>Show the approach (coach)</button>
             <button id="reveal">Reveal the requirement change now</button>
+            <button id="voice-choose">Interviewer's voice…</button>
             <button id="restart">Restart the interview…</button>
             <button id="reset-workspace">Reset the workspace to the starter…</button>
             <hr>
@@ -298,6 +299,14 @@
   </div>
 
   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>
+  <dialog class="voice-dialog" id="voice-dialog" aria-labelledby="voice-h">
+    <form method="dialog">
+      <h3 id="voice-h">Interviewer's voice</h3>
+      <label class="voice-field">Voice<select id="voice-select"></select></label>
+      <p class="muted small" id="voice-tip"></p>
+      <div class="voice-actions"><button type="button" class="btn btn-ghost" id="voice-test">Play a sample</button><button class="btn btn-green" value="done">Done</button></div>
+    </form>
+  </dialog>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>

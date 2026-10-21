@@ -25,6 +25,10 @@ STATIC = Path(__file__).resolve().parent / "static"
 STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json",
                 ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2", ".md": "text/markdown"}
 GRADE_LOCK = threading.Lock()
+# Rounds where Claude can speak for the interviewer (or coach), and rounds that use your résumé: the résumé deep dive
+# needs it, and the Leadership Principles questions draw on it.
+CLAUDE_FORMATS = ("problem", "resume", "amazon-behavioral", "amazon-final")
+RESUME_FORMATS = ("resume", "amazon-behavioral", "amazon-final")
 
 
 class Lab:
@@ -188,6 +192,55 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def _behavioral(self, interview, body: Dict[str, Any]) -> None:
+            """The interviewer's next Leadership Principles prompt in Claude's words, streamed as NDJSON like the coach:
+            {"text"} chunks, then {"done", "entry"} ("entry" is null once every question has been asked). If Claude isn't
+            reachable, {"fallback", "entry"} with the scripted words. The plan still picks each step, so grading is the same."""
+            sessions = lab.sessions
+            cue = str(body.get("cue") or "")
+            if cue:
+                sessions.skip_cue(interview, cue)  # you finished early, so the interviewer moves on in its own words
+            before = sessions.load(interview.id) or {}
+            step = sessions.behavioral_step(interview)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+            def send(event: Dict[str, Any]) -> None:
+                self.wfile.write((json.dumps(event) + "\n").encode("utf-8"))
+                self.wfile.flush()
+
+            if not step:
+                try:
+                    send({"done": True, "entry": None})
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            saved = resume.load(lab.home)
+            prompt = coach_ai.build_behavioral_prompt(interview, before, saved["text"] if saved else "", sessions.status(interview)["elapsed"], step,
+                                                      opening=bool(cue))
+            text = ""
+            try:
+                for chunk in coach_ai.stream(prompt):
+                    text += chunk
+                    send({"text": chunk})
+            except coach_ai.CoachError as error:
+                entry = sessions.record_behavioral_prompt(interview, step, step["text"])
+                try:
+                    send({"fallback": str(error), "entry": entry})
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            except (BrokenPipeError, ConnectionResetError):
+                sessions.record_behavioral_prompt(interview, step, step["text"])  # the page went away mid-reply; keep the plan's words
+                return
+            entry = sessions.record_behavioral_prompt(interview, step, text.strip() or step["text"])
+            try:
+                send({"done": True, "entry": entry})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         def _debrief(self, interview) -> None:
             """Streams the interviewer's written notes on the latest submission (NDJSON {"text"} chunks, then {"done"}), and saves them with it."""
             report, folder = grading.latest_report(interview, lab.home)
@@ -286,6 +339,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     sessions.record_answer(interview, str(body.get("text", "")))
                     return self._json(200, {"saved": True})
                 elif action == "/api/behavioral":
+                    if body.get("claude"):
+                        return self._behavioral(interview, body)
                     return self._json(200, {"entry": sessions.behavioral_next(interview)})
                 elif action == "/api/followup":
                     return self._json(200, {"entry": sessions.follow_up(interview, str(body.get("phase", "")))})
@@ -344,14 +399,14 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             workspace = workspace_path(interview, lab.home)
             python = test_python(lab.home)
             coach = None
-            if interview.meta.get("format") in ("problem", "resume"):
+            if interview.meta.get("format") in CLAUDE_FORMATS:
                 coach = coach_ai.status()
                 if coach["available"] and status.get("started") and not getattr(lab, "warmed", {}).get(interview.id):
                     lab.warmed = {**getattr(lab, "warmed", {}), interview.id: True}
                     coach_ai.warm()
             return {
                 "coach_ai": coach,
-                "resume": resume.summary(resume.load(lab.home)) if interview.meta.get("format") == "resume" else None,
+                "resume": resume.summary(resume.load(lab.home)) if interview.meta.get("format") in RESUME_FORMATS else None,
                 "interview": interview.public(),
                 "task": interview.task(),
                 "session": status,

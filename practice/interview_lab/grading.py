@@ -70,7 +70,14 @@ LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS), **dict(
 CONVERSATION_FORMATS = ("amazon-behavioral", "resume")  # nothing to run or diff: graded from what was said
 
 
+def resume_deep_dive(interview: Interview) -> bool:
+    """True for an Amazon final round that opens with a deep dive on the résumé (the full interview)."""
+    return interview.meta.get("format") == "amazon-final" and (interview.meta.get("behavioral") or {}).get("bank") == "resume"
+
+
 def areas_for(interview: Interview):
+    if resume_deep_dive(interview):
+        return [AMAZON_AREAS[0], ("depth", "Technical depth"), *AMAZON_AREAS[1:]]
     return {"amazon-final": AMAZON_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS, "resume": RESUME_AREAS}.get(interview.meta.get("format"), AREAS)
 
 
@@ -507,7 +514,8 @@ def _stories(interview, state) -> List[Dict[str, Any]]:
     bank = {entry["lp"]: entry for entry in leadership_bank()}
     for item in Sessions.behavioral_questions(interview, state):
         bank.setdefault(item.get("lp") or "", {"signals": item.get("signals", [])})
-    stories = [_story(a, bank) for a in state.get("behavioral", {}).get("answers", []) if a.get("parts")]
+    # Only the principles questions: a résumé deep dive in the same part of the interview is scored as technical depth.
+    stories = [_story(a, bank) for a in state.get("behavioral", {}).get("answers", []) if a.get("parts") and a.get("lp")]
     # Interviewers want a different story for each principle.
     for i, story in enumerate(stories):
         reused = [earlier for earlier in stories[:i] if _overlap(story["text"], earlier["text"]) >= 0.5]
@@ -528,7 +536,7 @@ def _score_leadership(interview, state):
         lp = f" ({story['lp']})" if story.get("lp") else ""
         evidence.append(f"{_quote(story['question'], 80)}{lp}: {story['score']}/5 · {story['words']} words · “I” {story['i']} vs “we” {story['we']} · answered {story['handled']} of {story['prompts']} prompts. "
                         + (f"Missing: {'; '.join(story['missing'])}." if story["missing"] else "Hit every signal.") + f" You said: {_quote(story['text'], 120)}")
-    asked = len(Sessions.behavioral_questions(interview, state))
+    asked = len([item for item in Sessions.behavioral_questions(interview, state) if item.get("lp")])
     if len(stories) < asked:
         evidence.append(f"Answered {len(stories)} of {asked} Leadership Principles questions.")
     average = sum(story["score"] for story in stories) / len(stories)
@@ -617,6 +625,36 @@ def resume_principles(interview: Interview, state: Dict[str, Any], turns: Option
     return stories
 
 
+def _score_depth(deep: List[Dict[str, Any]], named: List[str], covered: List[str] = ()):
+    """Technical depth from the deep-dive answers (each with its "text"): decisions, how it works, bugs, failure and scale,
+    and which of the résumé's items (`named`; `covered` were already mentioned elsewhere) the candidate explained."""
+    if not deep:
+        return None, ["No deep-dive answers were recorded."]
+    mentions = lambda text: sorted({term for term in named if re.search(rf"(?<![\w]){re.escape(term.lower())}(?![\w])", text.lower())})
+    count = lambda pattern, text: len(re.findall(pattern, text.lower()))
+    decided = [t for t in deep if count(DECISION, t["text"])]
+    built = sorted({match.group(0) for t in deep for match in re.finditer(BUILD, t["text"].lower())})
+    debugged = [t for t in deep if count(DEBUG, t["text"])]
+    reasoned = [t for t in deep if count(FAILURE, t["text"])]
+    explained = sorted({term for t in deep for term in mentions(t["text"])})
+    unexplained = [term for term in named if term not in explained and term not in covered][:8]
+    best = max(deep, key=lambda t: count(DECISION, t["text"]) + count(BUILD, t["text"]) + count(DEBUG, t["text"]))
+    return (_clamp(1 + 1.5 * min(1, len(decided) / max(1, len(deep) / 2)) + min(1, len(built) / 8) + (0.375 if debugged else 0) + (0.375 if reasoned else 0) + min(0.75, 0.25 * len(explained))), [
+        f"Explained why (a decision, a tradeoff, an alternative) in {len(decided)} of {len(deep)} deep-dive answers.",
+        f"Talked about how things work: {', '.join(built[:10]) if built else 'no architecture or implementation details'}.",
+        f"Told {len(debugged)} debugging or obstacle stor{'y' if len(debugged) == 1 else 'ies'}." if debugged else "Never described a bug or obstacle and how you tracked it down.",
+        f"Reasoned about failure or scale (crashes, retries, duplicates, 10x load) in {len(reasoned)} answer(s)." if reasoned else "Never reasoned through a failure or scale scenario (a crash halfway, duplicates, 10x load).",
+        f"Résumé items you explained: {', '.join(explained[:10]) or 'none by name'}." + (f" Not discussed: {', '.join(unexplained)}." if unexplained else ""),
+        f"Strongest answer: {_quote(best['text'], 140)}"])
+
+
+def _score_resume_deep_dive(interview: Interview, state: Dict[str, Any], resume_text: str):
+    """The full Amazon interview's résumé deep dive: each answer to it and its follow-ups, scored like the résumé round."""
+    deep_ids = {item["id"] for item in Sessions.behavioral_questions(interview, state) if item.get("kind") == "depth"}
+    parts = [{"text": part["text"]} for answer in state.get("behavioral", {}).get("answers", []) if answer.get("id") in deep_ids for part in answer.get("parts", [])]
+    return _score_depth(parts, resume.terms(resume_text))
+
+
 def _resume_scores(interview: Interview, state: Dict[str, Any], resume_text: str) -> Dict[str, Any]:
     turns = resume_turns(interview, state)
     if not turns:
@@ -637,23 +675,7 @@ def _resume_scores(interview: Interview, state: Dict[str, Any], resume_text: str
         f"You said: {_quote(first['text'], 140)}"])
 
     deep = [t for t in turns if t["kind"] == "depth"]
-    if deep:
-        decided = [t for t in deep if count(DECISION, t["text"])]
-        built = sorted({match.group(0) for t in deep for match in re.finditer(BUILD, t["text"].lower())})
-        debugged = [t for t in deep if count(DEBUG, t["text"])]
-        reasoned = [t for t in deep if count(FAILURE, t["text"])]
-        explained = sorted({term for t in deep for term in mentions(t["text"])})
-        unexplained = [term for term in named if term not in explained and term not in covered][:8]
-        best = max(deep, key=lambda t: count(DECISION, t["text"]) + count(BUILD, t["text"]) + count(DEBUG, t["text"]))
-        scores["depth"] = (_clamp(1 + 1.5 * min(1, len(decided) / max(1, len(deep) / 2)) + min(1, len(built) / 8) + (0.375 if debugged else 0) + (0.375 if reasoned else 0) + min(0.75, 0.25 * len(explained))), [
-            f"Explained why (a decision, a tradeoff, an alternative) in {len(decided)} of {len(deep)} deep-dive answers.",
-            f"Talked about how things work: {', '.join(built[:10]) if built else 'no architecture or implementation details'}.",
-            f"Told {len(debugged)} debugging or obstacle stor{'y' if len(debugged) == 1 else 'ies'}." if debugged else "Never described a bug or obstacle and how you tracked it down.",
-            f"Reasoned about failure or scale (crashes, retries, duplicates, 10x load) in {len(reasoned)} answer(s)." if reasoned else "Never reasoned through a failure or scale scenario (a crash halfway, duplicates, 10x load).",
-            f"Résumé items you explained: {', '.join(explained[:10]) or 'none by name'}." + (f" Not discussed: {', '.join(unexplained)}." if unexplained else ""),
-            f"Strongest answer: {_quote(best['text'], 140)}"])
-    else:
-        scores["depth"] = (None, ["No deep-dive answers were recorded."])
+    scores["depth"] = _score_depth(deep, named, covered)
 
     owned = [t for t in turns if t["kind"] != "wrap"]
     i_count = sum(count(r"\bi\b", t["text"]) for t in owned)
@@ -777,6 +799,8 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
     if area == "leadership":
         missing = context.get("leadership_missing", [])
         return ("Tighten your STAR stories: " + "; ".join(missing[:3]) + ". Keep each story about what you did (“I”), end with a measurable result, and close with what you learned.") if missing else "Prepare 8–12 STAR stories mapped to different Leadership Principles, since each round asks for new ones."
+    if area == "depth":
+        return RESUME_IMPROVEMENTS["depth"]
     if area == "star":
         return "Give every story all four STAR parts: one or two sentences of situation and task, most of the time on your own actions, then the result."
     if area == "impact":
@@ -801,7 +825,7 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
 
 NOT_OBSERVED_HELP = {
     "walkthrough": "Answer the interviewer's first question out loud (mic) or in the chat, so your background walkthrough can be assessed.",
-    "depth": "Stay for the deep dives (minutes 3–23), so the interviewer can ask how your projects work.",
+    "depth": "Answer the résumé deep-dive questions out loud (mic) or in the chat, so the interviewer can ask how your projects work.",
     "leadership": "Answer the interviewer's Leadership Principles questions out loud (mic) or in the chat, so they can be assessed.",
     "problem_solving": "Say or write your approach and its time and space complexity, so problem solving can be assessed.",
     "problem_understanding": "Ask clarification questions in the dashboard and record your assumptions, so problem understanding can be assessed.",
@@ -877,6 +901,9 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
                 ps_score = min(ps_score, 3)
                 ps_evidence = ps_evidence + ["You opened the reference approach, so this score is capped at 3. Re-solve it in real mode to earn the rest."]
         scores.update({"leadership": (lp_score, lp_evidence), "problem_solving": (ps_score, ps_evidence), "communication": (cm_score, cm_evidence), "testing": (te_score, te_evidence)})
+    if resume_deep_dive(interview):
+        saved = resume.load(home)
+        scores["depth"] = _score_resume_deep_dive(interview, state, saved["text"] if saved else "")
     if resume_round:
         saved = resume.load(home)
         scores.update(_resume_scores(interview, state, saved["text"] if saved else ""))

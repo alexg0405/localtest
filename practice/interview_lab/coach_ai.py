@@ -349,7 +349,8 @@ def build_behavioral_prompt(interview: Interview, state: Dict[str, Any], resume_
     minutes = elapsed / 60
     duration = interview.meta.get("duration_minutes", 45)
     asked = state.get("behavioral", {}).get("plan") or interview.behavioral()
-    listed = "\n".join(f"{i + 1}. [{item.get('lp') or 'Behavioral'}] {_plain_question(item)}" for i, item in enumerate(asked))
+    listed = "\n".join(f"{i + 1}. [{item.get('lp') or ('Résumé deep dive' if item.get('kind') == 'depth' else 'Behavioral')}] {_plain_question(item)}" for i, item in enumerate(asked))
+    deep_dive = any(item.get("kind") == "depth" for item in asked)   # the full Amazon interview opens with one from the résumé
     section = next((p for p in interview.phases() if p.get("kind") == "behavioral"), None)
     clock = f"minute {minutes:.0f} of {duration}" + (f"; the questions run until minute {section['end']}" if section else "")
     if step.get("seconds_left") is not None:
@@ -361,14 +362,17 @@ def build_behavioral_prompt(interview: Interview, state: Dict[str, Any], resume_
     if step["kind"] == "behavioral:followup":
         story = " ".join(part["text"] for part in answers[-1]["parts"])[-4000:] if answers else ""
         others = " / ".join(item.get("followups", [])[step["followup"] + 1:]) or "(none: ask what they learned or would do differently)"
+        vague = ("If they stay high-level, ask exactly how their part works." if item.get("kind") == "depth"
+                 else "If the story is vague or isn't about one real time, ask for a specific example.")
         ask = (f"They're answering question {index + 1}. Their story so far: \"{story or '(nothing yet)'}\"\n"
                f"Ask the next follow-up. The planned one is: \"{step['text']}\" Ask it in your own words, tied to a specific detail of their story. "
-               f"If they've already answered it, ask one they haven't covered instead: {others}. If the story is vague or isn't about one real time, ask for a specific example.")
+               f"If they've already answered it, ask one they haven't covered instead: {others}. {vague}")
     else:
         question = _plain_question(item)
         if opening and index == 0:
             ask = ("They just finished introducing themselves (their last lines above). Acknowledge it in a few neutral words (not \"nice\" or \"great\"), naming one specific thing they said, "
-                   f"say you'll move on to some questions about situations they've been in, then ask question 1 in your own words: \"{question}\"")
+                   f"say you'll {'start with something from their résumé' if item.get('kind') == 'depth' else 'move on to some questions about situations they have been in'}, "
+                   f"then ask question 1 in your own words: \"{question}\"")
         elif index == 0:
             ask = f"You've just told them you're starting the questions. Ask question 1 in your own words, without another greeting: \"{question}\""
         elif step.get("hurried"):
@@ -377,10 +381,12 @@ def build_behavioral_prompt(interview: Interview, state: Dict[str, Any], resume_
         else:
             ask = (f"They've finished their story for question {index}. Move on with a short, natural transition (a few words, without judging their answer), "
                    f"then ask question {index + 1} in your own words: \"{question}\"")
-        if resume_text.strip():
+        if resume_text.strip() and item.get("kind") != "depth":
             ask += (" If one experience on their résumé clearly fits, you may suggest it as a starting point (\"maybe from your internship at X?\") but let them "
                     "pick the story. Do that for at most half of the questions, and only name things that are really on the résumé.")
-    background = (f"The candidate's résumé, so you know their background (don't quiz them on it):\n<<<\n{resume_text[:14_000]}\n>>>" if resume_text.strip()
+    note = ("the deep-dive question is about something on it; dig into how it works, but don't quiz them on the rest" if deep_dive
+            else "so you know their background (don't quiz them on it)")
+    background = (f"The candidate's résumé, {note}:\n<<<\n{resume_text[:14_000]}\n>>>" if resume_text.strip()
                   else "The candidate hasn't added a résumé.")
     conversation = _resume_conversation(state)[-20_000:] or "(nothing yet)"
     return f"""Your role:

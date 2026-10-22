@@ -332,7 +332,7 @@ def test_a_skipped_cue_is_not_said_later(tmp_path):
 
 
 def test_amazon_rounds_are_an_hour_with_time_checks_while_you_code():
-    for interview_id in ("amazon-final-1", "amazon-final-2"):
+    for interview_id in ("amazon-final-1", "amazon-final-2", "amazon-full-loop"):
         interview = get_interview(interview_id)
         phases = interview.phases()
         assert interview.meta["duration_minutes"] == 60 and phases[-1]["end"] == 60
@@ -737,3 +737,34 @@ def test_the_principles_section_shows_as_the_current_phase_once_it_starts(tmp_pa
     assert names() == "Deep dive: a second experience"
     sessions.record_coach(interview, "message", "That's how the matcher worked.", "Let's switch gears. Tell me about a time…", section="Leadership Principles")
     assert names() == "Leadership Principles"
+
+
+def test_full_amazon_interview_goes_from_one_resume_deep_dive_to_the_principles(tmp_path):
+    from interview_lab import coach_ai, resume
+    resume.save(tmp_path, "cv.pdf", "Jordan Lee\nCS student at Northeastern University\nProjects\nStudySync | React, Postgres\n- Built a study planner for 300 students\n")
+    sessions = Sessions(tmp_path)
+    loop = get_interview("amazon-full-loop")
+    sessions.start(loop)
+    plan = sessions.load("amazon-full-loop")["behavioral"]["plan"]
+    # One deep dive on the résumé, then two principles; the intro and the wrap-up replace the walkthrough and "questions for me".
+    assert [item["kind"] for item in plan] == ["depth", "leadership", "leadership"] and "StudySync" in plan[0]["question"]
+    assert plan[1]["question"].startswith(resume.LP_INTRO) and len({item["lp"] for item in plan[1:]}) == 2
+    first = sessions.behavioral_step(loop)
+    prompt = coach_ai.build_behavioral_prompt(loop, sessions.load("amazon-full-loop"), "StudySync", 150, first, opening=True)
+    assert "[Résumé deep dive]" in prompt and "start with something from their résumé" in prompt
+    sessions.record_behavioral_prompt(loop, first, first["text"])
+    deep = "I built the sync service myself because polling was too slow, so I chose websockets instead of polling. The hardest bug was a race condition I traced in the logs."
+    sessions.record_answer(loop, deep)
+    while True:
+        entry = sessions.behavioral_next(loop)
+        if entry is None:
+            break
+        sessions.record_answer(loop, deep if entry["kind"] == "behavioral:followup" and len(sessions.load("amazon-full-loop")["behavioral"]["answers"]) == 1
+                               else "I owned the release. I measured it and cut the time by 30%, and I learned to ask earlier.")
+    state = sessions.load("amazon-full-loop")
+    assert [a["lp"] for a in state["behavioral"]["answers"]][0] is None and len(state["behavioral"]["answers"]) == 3
+    assert [a for a, _ in grading.areas_for(loop)][:3] == ["problem_understanding", "depth", "leadership"]
+    depth, evidence = grading._score_resume_deep_dive(loop, state, "Jordan Lee\nPROJECTS\nStudySync\n")
+    assert depth >= 3 and "websockets" in evidence[1] and "race condition" in evidence[-1]
+    _, lp_evidence, _ = grading._score_leadership(loop, state)
+    assert len(lp_evidence) == 2 and all("StudySync" not in line for line in lp_evidence)   # the deep dive isn't scored as a principle

@@ -14,7 +14,7 @@ INTERVIEWS_DIR = LAB_ROOT / "interviews"
 PROBLEMS_DIR = LAB_ROOT / "problems"  # single-problem practice rounds
 CONCEPTS = PROBLEMS_DIR / "_concepts.json"  # what the coach can explain
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-final-1", "amazon-final-2", "amazon-behavioral", "resume-deep-dive"]
+ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-full-loop", "amazon-final-1", "amazon-final-2", "amazon-behavioral", "resume-deep-dive"]
 LP_BANK = INTERVIEWS_DIR / "_amazon" / "leadership_principles.json"  # interviewer-only: questions, follow-ups, signals
 
 

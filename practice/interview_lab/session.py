@@ -117,7 +117,10 @@ class Sessions:
         principles = self._pick_principles(config.get("focus"), config.get("count", 2))
         if config.get("bank") == "resume":  # the résumé interview: questions from your résumé, then its principles section
             saved = resume.load(self.home)
-            return resume.plan(saved["text"] if saved else "", principles)
+            plan = resume.plan(saved["text"] if saved else "", principles)
+            # A round that borrows only some of the résumé questions (the full Amazon interview: one deep dive, then the principles).
+            keep = config.get("resume_items")
+            return [item for item in plan if keep is None or item["id"] in keep or item["kind"] == "leadership"]
         return principles
 
     def _pick_principles(self, focus: Optional[List[str]], count: int) -> List[Dict[str, Any]]:

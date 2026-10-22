@@ -1,0 +1,147 @@
+{
+  "id": "amazon-full-loop",
+  "title": "Amazon SDE intern full interview: résumé deep dive + Leadership Principles + coding",
+  "company": "amazon",
+  "format": "amazon-final",
+  "inspired_by": "One 60-minute Amazon SDE intern final round with every part candidates report: an engineer digs into a project from your résumé (Dive Deep, Ownership), asks Leadership Principles questions with follow-ups, then gives one business-framed coding problem in a plain editor, with no AI. An original simulation, not a real Amazon question.",
+  "level": "SDE intern final round",
+  "summary": "A deep dive on a project from your résumé, two Leadership Principles questions with follow-ups, then a coding problem: find the delivery carriers with the most late packages, plus the interviewer's follow-up twist. No AI; write and run your code in the browser editor.",
+  "tags": [
+    "python",
+    "60 min",
+    "no AI",
+    "résumé + LPs + DSA",
+    "your résumé",
+    "runs code"
+  ],
+  "package": "deliveries",
+  "duration_minutes": 60,
+  "change_at_minutes": 40,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "note_tabs": {
+    "plan": "approach.md",
+    "assumptions": "assumptions.md",
+    "explanation": "dry_run.md"
+  },
+  "source_files": [
+    "deliveries/late_carriers.py"
+  ],
+  "approach_keywords": [
+    "heap",
+    "priority queue",
+    "nsmallest",
+    "nlargest",
+    "counter",
+    "hash map",
+    "hashmap",
+    "dictionary",
+    "dict",
+    "sort",
+    "bucket"
+  ],
+  "change_keywords": [
+    "tracker",
+    "stream",
+    "record(",
+    "top(",
+    "follow-up",
+    "update"
+  ],
+  "phases": [
+    {
+      "start": 0,
+      "end": 2,
+      "name": "Introductions",
+      "cue": "amz_intro",
+      "kind": "intro"
+    },
+    {
+      "start": 2,
+      "end": 20,
+      "name": "Résumé deep dive, then Leadership Principles",
+      "cue": "amz_behavioral",
+      "kind": "behavioral"
+    },
+    {
+      "start": 20,
+      "end": 24,
+      "name": "Read and clarify the coding problem",
+      "cue": "amz_clarify",
+      "kind": "coding",
+      "ends_on_edit": true,
+      "keeps_length": true
+    },
+    {
+      "start": 24,
+      "end": 50,
+      "name": "Code it and talk it through",
+      "cue": "amz_code",
+      "kind": "coding",
+      "checks": [
+        {
+          "left": 10,
+          "cue": "amz_code_10"
+        },
+        {
+          "left": 5,
+          "cue": "amz_code_5"
+        }
+      ]
+    },
+    {
+      "start": 50,
+      "end": 60,
+      "name": "Dry run, complexity, and your questions",
+      "cue": "amz_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "cues": {
+    "amz_intro": "Hi, thanks for joining. I'm an engineer on the team, and I'll be your interviewer today. We have an hour: first I'd like to go deep on something from your résumé, then a couple of questions about your past experience, and then a coding problem for most of the rest. There's no AI in this round. You can run your code in the editor, but I care most about how you think, so talk me through it. To start, tell me a little about yourself.",
+    "amz_behavioral": "Thanks. Let's start with something from your résumé, and then I'll ask about a couple of situations you've been in.",
+    "amz_clarify": "Thanks, that's all I had on your experience. Let's switch to coding. The problem is in the Problem tab and in README.md in your workspace. Take a minute to read it, and ask me anything that's unclear before you start.",
+    "amz_code": "We have about {left} minutes for coding. Whenever you're ready, go ahead and code it in the editor, in deliveries slash late carriers dot py. You can run the example tests or your own code as you go. Keep talking me through your approach as you go.",
+    "change": "Okay. Let's extend it. I've added a follow-up to the Follow-up tab: the records now stream in one at a time, and the dashboard asks for the top carriers after every update. How would you change your design?",
+    "amz_wrap": "We have about ten minutes left, so let's stop coding there. Walk me through your solution with the example, tell me the time and space complexity, and tell me what else you'd test. Then I'm happy to take any questions you have for me.",
+    "amz_code_10": "Quick time check: about ten minutes left for coding.",
+    "amz_code_5": "About five minutes left. Start wrapping up, so we have time to walk through it.",
+    "amz_wrap_early": "Okay, let's stop coding there. Walk me through your solution with the example, tell me the time and space complexity, and tell me what else you'd test. Then I'm happy to take any questions you have for me."
+  },
+  "closing_prompts": [
+    "What's the time and space complexity of your solution?",
+    "What edge cases would you test?",
+    "Do you have any questions for me?"
+  ],
+  "followups": {
+    "depth": "For the project you'd most want to be asked about, write its architecture in five boxes, one decision with the alternative you rejected and why, and the hardest bug you hit. Then explain it aloud in three minutes without notes.",
+    "problem_understanding": "Before writing code for any problem this week, list the three ambiguities you would ask about (ties, duplicates, bounds) and the answer you'd assume for each.",
+    "leadership": "Write five STAR stories (Ownership, Deliver Results, Bias for Action, Customer Obsession, Learn and Be Curious). Say each aloud in under 2.5 minutes, with one number in the result and one sentence on what you'd do differently.",
+    "problem_solving": "Re-solve top-k without looking: say the brute-force complexity, then the heap approach in O(n + m log k), and explain when a full sort is just as good.",
+    "correctness": "List every edge case of top_late_carriers (ties, duplicates, k = 0, k larger than the carriers, on-time equality, empty input) and dry-run your code on each by hand.",
+    "testing": "Dry-run your solution on a 5-record example out loud, tracking the counts after each record, then write those as tests.",
+    "code_quality": "Rewrite your solution in under 15 lines with clear names and a helper for the counting step, and explain each line in one sentence.",
+    "communication": "Record yourself solving a LeetCode medium in 25 minutes while narrating continuously; listen back for silent stretches longer than 20 seconds."
+  },
+  "editor_files": [
+    "deliveries/late_carriers.py"
+  ],
+  "behavioral": {
+    "bank": "resume",
+    "count": 2,
+    "resume_items": [
+      "deep-1"
+    ],
+    "focus": [
+      "Customer Obsession",
+      "Ownership",
+      "Deliver Results",
+      "Bias for Action",
+      "Insist on the Highest Standards",
+      "Invent and Simplify",
+      "Frugality"
+    ]
+  },
+  "custom_input": "from deliveries.late_carriers import top_late_carriers\n\nrecords = [\n    (\"p1\", \"FastShip\", 3, 4),\n    (\"p2\", \"FastShip\", 2, 2),\n    (\"p3\", \"QuickBox\", 5, 7),\n    (\"p4\", \"QuickBox\", 1, 3),\n    (\"p5\", \"Parcelo\", 4, 4),\n]\nprint(top_late_carriers(records, 2))\n"
+}

@@ -55,6 +55,12 @@ def test_awkward_amount_is_exact():
 def test_tie_is_alphabetical():
     assert top_late_carriers([("a", "Zed", 1, 2), ("b", "Amy", 1, 2)], 2) == ["Amy", "Zed"]
 ''',
+    "amazon-full-loop": '''from deliveries.late_carriers import top_late_carriers
+
+
+def test_tie_is_alphabetical():
+    assert top_late_carriers([("a", "Zed", 1, 2), ("b", "Amy", 1, 2)], 2) == ["Amy", "Zed"]
+''',
     "amazon-final-2": '''from fulfillment.robot_moves import min_moves
 
 
@@ -730,13 +736,25 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         if amazon:
             c.check("Leadership Principles are 'not observed' before any answer", scores["leadership"] is None and "ai_instructions" not in scores)
             plan = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]["behavioral"]["plan"]
-            c.check("this session's principles come from the round's focus list", len(plan) == 2 and all(item["lp"] in interview.meta["behavioral"]["focus"] for item in plan))
+            deep_dive = grading.resume_deep_dive(interview)
+            principles = [item for item in plan if item.get("lp")]
+            c.check("this session's principles come from the round's focus list", len(principles) == 2 and all(item["lp"] in interview.meta["behavioral"]["focus"] for item in principles))
+            if deep_dive:
+                c.check("the full interview opens with one résumé deep dive, then the principles", [item["kind"] for item in plan] == ["depth", "leadership", "leadership"])
+            story = "During my internship last summer I noticed our deploy script had no owner, so I decided to fix it. I rewrote it, tested it, and documented it. As a result deploys dropped from 40 minutes to 8 minutes. I learned to ask who owns something early."
             first = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
-            _http(port, "/api/answer", {"interview": interview.id, "text": "During my internship last summer I noticed our deploy script had no owner, so I decided to fix it. I rewrote it, tested it, and documented it. As a result deploys dropped from 40 minutes to 8 minutes. I learned to ask who owns something early."})
+            _http(port, "/api/answer", {"interview": interview.id, "text": story})
             follow = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
             waiting = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
-            c.check("the interviewer asks an LP question, digs in with a follow-up, then waits for an answer",
+            c.check("the interviewer asks its first question, digs in with a follow-up, then waits for an answer",
                     first["answer"] == plan[0]["question"] and follow["answer"] == plan[0]["followups"][0] and waiting is None)
+            if deep_dive:  # finish the deep dive, then answer the first principles question, so both are scored below
+                while True:
+                    _http(port, "/api/answer", {"interview": interview.id, "text": "I built the sync service myself because polling was too slow, so I chose websockets instead. The hardest bug was a race condition I traced in the logs."})
+                    entry = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
+                    if entry is None or entry["kind"] == "behavioral:question":
+                        break
+                _http(port, "/api/answer", {"interview": interview.id, "text": story})
 
         workspace = workspace_path(interview, home)
         if interview.meta.get("editor_files"):
@@ -776,6 +794,10 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         if amazon:
             evidence = next(x["evidence"] for x in report["scores"] if x["area"] == "leadership")
             c.check("Leadership Principles answers are scored with evidence", scores["leadership"] is not None and any("words" in line for line in evidence), f"{scores['leadership']}/5")
+            if deep_dive:
+                depth = next(x["evidence"] for x in report["scores"] if x["area"] == "depth")
+                c.check("the résumé deep dive is scored as technical depth, apart from the principles", scores["depth"] is not None and "websockets" in depth[1]
+                        and all("websockets" not in line for line in evidence), f"{scores['depth']}/5")
             c.check("the report says this was a no-AI round", bool(report.get("format_note")) and report.get("patch_review") is None)
         else:
             c.check("areas without evidence are 'not observed'", scores["ai_instructions"] is None)

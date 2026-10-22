@@ -10,7 +10,7 @@ import random
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import interviewer, resume
 from .catalog import DEFAULT_PHASES, Interview, leadership_bank
@@ -182,6 +182,99 @@ class Sessions:
             self.reveal_change(interview, state, "early")
             return state
 
+    @staticmethod
+    def bounds(interview: Interview, state: Dict[str, Any]) -> List[Tuple[float, float]]:
+        """When each part of the interview really starts and ends, in minutes. The plan's times, except that a part the
+        interviewer moved on to early starts then, and a part marked "keeps_length" (reading the problem) keeps its own
+        length when it starts early, so the part after it (the coding) starts sooner and gets the time you saved."""
+        moved = {int(i): at / 60 for i, at in state.get("moved_on", {}).items()}
+        bounds: List[Tuple[float, float]] = []
+        for i, part in enumerate(interview.phases()):
+            start = min(part["start"], moved.get(i, part["start"]), bounds[-1][1] if bounds else part["start"])
+            end = part["end"]
+            if part.get("keeps_length") and start < part["start"]:
+                end = min(end, start + part["end"] - part["start"])
+            bounds.append((start, end))
+        return bounds
+
+    @classmethod
+    def _phase(cls, interview: Interview, state: Dict[str, Any], minutes: float) -> int:
+        """Which part of the interview it is, by its real start (see bounds), or the résumé interview's Leadership
+        Principles section, which opens a little early with your first answer once its time is near."""
+        phases = interview.phases()
+        bounds = cls.bounds(interview, state)
+        phase = len(phases) if not bounds or minutes >= bounds[-1][1] else max(i for i, (start, _) in enumerate(bounds) if start <= minutes)
+        section = next((i for i, p in enumerate(phases) if p.get("principles")), None)
+        if section is not None and phase < section and minutes < phases[section]["end"] and any(q.get("section") for q in state.get("questions", [])):
+            phase = section
+        return phase
+
+    def move_on(self, interview: Interview, cue: str, say: Optional[str] = None, quiet: bool = False) -> Optional[Dict[str, Any]]:
+        """Starts the part of the interview that `cue` opens now, ahead of the clock, and says that cue, or `say` (another
+        cue) in its place. Quiet, it says nothing: the interviewer is about to open the part in its own words. None when
+        that part had already begun, or when quiet."""
+        phases = interview.phases()
+        index = next((i for i, p in enumerate(phases) if p.get("cue") == cue), None)
+        if index is None:
+            raise SessionError(f"No part of this interview starts with {cue!r}.")
+        with LOCK:
+            state = self._require(interview.id)
+            ahead = self._phase(interview, state, self.elapsed(state) / 60) < index
+            if ahead:
+                state.setdefault("moved_on", {})[str(index)] = int(self.elapsed(state) * 10) / 10   # rounded down, so it has begun
+                self.save(state)
+        if quiet or (ahead and say):
+            self.skip_cue(interview, cue)
+        if quiet or not ahead:
+            return None
+        return self.cue(interview, say or cue)
+
+    def record_edit(self, interview: Interview) -> None:
+        """You changed your code in the editor: when you first and last did. Starting while you read the problem (a part
+        marked "ends_on_edit") starts the coding part, so the interviewer doesn't later tell you to start."""
+        with LOCK:
+            state = self._require(interview.id)
+            if state["status"] != "running":
+                return
+            at = round(self.elapsed(state), 1)
+            coding = state.setdefault("coding", {"first_edit": at, "edits": 0})
+            coding["last_edit"] = at
+            coding["edits"] += 1
+            phases = interview.phases()
+            phase = self._phase(interview, state, at / 60)
+            if phase + 1 < len(phases) and phases[phase].get("ends_on_edit"):
+                state.setdefault("moved_on", {})[str(phase + 1)] = int(self.elapsed(state) * 10) / 10
+                if phases[phase + 1].get("cue") and phases[phase + 1]["cue"] not in state.setdefault("cues", []):
+                    state["cues"].append(phases[phase + 1]["cue"])   # "go ahead and code it" would come too late
+            self.save(state)
+
+    def done_coding(self, interview: Interview) -> Dict[str, Any]:
+        """You told the interviewer you're done coding: the follow-up comes next if it hasn't been given yet, and after it
+        the wrap-up (the dry run, complexity, and your questions), ahead of the clock."""
+        with LOCK:
+            state = self._require(interview.id)
+            at = round(self.elapsed(state), 1)
+            state.setdefault("coding", {"first_edit": None, "edits": 0}).setdefault("done", []).append(at)
+            pending = interview.meta.get("change_at_minutes") is not None and state.get("change_revealed_at") is None
+            if pending:
+                self.reveal_change(interview, state, "done")
+            else:
+                self.save(state)
+        if pending:
+            return {"next": "followup", "entry": None}   # the page says the follow-up's line, as for one on the clock
+        wrap = next((p for p in interview.phases() if p.get("kind") == "wrap"), None)
+        early = "amz_wrap_early" if "amz_wrap_early" in interviewer.cues_for(interview) else None
+        return {"next": "wrap", "entry": self.move_on(interview, wrap["cue"], say=early) if wrap and wrap.get("cue") else None}
+
+    def reveal_when_solved(self, interview: Interview) -> bool:
+        """The visible tests pass before the follow-up's minute: the interviewer gives the follow-up now. True if it did."""
+        with LOCK:
+            state = self._require(interview.id)
+            if state["status"] != "running" or state.get("change_revealed_at") is not None or interview.meta.get("change_at_minutes") is None:
+                return False
+            self.reveal_change(interview, state, "solved")
+            return True
+
     def status(self, interview: Interview) -> Dict[str, Any]:
         """The session as the dashboard sees it. Reveals the change once 30 minutes have run."""
         with LOCK:
@@ -195,10 +288,7 @@ class Sessions:
                 self.reveal_change(interview, state, "scheduled")
             minutes = elapsed / 60
             phases = interview.phases()
-            phase = next((i for i, p in enumerate(phases) if p["start"] <= minutes < p["end"]), len(phases))
-            section = next((i for i, p in enumerate(phases) if p.get("principles")), None)
-            if section is not None and phase < section and minutes < phases[section]["end"] and any(q.get("section") for q in state.get("questions", [])):
-                phase = section  # the Leadership Principles section opened a little early
+            phase = self._phase(interview, state, minutes)
             revealed = state.get("change_revealed_at") is not None
             return {
                 "started": True,
@@ -208,6 +298,7 @@ class Sessions:
                 "change_at": change_at,
                 "phase": phase,
                 "phases": phases,
+                "bounds": [[round(start, 2), round(end, 2)] for start, end in self.bounds(interview, state)],
                 "overtime": minutes >= interview.meta.get("duration_minutes", 60),
                 "change": interview.change_request() if revealed else None,
                 "workspace": str(workspace_path(interview, self.home)),
@@ -266,7 +357,11 @@ class Sessions:
             if name in state.setdefault("cues", []):
                 return None
             state["cues"].append(name)
-            entry = self._interviewer_message(state, lines[name], f"cue:{name}")
+            text = lines[name]
+            index = next((i for i, p in enumerate(interview.phases()) if p.get("cue") == name), None)
+            if "{left}" in text and index is not None:  # "about {left} minutes for coding": what's really left of that part
+                text = text.replace("{left}", str(max(1, round(self.bounds(interview, state)[index][1] - self.elapsed(state) / 60))))
+            entry = self._interviewer_message(state, text, f"cue:{name}")
             self.save(state)
             return entry
 
@@ -334,8 +429,14 @@ class Sessions:
             questions = self.behavioral_questions(interview, state)
             if flow["awaiting"] or flow["question"] >= len(questions):
                 return None
+            now = self.elapsed(state)
+            section, left = self._lp_clock(interview, state, flow, questions, now)
+            if section and now >= section["end"] * 60:
+                return None   # the clock has moved on to the next part of the interview
             current = questions[flow["question"]] if flow["question"] >= 0 else None
-            if current and flow["followup"] < len(current.get("followups", [])):
+            # A story that has had its share of the time gets no more follow-ups, if another question is still to come.
+            hurried = bool(current and flow["followup"] < len(current.get("followups", [])) and flow["question"] + 1 < len(questions) and left is not None and left <= 0)
+            if current and flow["followup"] < len(current.get("followups", [])) and not hurried:
                 step = {"kind": "behavioral:followup", "text": current["followups"][flow["followup"]], "followup": flow["followup"]}
                 flow["followup"] += 1
             else:
@@ -345,11 +446,25 @@ class Sessions:
                     self.save(state)
                     return None
                 current = questions[flow["question"]]
-                flow["answers"].append({"question": current["question"], "lp": current.get("lp"), "id": current.get("id"), "prompts": [], "parts": []})
-                step = {"kind": "behavioral:question", "text": current["question"]}
+                flow["answers"].append({"question": current["question"], "lp": current.get("lp"), "id": current.get("id"), "prompts": [], "parts": [], "asked_at": round(now, 1)})
+                step = {"kind": "behavioral:question", "text": ("In the interest of time, let's move on. " if hurried else "") + current["question"], "hurried": hurried}
+                section, left = self._lp_clock(interview, state, flow, questions, now)
             flow["awaiting"] = True
             self.save(state)
-            return {**step, "index": flow["question"], "item": current}
+            return {**step, "index": flow["question"], "item": current, "seconds_left": None if left is None else max(0, round(left))}
+
+    @staticmethod
+    def _lp_clock(interview: Interview, state: Dict[str, Any], flow: Dict[str, Any], questions: List[Dict[str, Any]], now: float):
+        """The Amazon rounds' Leadership Principles part, and the seconds left for the current story: its share of the time
+        that was left in the part when it was asked. (None, None) for rounds without that pacing."""
+        if interview.meta.get("format") not in ("amazon-final", "amazon-behavioral"):
+            return None, None
+        section = next((p for p in interview.phases() if p.get("kind") == "behavioral"), None)
+        answer = flow["answers"][-1] if flow["answers"] and flow["question"] >= 0 else None
+        if not section or not answer or answer.get("asked_at") is None:
+            return section, None
+        share = (section["end"] * 60 - answer["asked_at"]) / max(1, len(questions) - flow["question"])
+        return section, answer["asked_at"] + share - now
 
     def record_behavioral_prompt(self, interview: Interview, step: Dict[str, Any], text: str) -> Dict[str, Any]:
         """Says the prompt behavioral_step chose, in the words given (its scripted ones, or Claude's)."""

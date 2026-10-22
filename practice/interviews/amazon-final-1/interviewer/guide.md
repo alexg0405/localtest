@@ -53,7 +53,7 @@ Common mistakes:
 - Re-sorting all records for every query.
 - Returning carriers with zero late packages when k is large.
 
-## Follow-up at minute 33
+## Follow-up at minute 42 (or once the tests pass)
 
 `LateCarrierTracker` with `record` and `top`: keep per-package state and
 per-carrier counts, update them in O(1) on each record (subtract the old

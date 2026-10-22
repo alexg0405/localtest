@@ -8,14 +8,14 @@
   "summary": "Two Leadership Principles questions with follow-ups, then a coding problem: the fewest moves for a fulfillment-center robot to reach a pick station, plus the interviewer's follow-up twist. No AI; write and run your code in the browser editor.",
   "tags": [
     "python",
-    "45 min",
+    "60 min",
     "no AI",
     "LPs + DSA",
     "runs code"
   ],
   "package": "fulfillment",
-  "duration_minutes": 45,
-  "change_at_minutes": 33,
+  "duration_minutes": 60,
+  "change_at_minutes": 42,
   "ai_allowed": false,
   "run_tests_allowed": true,
   "note_tabs": {
@@ -46,13 +46,13 @@
   "phases": [
     {
       "start": 0,
-      "end": 2,
+      "end": 3,
       "name": "Introductions",
       "cue": "amz_intro",
       "kind": "intro"
     },
     {
-      "start": 2,
+      "start": 3,
       "end": 20,
       "name": "Leadership Principles questions",
       "cue": "amz_behavioral",
@@ -60,21 +60,33 @@
     },
     {
       "start": 20,
-      "end": 24,
+      "end": 25,
       "name": "Read and clarify the coding problem",
       "cue": "amz_clarify",
-      "kind": "coding"
+      "kind": "coding",
+      "ends_on_edit": true,
+      "keeps_length": true
     },
     {
-      "start": 24,
-      "end": 40,
+      "start": 25,
+      "end": 50,
       "name": "Code it and talk it through",
       "cue": "amz_code",
-      "kind": "coding"
+      "kind": "coding",
+      "checks": [
+        {
+          "left": 10,
+          "cue": "amz_code_10"
+        },
+        {
+          "left": 5,
+          "cue": "amz_code_5"
+        }
+      ]
     },
     {
-      "start": 40,
-      "end": 45,
+      "start": 50,
+      "end": 60,
       "name": "Dry run, complexity, and your questions",
       "cue": "amz_wrap",
       "kind": "wrap",
@@ -82,12 +94,15 @@
     }
   ],
   "cues": {
-    "amz_intro": "Hi, thanks for joining. I'm an engineer on the team, and I'll be your interviewer today. We'll spend about twenty minutes on questions about your past experience, then do a coding problem. There's no AI in this round. You can run your code in the editor, but I care most about how you think, so talk me through it. To start, tell me a little about yourself.",
+    "amz_intro": "Hi, thanks for joining. I'm an engineer on the team, and I'll be your interviewer today. We have an hour: about fifteen minutes on your past experience, then a coding problem for most of the rest. There's no AI in this round. You can run your code in the editor, but I care most about how you think, so talk me through it. To start, tell me a little about yourself.",
     "amz_behavioral": "Thanks. Let's start with a few questions about your experience. Use specific examples, and tell me what you personally did.",
     "amz_clarify": "Thanks for those answers. Let's switch to coding. The problem is in the Problem tab and in README.md in your workspace. Take a minute to read it, and ask me anything that's unclear before you start.",
-    "amz_code": "Whenever you're ready, go ahead and code it in the editor, in fulfillment slash robot moves dot py. You can run the example tests or your own code as you go. Keep talking me through your approach as you go.",
-    "change": "Good. Let's extend it. I've added a follow-up to the Change tab: a forklift can now clear up to k shelves out of the robot's way. How does that change your search?",
-    "amz_wrap": "We're almost out of time. Walk me through your solution with the example, tell me the time and space complexity, and tell me what else you'd test. Then I'm happy to take any questions you have for me."
+    "amz_code": "We have about {left} minutes for coding. Whenever you're ready, go ahead and code it in the editor, in fulfillment slash robot moves dot py. You can run the example tests or your own code as you go. Keep talking me through your approach as you go.",
+    "change": "Okay. Let's extend it. I've added a follow-up to the Follow-up tab: a forklift can now clear up to k shelves out of the robot's way. How does that change your search?",
+    "amz_wrap": "We have about ten minutes left, so let's stop coding there. Walk me through your solution with the example, tell me the time and space complexity, and tell me what else you'd test. Then I'm happy to take any questions you have for me.",
+    "amz_code_10": "Quick time check: about ten minutes left for coding.",
+    "amz_code_5": "About five minutes left. Start wrapping up, so we have time to walk through it.",
+    "amz_wrap_early": "Okay, let's stop coding there. Walk me through your solution with the example, tell me the time and space complexity, and tell me what else you'd test. Then I'm happy to take any questions you have for me."
   },
   "closing_prompts": [
     "What's the time and space complexity of your solution?",

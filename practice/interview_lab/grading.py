@@ -918,6 +918,7 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         "submitted": datetime.now().isoformat(timespec="seconds"),
         "elapsed_minutes": round(elapsed / 60, 1),
         "change_revealed_at_minutes": None if revealed_at is None else round(revealed_at / 60, 1),
+        "timeline": time_breakdown(interview, state, elapsed),
         "tests": {
             "grading": summary(runs["hidden"]),
             "grading_by_area": tests["by_area"],
@@ -965,6 +966,96 @@ def latest_report(interview: Interview, home: Path) -> Tuple[Optional[Dict[str, 
     return json.loads(reports[-1].read_text(encoding="utf-8")), reports[-1].parent
 
 
+def _cue_at(state: Dict[str, Any], *names: str) -> Optional[float]:
+    """When the interviewer first said one of these lines, in seconds into the session."""
+    kinds = {f"cue:{name}" for name in names}
+    times = [q["at"] for q in state.get("questions", []) if q.get("source") == "interviewer" and q.get("kind") in kinds]
+    return min(times) if times else None
+
+
+def time_breakdown(interview: Interview, state: Dict[str, Any], elapsed: float) -> Optional[Dict[str, Any]]:
+    """The Amazon rounds against the clock: how long each part took next to its planned length, how long each
+    Leadership Principles story ran, how long you coded, and what to change about your pacing."""
+    fmt = interview.meta.get("format")
+    if fmt not in ("amazon-final", "amazon-behavioral"):
+        return None
+    phases = interview.phases()
+    span = lambda phase: (phase["end"] - phase["start"]) if phase else None
+    find = lambda **match: next((p for p in phases if all(p.get(k) == v for k, v in match.items())), None)
+    final = fmt == "amazon-final"
+    lp_phase, wrap_phase = find(kind="behavioral"), find(kind="wrap")
+    clarify_phase, code_phase = find(cue="amz_clarify"), find(cue="amz_code")
+    answers = [a for a in state.get("behavioral", {}).get("answers", []) if a.get("asked_at") is not None]
+    problem_at = _cue_at(state, "amz_clarify") if final else None
+    wrap_at = _cue_at(state, *(["amz_wrap", "amz_wrap_early"] if final else [wrap_phase["cue"]] if wrap_phase and wrap_phase.get("cue") else []))
+    coding = state.get("coding") or {}
+    first_edit, done = coding.get("first_edit"), (coding.get("done") or [None])[-1]
+    followup_at = state.get("change_revealed_at")
+    minutes = lambda seconds: round(seconds / 60, 1)
+    parts: List[Dict[str, Any]] = []
+
+    def part(label: str, start: Optional[float], stop: Optional[float], planned: Optional[float]) -> None:
+        if start is not None:
+            parts.append({"part": label, "start": minutes(start), "minutes": minutes(max(0.0, (elapsed if stop is None else stop) - start)), "planned": planned})
+
+    lp_start = answers[0]["asked_at"] if answers else None
+    lp_stop = problem_at if final else wrap_at
+    part("Introductions", 0.0, lp_start if lp_start is not None else lp_stop, span(phases[0]) if phases and phases[0].get("kind") == "intro" else None)
+    part("Leadership Principles", lp_start, lp_stop, span(lp_phase))
+    coding_minutes = None
+    if final and problem_at is not None:
+        part("Reading and clarifying", problem_at, first_edit if first_edit is not None else wrap_at, span(clarify_phase))
+        if first_edit is not None:
+            stop = wrap_at if wrap_at is not None else done
+            change_at = interview.meta.get("change_at_minutes")
+            if followup_at is not None and followup_at > first_edit and (stop is None or followup_at < stop) and code_phase and change_at is not None:
+                part("Coding the problem", first_edit, followup_at, change_at - code_phase["start"])
+                part("The follow-up", followup_at, stop, code_phase["end"] - change_at)
+            else:
+                part("Coding", first_edit, stop, span(code_phase))
+            coding_minutes = minutes((elapsed if stop is None else stop) - first_edit)
+    part("Dry run and your questions" if final else "Your questions", wrap_at, None, span(wrap_phase))
+
+    plan = state.get("behavioral", {}).get("plan") or []
+    share = span(lp_phase) / max(1, len(plan)) if lp_phase and plan else None
+    stories = []
+    for i, answer in enumerate(answers):
+        stop = answers[i + 1]["asked_at"] if i + 1 < len(answers) else lp_stop
+        stories.append({"lp": answer.get("lp"), "minutes": minutes((elapsed if stop is None else stop) - answer["asked_at"]), "followups": max(0, len(answer.get("prompts", [])) - 1)})
+
+    notes: List[str] = []
+    if final:
+        if problem_at is None:
+            notes.append("The round ended before the coding problem. Keep each story to its share of the questions' time, so you reach the code.")
+        elif first_edit is None:
+            notes.append("You didn't write any code in the editor.")
+        else:
+            lag = (first_edit - problem_at) / 60
+            asked = [q for q in state.get("questions", []) if q.get("source") != "interviewer" and problem_at <= q["at"] <= first_edit]
+            if lag > 7:
+                notes.append(f"You started coding {lag:.0f} minutes after the problem appeared. Clarify for 3–5 minutes, then start: you can keep asking as you code.")
+            elif lag < 1 and not asked:
+                notes.append("You started coding within a minute of seeing the problem, without a clarifying question. Ask two or three first (input size, ties, edge cases).")
+            budget = span(code_phase)
+            if budget and coding_minutes is not None and coding_minutes > budget + 2:
+                notes.append(f"Coding took {coding_minutes:.0f} minutes, past the {budget} planned. Get a simple version working first, then improve it, so you're never out of time with nothing that runs.")
+            elif budget and coding_minutes is not None and wrap_at is not None and coding_minutes < budget * 0.6:
+                notes.append(f"You finished coding in {coding_minutes:.0f} minutes, well inside the {budget} planned. Use spare time to test edge cases out loud.")
+        if problem_at is not None and wrap_at is None:
+            notes.append("The round never reached the dry run and your questions. Leave the last 5–10 minutes for them.")
+        elif wrap_at is not None and (elapsed - wrap_at) / 60 < 3:
+            spent = (elapsed - wrap_at) / 60
+            amount = "Less than a minute" if spent < 1 else "Only about a minute" if spent < 1.5 else f"Only {spent:.0f} minutes"
+            notes.append(f"{amount} went to the dry run and your questions; aim for 5–10.")
+    for story in stories:
+        if share and story["minutes"] > share + 1.5:
+            notes.append(f"Your {story['lp'] or 'first'} story took {story['minutes']:.0f} minutes, past its share of about {share:.0f}. Lead with a two-minute STAR answer and let the follow-ups add detail.")
+    if not notes:
+        notes.append("Your pacing kept to the plan.")
+    return {"duration": interview.meta.get("duration_minutes"), "parts": parts, "stories": stories, "story_share": None if share is None else round(share, 1),
+            "coding_minutes": coding_minutes, "notes": notes}
+
+
 def render_markdown(report: Dict[str, Any]) -> str:
     grading = report["tests"]["grading"]
     lines = [f"# {report['title']}: session report", "", f"Submitted {report['submitted']} after {report['elapsed_minutes']} minutes.", "",
@@ -975,6 +1066,11 @@ def render_markdown(report: Dict[str, Any]) -> str:
     if own:
         lines.append(f"- Your tests: {own['passed']} passed, {own['failed']} failed, {own['errors']} errors.")
     lines.append(f"- New tests you wrote: {report['tests']['your_new_tests']}; of those, catching starter bugs: {report['tests']['your_tests_that_catch_starter_bugs']}.")
+    timeline = report.get("timeline")
+    if timeline:
+        lines += ["", "## Time", "", "| Part | Took | Planned |", "|---|---|---|"]
+        lines += [f"| {p['part']} | {p['minutes']} min | {p['planned'] if p['planned'] is not None else '–'} min |" for p in timeline["parts"]]
+        lines += [""] + [f"- {note}" for note in timeline["notes"]]
     lines += ["", "## Scores", "", "| Area | Score |", "|---|---|"]
     lines += [f"| {s['label']} | {s['score'] if s['score'] is not None else 'not observed'} |" for s in report["scores"]]
     lines += ["", "## Evidence", ""]

@@ -142,8 +142,8 @@ function renderModeToggles() {
 function renderProblemTiles() {
   $("problem-cards").innerHTML = interviews.filter(i => i.format === "problem").map(i => {
     const score = i.last_score;
-    const status = i.status === "running" || i.status === "paused" ? `<span class="mid">● In progress</span>${i.mode === "coach" ? " · coach" : ""}`
-      : score !== null && score !== undefined ? `<span class="${score === 100 ? "done" : score >= 60 ? "mid" : "low"}">${score === 100 ? "✓" : "●"} Last: <b>${score}%</b></span>${i.last_mode === "coach" ? " · coach" : " · real"}`
+    const status = i.status === "running" || i.status === "paused" ? `<span class="mid">In progress</span>${i.mode === "coach" ? " · coach" : ""}`
+      : score !== null && score !== undefined ? `<span class="${score === 100 ? "done" : score >= 60 ? "mid" : "low"}">Last <b>${score}%</b></span>${i.last_mode === "coach" ? " · coach" : " · real"}`
       : "Not tried yet";
     return `<button class="ptile${i.id === current ? " selected" : ""}" role="listitem" data-id="${escapeHtml(i.id)}">
       <div class="ptile-top"><span class="pnum">#${i.number}</span><span class="diff ${escapeHtml(i.difficulty)}">${escapeHtml(i.difficulty)}</span></div>
@@ -215,8 +215,11 @@ function renderPhases(session) {
   $("change-tick").hidden = session.change_at === null;
   if (session.change_at !== null) $("change-tick").style.left = `calc(${(session.change_at / session.duration) * 100}% - 1px)`;
   const phase = session.phases[Math.min(session.phase, session.phases.length - 1)];
-  $("phase-pill").innerHTML = session.state.status === "submitted" ? "Submitted" : session.phase >= session.phases.length ? "<b>Overtime</b> · wrap up and submit" : `<b>Phase ${session.phase + 1}/${session.phases.length}</b> · ${escapeHtml(phase.name)}`;
+  $("phase-pill").innerHTML = session.state.status === "submitted" ? "Submitted" : session.phase >= session.phases.length ? "<b>Overtime</b> · wrap up and submit" : `<b>Phase ${session.phase + 1}/${session.phases.length}</b> · ${escapeHtml(phase.name)}<span class="part-left" id="part-left"></span>`;
 }
+
+// When this part of the interview really ends: the plan's time, unless it started early and keeps its own length.
+const partEnd = session => (session.bounds && session.bounds[session.phase] ? session.bounds[session.phase][1] : (session.phases[session.phase] || {}).end);
 
 function renderTimer() {
   if (!latest || !latest.session.started) return;
@@ -231,7 +234,14 @@ function renderTimer() {
   timer.classList.toggle("paused", status === "paused");
   timer.classList.toggle("warn", status === "running" && remaining > 0 && remaining <= 300);
   timer.classList.toggle("over", status !== "submitted" && remaining <= 0);
-  $("timer-status").textContent = status === "paused" ? "⏸ paused" : status === "submitted" ? "✓ submitted · you can keep working and resubmit" : remaining > 0 ? `${clock(remaining)} left` : "time is up · submit when ready";
+  $("timer-status").textContent = status === "paused" ? "Paused" : status === "submitted" ? "Submitted · you can keep working and resubmit" : remaining > 0 ? `${clock(remaining)} left` : "time is up · submit when ready";
+  // The time left in this part of the interview (see partEnd).
+  const part = session.phases[session.phase], partLeft = $("part-left");
+  if (partLeft && part && status !== "submitted") {
+    const left = partEnd(session) * 60 - elapsed;
+    partLeft.textContent = left > 0 ? `${clock(left)} left` : "over time";
+    partLeft.classList.toggle("low", left <= 120);
+  }
   if (status === "running" && session.change_at !== null && session.state.change_revealed_at === null && elapsed >= session.change_at && !renderTimer.asked) {
     renderTimer.asked = true;
     refresh().finally(() => { renderTimer.asked = false; });
@@ -423,14 +433,14 @@ function renderQuestions(questions, spoken = []) {
     if (answer) return you(answer, at, "", "answer · ");
     if (said) return you(said, at, "said", "said aloud · ");
     const divider = q.section ? sectionDivider(q.section) : "";
-    if (q.source === "coach-ai") return you(q.question, at, "", q.voice ? "🎙 " : "") + divider + them(q.answer, q.mode === "real" ? "Interviewer · Claude" : "Coach · Claude", q.mode === "real" ? "" : "coach");
+    if (q.source === "coach-ai") return you(q.question, at, "", q.voice ? "voice · " : "") + divider + them(q.answer, q.mode === "real" ? "Interviewer · Claude" : "Coach · Claude", q.mode === "real" ? "" : "coach");
     if (divider && q.source === "interviewer") return divider + them(q.answer, `Interviewer · ${clock(at)}`);
     if (q.source === "interviewer") {
       const kind = (q.kind || "").startsWith("hint") || q.kind === "coach-ai:hint" ? "hint" : (q.kind || "").startsWith("coach") || q.kind === "approach" ? "coach" : "cue";
       const label = kind === "hint" ? "Hint" : q.kind === "approach" ? "Approach" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer";
       return q.kind === "approach" ? `<div class="msg them coach"><div class="avatar">IV</div><div><div class="bubble md">${markdown(q.answer)}</div><div class="meta">${label} · ${clock(at)}</div></div></div>` : them(q.answer, `${label} · ${clock(at)}`, kind);
     }
-    return you(q.question, at, "", q.voice ? "🎙 " : "") + them(q.answer, `${q.source === "api" ? "API interviewer" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer"}${q.topic ? " · " + escapeHtml(q.topic) : ""}`);
+    return you(q.question, at, "", q.voice ? "voice · " : "") + them(q.answer, `${q.source === "api" ? "API interviewer" : latest && latest.session.state.mode === "coach" && latest.interview.format === "problem" ? "Coach" : "Interviewer"}${q.topic ? " · " + escapeHtml(q.topic) : ""}`);
   }).join("");
   $("questions").scrollTop = $("questions").scrollHeight;
 }
@@ -533,7 +543,7 @@ async function saveCode(force = false) {
   try {
     const result = await call("/api/file", { path: code.path, content: codeValue(), mtime: force ? null : code.mtime });
     code.mtime = result.mtime; code.dirty = false;
-    $("saved").textContent = "✓ Saved";
+    $("saved").textContent = "Saved";
     markCodeTab();
     return true;
   } catch (e) {
@@ -643,7 +653,7 @@ function renderPop(questions, spoken) {
       if (q.kind === "approach") return `<button type="button" class="pop-line them pop-link" data-open-tab="interviewer"><small>Approach</small>The full approach is in the Interviewer tab. Open it</button>`;
       return divider + popLine(hint ? "them hint" : "them", q.answer, hint ? "Hint" : who);
     }
-    return popLine("you", q.question, q.voice ? "🎙 You" : "") + divider + popLine("them", q.answer, q.source === "api" ? "API interviewer" : who);
+    return popLine("you", q.question, q.voice ? "You · voice" : "You") + divider + popLine("them", q.answer, q.source === "api" ? "API interviewer" : who);
   }).join("") : `<p class="pop-empty">${coachNow() ? "Your coach's replies show up here. Ask anything, or ask for a hint." : "The interviewer's replies show up here. Type below or turn on the mic."}</p>`;
   const replies = questions.filter(q => q.answer && q.kind !== "approach");
   pop.lastReply = replies.length ? replies[replies.length - 1].answer : "";
@@ -685,7 +695,7 @@ async function coachChat(body, path = "api/coach") {
   const live = $("pop-text");
   const empty = $("pop-log").querySelector(".pop-empty");
   if (empty) empty.remove();
-  live.innerHTML = (body.message && body.trigger === undefined ? popLine("you", body.message, body.voice ? "🎙 You" : "") : "")
+  live.innerHTML = (body.message && body.trigger === undefined ? popLine("you", body.message, body.voice ? "You · voice" : "You") : "")
     + `<div class="pop-line them${body.trigger === "hint" ? " hint" : ""}"><small>${body.trigger === "hint" ? "Hint" : coachNow() ? "Coach" : "Interviewer"}</small><span class="pop-stream"><span class="typing"><i></i><i></i><i></i></span></span></div>`;
   const stream = live.querySelector(".pop-stream");
   popHeader("typing…");
@@ -835,6 +845,8 @@ function render(data) {
   $("ide-mode").hidden = !isProblem;
   $("hint").hidden = !isProblem || !info.hint_count;
   $("show-approach").hidden = !isProblem || !(data.session.started && data.session.state.mode === "coach");
+  const phaseKind = data.session.started ? (data.session.phases[data.session.phase] || {}).kind : null;
+  $("done-coding").hidden = !(info.format === "amazon-final" && data.session.started && data.session.state.status === "running" && phaseKind === "coding");
   renderModeToggles();
   renderFlow(info);
   renderResumePanel(data);
@@ -885,7 +897,7 @@ function render(data) {
       $("change-new").hidden = false;
       if (render.announced !== current) {
         render.announced = current;
-        if (session.state.change_reveal_reason) { toast("⚡ Requirement change revealed. Open the Change tab."); showTab("change"); }
+        if (session.state.change_reveal_reason) { toast(session.state.change_reveal_reason === "solved" || session.state.change_reveal_reason === "done" || info.format === "amazon-final" ? "The interviewer added a follow-up: see the Follow-up tab." : "Requirement change revealed: see the Change tab."); showTab("change"); }
       }
     }
   } else {
@@ -1097,9 +1109,12 @@ async function behavioralDone() {
   if (behavioralNext.done || !flow || flow.question < (flow.plan || []).length) return;   // not when an answer is still owed
   behavioralNext.done = true;
   if (latest.interview.format === "amazon-final") {
-    const line = "Thanks, that's all the behavioral questions I have. We'll move to the coding problem shortly.";
-    toast(line);
-    say(line);
+    const phases = latest.session.phases || [], next = phases[phases.findIndex(p => p.kind === "behavioral") + 1];
+    try {
+      const { entry } = next && next.cue ? await call("/api/move-on", { cue: next.cue }) : { entry: null };
+      await refresh();
+      if (entry) say(entry.answer);
+    } catch (e) { toast(e.message); }
     return;
   }
   const wrap = (latest.session.phases || []).find(p => p.kind === "wrap");
@@ -1111,7 +1126,8 @@ async function behavioralDone() {
 // Principles part of the Amazon rounds): everything you say adds up until you press Enter, then the interviewer replies.
 const turn = { parts: [], interim: "" };
 const conversationRound = () => !!latest && ["amazon-behavioral", "resume"].includes(latest.interview.format);
-const answeringNow = () => !!latest && latest.session.started && latest.session.state.status === "running" && !inLobby && (conversationRound() || behavioralNow());
+const answeringNow = () => !!latest && latest.session.started && latest.session.state.status === "running" && !inLobby
+  && (conversationRound() || behavioralNow() || (phaseNow().kind === "intro" && !!lpPhase()));
 const turnText = () => [...turn.parts, turn.interim].join(" ").replace(/\s+/g, " ").trim();
 const idleVoiceText = () => (conversationRound() || answeringNow()
   ? "Press the mic and answer out loud. When you're done, press Enter and the interviewer replies."
@@ -1180,17 +1196,17 @@ async function askInterviewer(text, spoken) {
   } catch (e) { toast(e.message); }
 }
 
-// The behavioral round opens with "tell me about yourself". When you finish, the interviewer moves on to its questions,
+// The Amazon rounds open with "tell me about yourself". When you finish, the interviewer moves on to its questions,
 // even before the clock gets there.
-const lpPhase = () => (latest.session.phases || []).find(p => p.kind === "behavioral");
+const lpPhase = () => (latest && latest.session.started ? latest.session.phases || [] : []).find(p => p.kind === "behavioral");
 function introPending() {
-  const lp = lpPhase(), flow = latest.session.state.behavioral || {};
-  return latest.interview.format === "amazon-behavioral" && !!lp && !!lp.cue && !(flow.question >= 0) && !(latest.session.state.cues || []).includes(lp.cue);
+  const phases = latest.session.phases || [], lp = lpPhase(), flow = latest.session.state.behavioral || {};
+  return !!phases[0] && phases[0].kind === "intro" && !!lp && !!lp.cue && !(flow.question >= 0) && !(latest.session.state.cues || []).includes(lp.cue);
 }
 async function handOff() {
   const lp = lpPhase();
   if (claudeBehavioral()) return behavioralNext({ cue: lp.cue });   // Claude picks up on your introduction, then asks question 1
-  try { const { entry } = await call("/api/cue", { cue: lp.cue }); if (entry) say(entry.answer); } catch (e) { toast(e.message); return; }
+  try { const { entry } = await call("/api/move-on", { cue: lp.cue }); if (entry) say(entry.answer); } catch (e) { toast(e.message); return; }
   return behavioralNext();
 }
 
@@ -1288,6 +1304,7 @@ async function cues(session) {
   const wanted = [];
   const phase = session.phases[session.phase];
   if (phase && phase.cue) wanted.push(phase.cue);
+  for (const check of (phase && phase.checks) || []) if (partEnd(session) * 60 - session.elapsed <= check.left * 60) wanted.push(check.cue);
   if (session.change) wanted.push("change");
   for (const name of wanted) {
     if ((session.state.cues || []).includes(name) || cues.pending.has(name)) continue;
@@ -1325,6 +1342,15 @@ function renderReport(report) {
   const lpSection = lps.length ? `<h3 class="section-title">Leadership Principles, story by story</h3>
     <div class="box"><table class="lp-table">${lps.map(l => `<tr><td class="lp">${escapeHtml(l.lp || "Story")}<div class="q">${escapeHtml(l.question)}</div></td><td class="n" style="color:${lpColor(l.score)}">${l.score}/5</td><td>${l.missing.length ? "Missing: " + escapeHtml(l.missing.join("; ")) : "Hit every signal."}</td></tr>`).join("")}</table></div>` : "";
   const lpAverage = lps.length ? lps.reduce((sum, l) => sum + l.score, 0) / lps.length : 0;
+  const tl = report.timeline;
+  const delta = p => (p.planned === null ? "" : p.minutes - p.planned >= 1 ? `+${(p.minutes - p.planned).toFixed(1)}` : p.planned - p.minutes >= 1 ? `−${(p.planned - p.minutes).toFixed(1)}` : "on plan");
+  const timeSection = tl && tl.parts.length ? `<h3 class="section-title">Time</h3>
+    <div class="box time-box">
+      <div class="time-bar" aria-hidden="true">${tl.parts.map(p => `<span class="${p.planned !== null && p.minutes > p.planned + 1 ? "over" : ""}" style="width:${Math.max(1.5, (p.minutes / tl.duration) * 100)}%" title="${escapeHtml(p.part)}: ${p.minutes} min"></span>`).join("")}</div>
+      <table class="time-table">${tl.parts.map(p => `<tr class="${p.planned !== null && p.minutes > p.planned + 1 ? "over" : ""}"><td>${escapeHtml(p.part)}</td><td class="n">${p.minutes} min</td><td class="planned">${p.planned === null ? "" : `planned ${p.planned}`}</td><td class="delta">${delta(p)}</td></tr>`).join("")}</table>
+      ${tl.stories.length ? `<p class="time-stories">Stories: ${tl.stories.map(s => `${escapeHtml(s.lp || "Story")} <b>${s.minutes} min</b>`).join(" · ")}${tl.story_share ? ` · about ${tl.story_share} min each planned` : ""}</p>` : ""}
+      <ul class="time-notes">${tl.notes.map(n => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
+    </div>` : "";
   const resumeRound = !!(latest && latest.interview.id === report.interview && latest.interview.format === "resume") || report.scores.some(s => s.area === "walkthrough");
   const scoreColor = n => (n >= 4 ? "var(--green)" : n >= 3 ? "var(--amber)" : "var(--red)");
   const resumeSummary = resumeRound ? `
@@ -1356,9 +1382,11 @@ function renderReport(report) {
         <p class="eyebrow">Session report</p>
         <h2>${t.grading.passed} of ${t.grading.total} grading tests passed</h2>
         <p>Average rubric score <b>${average}</b> across ${scored.length} observed area${scored.length === 1 ? "" : "s"} · ${report.elapsed_minutes} min · requirement change ${report.change_revealed_at_minutes === null ? "not revealed" : `at ${report.change_revealed_at_minutes} min`}</p>
-        <div class="chips">${chips}<span class="chip">Your new tests <b>${t.your_new_tests}</b></span><span class="chip">Catch starter bugs <b>${t.your_tests_that_catch_starter_bugs}</b></span>${t.your_tests ? `<span class="chip">Your suite <b>${t.your_tests.passed}/${t.your_tests.total}</b></span>` : ""}</div>
+        <div class="chips">${chips}${tl && tl.coding_minutes !== null ? `<span class="chip">Coding <b>${tl.coding_minutes} min</b></span>` : ""}<span class="chip">Your new tests <b>${t.your_new_tests}</b></span><span class="chip">Catch starter bugs <b>${t.your_tests_that_catch_starter_bugs}</b></span>${t.your_tests ? `<span class="chip">Your suite <b>${t.your_tests.passed}/${t.your_tests.total}</b></span>` : ""}</div>
       </div>
     </section>`) + `
+
+    ${timeSection}
 
     <h3 class="section-title">Rubric</h3>
     <div class="scores">${report.scores.map(s => `
@@ -1544,6 +1572,15 @@ function wire() {
     const reset = confirm("Also reset the workspace to the starter? Your changed and added files are moved to .practice-backup in the workspace, not deleted.\n\nOK = reset the workspace, Cancel = keep your files.");
     try { changeSeen = false; render.announced = null; behavioralNext.done = false; turn.parts = []; turn.interim = ""; render(await call("/api/start", { reset, mode: latest && latest.session.state.mode || lobbyMode })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
   };
+  // Done coding: the interviewer's follow-up comes next if it hasn't yet, then the dry run and your questions.
+  $("done-coding").onclick = async () => {
+    try {
+      const data = await call("/api/done", {});
+      await refresh();
+      if (data.entry) say(data.entry.answer);   // the follow-up's own line comes from cues(), as it would on the clock
+      if (data.next === "wrap") toast("On to the dry run and your questions.");   // a follow-up announces itself
+    } catch (e) { toast(e.message); }
+  };
   $("pause").onclick = async () => { try { render(await call("/api/pause", {})); toast("Paused. Paused time doesn't count."); } catch (e) { toast(e.message); } };
   $("resume").onclick = async () => { try { render(await call("/api/resume", {})); } catch (e) { toast(e.message); } };
   $("reveal").onclick = async () => {
@@ -1611,7 +1648,7 @@ function wire() {
       $("saved").textContent = "Saving…";
       clearTimeout(timers[area.dataset.note]);
       timers[area.dataset.note] = setTimeout(async () => {
-        try { await call("/api/note", { field: area.dataset.note, text: area.value }); $("saved").textContent = "✓ Saved"; }
+        try { await call("/api/note", { field: area.dataset.note, text: area.value }); $("saved").textContent = "Saved"; }
         catch (e) { $("saved").textContent = "Not saved: " + e.message; }
       }, 600);
     });

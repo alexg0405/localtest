@@ -16,8 +16,8 @@ key. It runs on macOS, Linux, and Windows.
 | `commerce-orders` | An order service with double charges, a missing order in the history, and no cancel. Inspired by high-volume commerce teams such as Amazon. | Idempotency, partial-failure rollback, retries, pagination |
 | `banking-ledger` | A batch ledger over a synthetic transaction feed. Balances are off by a cent, events are applied twice, and bad events slip through. Inspired by banking teams such as Capital One. | Integer-cent money, duplicate events, validation, UTC reporting |
 | `unfamiliar-repo` | You're on call for a nightly import in a codebase nobody on the team wrote, and the job has started failing. | Diagnosis, a focused fix, regression tests, reviewing an AI patch |
-| `amazon-final-1` | Amazon SDE intern final round 1 (45 min, no AI): two Leadership Principles questions with follow-ups, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | STAR stories, hash maps and heaps, complexity, testing |
-| `amazon-final-2` | Amazon SDE intern final round 2 (45 min, no AI): two different Leadership Principles, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, testing |
+| `amazon-final-1` | Amazon SDE intern final round 1 (60 min, no AI): two Leadership Principles questions with follow-ups, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | STAR stories, hash maps and heaps, complexity, testing |
+| `amazon-final-2` | Amazon SDE intern final round 2 (60 min, no AI): two different Leadership Principles, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, testing |
 | `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
 | `resume-deep-dive` | Résumé deep dive (30 min): Claude plays an Amazon engineer interviewing you for the SDE internship, who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks two Leadership Principles questions in their own section, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups, STAR stories |
 
@@ -297,6 +297,31 @@ two back-to-back 45–60 minute rounds. Each round has 15–30 minutes of Leader
 Principles questions with probing follow-ups, then one business-framed coding
 problem at about LeetCode-medium difficulty in a plain shared editor, where you
 explain your approach, give the complexity, and dry-run your code by hand.
+The lab's two rounds run 60 minutes each:
+
+| Minutes | What happens |
+|---|---|
+| 0–3 | Introductions: press Enter after "tell me about yourself" and the questions start. |
+| 3–20 | Two Leadership Principles questions with follow-ups. |
+| 20–25 | Read the coding problem and ask clarifying questions. |
+| 25–50 | Code it and talk it through. The follow-up comes at minute 42, or as soon as your tests pass. |
+| 50–60 | Dry-run your code, give the complexity, and ask your questions. |
+
+**The interviewer keeps the clock**, the way a real one does:
+- The top bar shows the part you're in and the time left in it (amber in the last two minutes).
+- If a story runs past its share of the questions' time, the interviewer skips its remaining follow-ups
+  ("In the interest of time, let's move on") so both questions fit. The last question keeps its
+  follow-ups until minute 20.
+- Finish a part early and the interviewer moves on. The coding problem comes as soon as the questions
+  run out. Reading the problem keeps its five minutes, and the coding part gets the time you saved
+  ("We have about 31 minutes for coding"). Start typing while you read, and the coding part starts
+  then.
+- While you code, it gives a time check with 10 and 5 minutes left.
+- **Done coding** (top bar) tells the interviewer you're done. The follow-up comes next if it hasn't
+  yet; after it, you go straight to the dry run and your questions.
+- The report has a **Time** section: how long each part took against the plan, how long you spent
+  coding, how long each story ran, and notes on your pacing (for example, how long you took to start
+  coding after the problem appeared).
 
 These rounds differ from the other three:
 - **No AI.** Amazon asks candidates not to use GenAI tools in interviews unless
@@ -360,8 +385,8 @@ These rounds differ from the other three:
 
   Reusing one story for several principles is marked down, as an interviewer
   would. The report includes a table with one row per principle.
-- **A follow-up at minute 33** in the coding rounds, instead of a requirement
-  change.
+- **A follow-up at minute 42** in the coding rounds (or as soon as your tests
+  pass), instead of a requirement change.
 
 The flow is modeled on candidate reports, not official Amazon material, and
 every loop differs. The questions are original. Sources:

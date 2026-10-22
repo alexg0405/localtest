@@ -44,7 +44,7 @@ Common mistakes:
 - Treating `P` or `D` as blocked.
 - Forgetting several stations.
 
-## Follow-up at minute 33
+## Follow-up at minute 42 (or once the tests pass)
 
 `min_moves(grid, clears=0)`: the robot may pass through up to `clears` shelves.
 The fix is to make the BFS state `(row, col, clears_left)` and keep a visited

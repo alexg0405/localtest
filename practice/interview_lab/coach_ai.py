@@ -150,6 +150,12 @@ def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, e
     used = len(state.get("hints", []))
     coach = state.get("mode") == "coach"
     you = "Coach" if coach else "Interviewer"
+    # The clock as an interviewer keeps it: time left in this phase, and how long they've been coding.
+    end = next((p["end"] for p in interview.phases() if p["name"] == phase), None)
+    timing = f" (about {max(0, round(end - elapsed / 60))} minutes left in it)" if end is not None else ""
+    first_edit = (state.get("coding") or {}).get("first_edit")
+    if first_edit is not None:
+        timing += f". They started coding at minute {first_edit / 60:.0f}, {max(0, round((elapsed - first_edit) / 60))} minutes ago"
     history: List[str] = []
     events = [(q["at"], q) for q in state.get("questions", [])] + [(s["at"], {"spoken": s["text"]}) for s in state.get("spoken", [])]
     for _, item in sorted(events, key=lambda pair: pair[0])[-24:]:
@@ -204,7 +210,7 @@ Hint ladder (for you only; give a level only when asked for a hint; {used} of {l
 Follow-up questions for the wrap-up (ask one at a time, only in the last phase):
 {followups or '- (none)'}
 
-Session: minute {elapsed / 60:.0f} of {interview.meta.get('duration_minutes', 35)}, phase "{phase}".
+Session: minute {elapsed / 60:.0f} of {interview.meta.get('duration_minutes', 35)}, phase "{phase}"{timing}. If time is running short, say so plainly and help them prioritize, as an interviewer keeping the clock would.
 
 Candidate's current code:
 {chr(10).join(code_parts) or '(empty)'}
@@ -346,6 +352,10 @@ def build_behavioral_prompt(interview: Interview, state: Dict[str, Any], resume_
     listed = "\n".join(f"{i + 1}. [{item.get('lp') or 'Behavioral'}] {_plain_question(item)}" for i, item in enumerate(asked))
     section = next((p for p in interview.phases() if p.get("kind") == "behavioral"), None)
     clock = f"minute {minutes:.0f} of {duration}" + (f"; the questions run until minute {section['end']}" if section else "")
+    if step.get("seconds_left") is not None:
+        left = step["seconds_left"] / 60
+        clock += (f"; about {left:.0f} minute{'' if round(left) == 1 else 's'} left for this question, so keep it moving" if left >= 1
+                  else "; this question's time is nearly up, so keep this short")
     index, item = step["index"], step["item"]
     answers = state.get("behavioral", {}).get("answers", [])
     if step["kind"] == "behavioral:followup":
@@ -357,10 +367,13 @@ def build_behavioral_prompt(interview: Interview, state: Dict[str, Any], resume_
     else:
         question = _plain_question(item)
         if opening and index == 0:
-            ask = ("They just finished introducing themselves (their last lines above). Acknowledge it in a few words, naming one specific thing they said, "
+            ask = ("They just finished introducing themselves (their last lines above). Acknowledge it in a few neutral words (not \"nice\" or \"great\"), naming one specific thing they said, "
                    f"say you'll move on to some questions about situations they've been in, then ask question 1 in your own words: \"{question}\"")
         elif index == 0:
             ask = f"You've just told them you're starting the questions. Ask question 1 in your own words, without another greeting: \"{question}\""
+        elif step.get("hurried"):
+            ask = (f"Their story for question {index} has used its share of the time, so you're moving on before the remaining follow-ups. Say so in a few "
+                   f"words, as interviewers do (\"In the interest of time, let's move on.\"), then ask question {index + 1} in your own words: \"{question}\"")
         else:
             ask = (f"They've finished their story for question {index}. Move on with a short, natural transition (a few words, without judging their answer), "
                    f"then ask question {index + 1} in your own words: \"{question}\"")

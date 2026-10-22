@@ -1,6 +1,6 @@
 # Amazon SDE intern final round 1 (practice)
 
-This simulates one 45-minute Amazon final-round interview. Recent intern final
+This simulates one 60-minute Amazon final-round interview. Recent intern final
 rounds (Summer 2026 and Winter 2027 cycles) follow the same shape: Leadership
 Principles questions with deep follow-ups, then one coding problem in a plain
 shared editor.
@@ -9,11 +9,11 @@ shared editor.
 
 | Minutes | What happens |
 |---|---|
-| 0–2 | Introductions. The interviewer asks you to introduce yourself. |
-| 2–20 | Two Leadership Principles questions, each with three follow-ups. They change every session. Answer out loud with the mic, or in the chat. |
-| 20–24 | Read the coding problem below and ask clarifying questions. |
-| 24–40 | Code it and talk through your thinking. Partway through, the interviewer adds a follow-up. |
-| 40–45 | Dry-run your code on the example, give the time and space complexity, and ask the interviewer your questions. |
+| 0–3 | Introductions. The interviewer asks you to introduce yourself; press Enter when you're done and the questions start. |
+| 3–20 | Two Leadership Principles questions, each with up to three follow-ups. They change every session. Answer out loud with the mic, or in the chat. If a story runs long, the interviewer moves on to keep time. |
+| 20–25 | Read the coding problem below and ask clarifying questions. Start coding whenever you're ready. |
+| 25–50 | Code it and talk through your thinking. The interviewer gives a time check at 10 and 5 minutes left, and adds a follow-up at minute 42, or as soon as your tests pass. |
+| 50–60 | Dry-run your code on the example, give the time and space complexity, and ask the interviewer your questions. Press **Done coding** to get here early. |
 
 - **No AI.** Amazon tells candidates not to use generative AI tools during
   interviews unless explicitly permitted, so this round has no coding

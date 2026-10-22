@@ -199,7 +199,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             sessions = lab.sessions
             cue = str(body.get("cue") or "")
             if cue:
-                sessions.skip_cue(interview, cue)  # you finished early, so the interviewer moves on in its own words
+                sessions.move_on(interview, cue, quiet=True)  # you finished early, so the interviewer moves on in its own words
             before = sessions.load(interview.id) or {}
             step = sessions.behavioral_step(interview)
             self.send_response(200)
@@ -332,6 +332,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     if len(content) > 500_000:
                         raise ValueError("That file is too large.")
                     path.write_text(content, encoding="utf-8")
+                    if lab.sessions.load(interview.id):
+                        sessions.record_edit(interview)  # when you started coding, for the clock and the report
                     return self._json(200, {"saved": True, "mtime": path.stat().st_mtime})
                 elif action == "/api/run":
                     return self._json(200, self._run_snippet(interview, str(body.get("code", ""))))
@@ -342,6 +344,10 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     if body.get("claude"):
                         return self._behavioral(interview, body)
                     return self._json(200, {"entry": sessions.behavioral_next(interview)})
+                elif action == "/api/move-on":
+                    return self._json(200, {"entry": sessions.move_on(interview, str(body.get("cue", "")), str(body.get("say") or "") or None)})
+                elif action == "/api/done":
+                    return self._json(200, sessions.done_coding(interview))
                 elif action == "/api/followup":
                     return self._json(200, {"entry": sessions.follow_up(interview, str(body.get("phase", "")))})
                 elif action == "/api/test":
@@ -483,6 +489,10 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             if state:
                 lab.sessions.record_test_run(interview, summary(result))
                 lab.sessions.record_test_details(interview, result)
+                # Amazon rounds: once the example tests pass, the interviewer gives the follow-up without waiting for its minute.
+                passed = summary(result)
+                if interview.meta.get("format") == "amazon-final" and passed["passed"] and not passed["failed"] and not passed["errors"]:
+                    lab.sessions.reveal_when_solved(interview)
                 # With Claude available, the page asks the conversational coach instead of the scripted reaction.
                 if not (interview.meta.get("format") == "problem" and coach_ai.status()["available"]):
                     coach = lab.sessions.coach_on_tests(interview, result)

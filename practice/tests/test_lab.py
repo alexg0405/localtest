@@ -331,6 +331,115 @@ def test_a_skipped_cue_is_not_said_later(tmp_path):
         sessions.skip_cue(round_, "nonsense")
 
 
+def test_amazon_rounds_are_an_hour_with_time_checks_while_you_code():
+    for interview_id in ("amazon-final-1", "amazon-final-2"):
+        interview = get_interview(interview_id)
+        phases = interview.phases()
+        assert interview.meta["duration_minutes"] == 60 and phases[-1]["end"] == 60
+        assert all(a["end"] == b["start"] for a, b in zip(phases, phases[1:]))
+        code = next(p for p in phases if p.get("cue") == "amz_code")
+        assert code["start"] < interview.meta["change_at_minutes"] < code["end"] and [c["left"] for c in code["checks"]] == [10, 5]
+        cues = interviewer.cues_for(interview)
+        assert all(c["cue"] in cues for c in code["checks"]) and "amz_wrap_early" in cues and "60-minute" in interview.task()
+
+
+def test_a_long_story_gets_fewer_follow_ups_so_both_questions_fit(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    round1 = get_interview("amazon-final-1")
+    sessions.start(round1)
+    plan = sessions.load(round1.id)["behavioral"]["plan"]
+    now[0] = 3 * 60
+    first = sessions.behavioral_step(round1)
+    assert first["kind"] == "behavioral:question" and first["seconds_left"] == round((20 * 60 - 180) / 2)
+    sessions.record_behavioral_prompt(round1, first, first["text"])
+    sessions.record_answer(round1, "A long story.")
+    now[0] = 6 * 60
+    followup = sessions.behavioral_step(round1)
+    assert followup["kind"] == "behavioral:followup" and followup["text"] == plan[0]["followups"][0]
+    sessions.record_behavioral_prompt(round1, followup, followup["text"])
+    sessions.record_answer(round1, "More of it.")
+    now[0] = 12 * 60   # past the first story's share (8.5 minutes from minute 3)
+    second = sessions.behavioral_step(round1)
+    assert second["kind"] == "behavioral:question" and second["hurried"] and second["index"] == 1
+    assert second["text"] == "In the interest of time, let's move on. " + plan[1]["question"]
+    sessions.record_behavioral_prompt(round1, second, second["text"])
+    sessions.record_answer(round1, "The second story.")
+    now[0] = 19 * 60   # the last question keeps its follow-ups until the questions' time runs out
+    assert sessions.behavioral_step(round1)["kind"] == "behavioral:followup"
+    sessions.record_answer(round1, "Detail.")
+    now[0] = 20 * 60 + 5
+    assert sessions.behavioral_step(round1) is None
+    flow = sessions.load(round1.id)["behavioral"]
+    assert [a["asked_at"] for a in flow["answers"]] == [180, 720]
+
+
+def test_the_interviewer_moves_on_when_you_finish_a_part_early(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    round1 = get_interview("amazon-final-1")
+    sessions.start(round1)
+    names = [p["name"] for p in round1.phases()]
+    now[0] = 12 * 60   # the questions are done early: the coding problem comes now
+    entry = sessions.move_on(round1, "amz_clarify")
+    assert entry["kind"] == "cue:amz_clarify" and names[sessions.status(round1)["phase"]] == "Read and clarify the coding problem"
+    assert sessions.move_on(round1, "amz_clarify") is None
+    now[0] = 14 * 60   # you start coding while reading: the coding part starts, and "go ahead and code it" isn't said later
+    sessions.record_edit(round1)
+    state = sessions.load(round1.id)
+    assert names[sessions.status(round1)["phase"]] == "Code it and talk it through" and "amz_code" in state["cues"]
+    assert state["coding"] == {"first_edit": 840, "edits": 1, "last_edit": 840}
+    now[0] = 30 * 60   # the tests pass: the follow-up comes before its minute
+    assert sessions.reveal_when_solved(round1) and not sessions.reveal_when_solved(round1)
+    assert sessions.load(round1.id)["change_reveal_reason"] == "solved"
+    now[0] = 38 * 60   # done coding: on to the dry run and your questions, in words that fit finishing early
+    done = sessions.done_coding(round1)
+    assert done["next"] == "wrap" and done["entry"]["kind"] == "cue:amz_wrap_early" and names[sessions.status(round1)["phase"]].startswith("Dry run")
+    assert sessions.cue(round1, "amz_wrap") is None   # the clock's own wrap-up line isn't said on top of it
+
+
+def test_time_saved_early_goes_to_the_coding(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    round1 = get_interview("amazon-final-1")
+    sessions.start(round1)
+    now[0] = 12 * 60
+    sessions.move_on(round1, "amz_clarify")
+    status = sessions.status(round1)
+    assert status["bounds"][2] == [12, 17] and status["bounds"][3] == [17, 50]   # reading keeps its five minutes
+    now[0] = 17.5 * 60   # still reading when its time is up: the coding part has begun, with the time saved
+    assert round1.phases()[sessions.status(round1)["phase"]]["cue"] == "amz_code"
+    assert sessions.cue(round1, "amz_code")["answer"].startswith("We have about 32 minutes for coding.")
+
+
+def test_done_coding_before_the_follow_up_brings_the_follow_up(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    round1 = get_interview("amazon-final-1")
+    sessions.start(round1)
+    now[0] = 30 * 60
+    done = sessions.done_coding(round1)
+    state = sessions.load(round1.id)
+    assert done == {"next": "followup", "entry": None} and state["change_reveal_reason"] == "done" and state["coding"]["done"] == [1800]
+
+
+def test_the_report_times_each_part_against_the_plan(tmp_path):
+    round1 = get_interview("amazon-final-1")
+    plan = [{"lp": "Ownership", "question": "q1", "followups": []}, {"lp": "Bias for Action", "question": "q2", "followups": []}]
+    cue = lambda name, at: {"at": at, "source": "interviewer", "kind": f"cue:{name}", "answer": "", "question": ""}
+    state = {"questions": [cue("amz_intro", 0), cue("amz_clarify", 21 * 60), cue("amz_wrap", 50 * 60),
+                           {"at": 22 * 60, "source": "offline", "question": "Can k be zero?", "answer": "Yes."}],
+             "behavioral": {"plan": plan, "answers": [{"lp": "Ownership", "asked_at": 150, "prompts": ["q1", "f"]}, {"lp": "Bias for Action", "asked_at": 15 * 60, "prompts": ["q2"]}]},
+             "coding": {"first_edit": 31 * 60, "edits": 40}, "change_revealed_at": 42 * 60}
+    timeline = grading.time_breakdown(round1, state, 56 * 60)
+    parts = {p["part"]: (p["minutes"], p["planned"]) for p in timeline["parts"]}
+    assert parts == {"Introductions": (2.5, 3), "Leadership Principles": (18.5, 17), "Reading and clarifying": (10.0, 5),
+                     "Coding the problem": (11.0, 17), "The follow-up": (8.0, 8), "Dry run and your questions": (6.0, 10)}
+    assert timeline["coding_minutes"] == 19.0 and [s["minutes"] for s in timeline["stories"]] == [12.5, 6.0]
+    assert any("started coding 10 minutes after" in n for n in timeline["notes"]) and any("Ownership story took 12" in n for n in timeline["notes"])
+    assert grading.time_breakdown(get_interview("lru-cache"), state, 60) is None
+
+
 def test_leadership_scores_owned_specific_stories_above_vague_ones():
     round1 = get_interview("amazon-final-1")
     strong = ("Last summer during my internship I noticed our test suite took 40 minutes and nobody owned it. My goal was to get it under ten. "

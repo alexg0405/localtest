@@ -787,9 +787,35 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
             c.check("the grading prompt includes the Leadership Principles answers", "deploy script" in grading_prompt)
         feedback = _http(port, "/api/feedback", {"interview": interview.id})
         c.check("API feedback degrades gracefully with API mode off", feedback.get("api_error", {}).get("kind") == "off")
+        if amazon:
+            verify_amazon_clock(interview, port, c)
     finally:
         server.shutdown()
         server.server_close()
+
+
+def verify_amazon_clock(interview, port: int, c: Checker) -> None:
+    """The interviewer keeps an hour's clock: it moves on when you finish a part early, and the report times each part."""
+    state = lambda: _http(port, f"/api/state?interview={interview.id}")["session"]
+    phase = lambda: (lambda s: s["phases"][s["phase"]]["name"])(state())
+    _http(port, "/api/start", {"interview": interview.id, "reset": True})
+    entry = _http(port, "/api/move-on", {"interview": interview.id, "cue": "amz_clarify"})["entry"]
+    c.check("questions done early: the coding problem comes now", entry["kind"] == "cue:amz_clarify" and phase() == "Read and clarify the coding problem")
+    path = interview.meta["editor_files"][0]
+    loaded = _http(port, f"/api/file?interview={interview.id}&path={path}")
+    _http(port, "/api/file", {"interview": interview.id, "path": path, "content": (interview.solution / path).read_text(encoding="utf-8"), "mtime": loaded["mtime"]})
+    session = state()
+    c.check("starting to code while you read starts the coding part, without a late \"go ahead\"",
+            session["phases"][session["phase"]]["name"] == "Code it and talk it through" and "amz_code" in session["state"]["cues"] and session["state"]["coding"]["first_edit"] is not None)
+    _http(port, "/api/test", {"interview": interview.id})
+    c.check("passing tests bring the follow-up before its minute", state()["state"]["change_reveal_reason"] == "solved")
+    done = _http(port, "/api/done", {"interview": interview.id})
+    c.check("Done coding moves on to the dry run and your questions", done["next"] == "wrap" and done["entry"]["kind"] == "cue:amz_wrap_early" and phase().startswith("Dry run"))
+    report = _http(port, "/api/submit", {"interview": interview.id})["report"]
+    parts = [p["part"] for p in report["timeline"]["parts"]]
+    # Here the follow-up comes within the same second as the first edit, so coding may be one part instead of two.
+    c.check("the report times each part against the plan", parts[:2] == ["Introductions", "Reading and clarifying"] and parts[2] in ("Coding", "Coding the problem") and parts[-1] == "Dry run and your questions"
+            and report["timeline"]["coding_minutes"] is not None and report["timeline"]["notes"], ", ".join(parts))
 
 
 def run() -> int:

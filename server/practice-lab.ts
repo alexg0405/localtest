@@ -14,19 +14,22 @@ export const practiceUrl = (port = 8765) => `http://127.0.0.1:${port}/`;
 
 /** True when Interview Lab answers on the port. */
 export async function labRunning(url: string, fetcher: typeof fetch = fetch) {
-  try { const response = await fetcher(`${url}api/interviews`, { signal: AbortSignal.timeout(1500) }); return response.ok; } catch { return false; }
+  // Read the body: Node 24's fetch crashes the dev server when the lab closes the connection on an unread body.
+  try { const response = await fetcher(`${url}api/interviews`, { signal: AbortSignal.timeout(1500) }); await response.arrayBuffer(); return response.ok; } catch { return false; }
 }
 
 /**
  * Starts `practice/lab.py serve` in the background with Python 3.9+ (`py -3` on Windows, `python3` elsewhere), detached
- * so it outlives dev server restarts. False when there's no Python to run it.
+ * (except on Windows) so it outlives dev server restarts. False when there's no Python to run it.
  */
 export function startLab(root: string, port: number, python: string[] | null = findPython()) {
   if (!python) return false;
   const logs = join(homedir(), 'interview-practice', '.lab'); mkdirSync(logs, { recursive: true });
   const log = openSync(join(logs, 'dashboard.log'), 'a');
   const [command, ...args] = python;
-  const child = spawn(command, [...args, join(root, 'practice', 'lab.py'), 'serve', '--no-open', '--port', String(port)], { cwd: root, detached: true, stdio: ['ignore', log, log], windowsHide: true });
+  // On Windows a detached child gets its own console, which Windows Terminal shows despite windowsHide, so there the lab
+  // shares the dev server's console instead (and stops with it; the next start launches it again).
+  const child = spawn(command, [...args, join(root, 'practice', 'lab.py'), 'serve', '--no-open', '--port', String(port)], { cwd: root, detached: process.platform !== 'win32', stdio: ['ignore', log, log], windowsHide: true });
   child.on('error', () => undefined);
   child.unref();
   return true;

@@ -768,3 +768,23 @@ def test_full_amazon_interview_goes_from_one_resume_deep_dive_to_the_principles(
     assert depth >= 3 and "websockets" in evidence[1] and "race condition" in evidence[-1]
     _, lp_evidence, _ = grading._score_leadership(loop, state)
     assert len(lp_evidence) == 2 and all("StudySync" not in line for line in lp_evidence)   # the deep dive isn't scored as a principle
+
+
+def test_amazon_interviewer_questions_your_choices_while_you_code(tmp_path):
+    from interview_lab import coach_ai
+    loop = get_interview("amazon-full-loop")
+    workspace = create_workspace(loop, tmp_path)
+    (workspace / "deliveries" / "late_carriers.py").write_text("def top_late_carriers(records, k):\n    latest = {}\n    return sorted(latest)[:k]\n", encoding="utf-8")
+    state = {"questions": [], "spoken": [{"at": 1500, "text": "I'll keep the latest record per package in a dict."}], "change_revealed_at": None}
+    prompt = coach_ai.build_prompt(loop, state, workspace, 26 * 60, "Code it and talk it through", "thinking", "I'll sort the carriers and take the first k.")
+    assert coach_ai.ROLE_AMAZON_CODING in prompt and coach_ai.ROLE_REAL not in prompt
+    assert "latest = {}" in prompt and "I'll sort the carriers" in prompt and "Check their understanding" in prompt
+    assert "heapq" in prompt and "Hint ladder" not in prompt   # the guide's notes on the problem stand in for an approach file
+    assert "adds a follow-up later" in prompt and loop.change_request()[:60] not in prompt   # the follow-up stays hidden until it's revealed
+    code = coach_ai.build_prompt(loop, state, workspace, 30 * 60, "Code it and talk it through", "code", "    latest = {}")
+    assert "just typed these lines" in code and "    latest = {}" in code
+    answer = coach_ai.build_prompt(loop, {**state, "change_revealed_at": 2400}, workspace, 41 * 60, "Code it and talk it through", "answer", "It's O(n log n).")
+    assert "follow up once on the same point" in answer and loop.change_request()[:60] in answer
+    # Practice problems keep their own interviewer.
+    problem = next(i for i in all_interviews() if i.meta.get("format") == "problem")
+    assert coach_ai.ROLE_AMAZON_CODING not in coach_ai.build_prompt(problem, {"questions": [], "spoken": []}, tmp_path, 60, "Approach", "thinking", "hmm")

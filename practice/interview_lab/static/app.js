@@ -521,6 +521,7 @@ async function openCode(path) {
       const file = await call(`/api/file?interview=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`);
       code.path = path; code.mtime = file.mtime; code.dirty = false;
       setCodeValue(file.content);
+      if (probe.seen[path] === undefined) probe.seen[path] = file.content;   // what's new since then is what the interviewer asks about
     } catch (e) { toast(e.message); }
   }
   markCodeTab();
@@ -535,6 +536,7 @@ function codeChanged() {
   $("saved").textContent = "Saving…";
   clearTimeout(code.timer);
   code.timer = setTimeout(saveCode, 700);
+  probeCodeLater();
 }
 
 async function saveCode(force = false) {
@@ -568,7 +570,7 @@ async function syncCode(files) {
 // The interviewer chat window: the whole conversation, with the reply streaming in at the bottom.
 // Drag it by its title bar, resize it from any edge or corner, minimize or close it; it remembers all of that.
 const pop = { streaming: false, seen: null, lastReply: "" };
-const aiOn = () => (problemNow() || resumeNow()) && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in any role
+const aiOn = () => (problemNow() || resumeNow() || amazonCodingNow()) && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in any role
 const coachAiOn = () => aiOn() && latest.session.state.mode === "coach";
 const coachNow = () => !!latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
 const POP_MIN = { w: 280, h: 160 };
@@ -757,22 +759,52 @@ function coachOnThinking(text) {
   // Everything you've said since the coach last replied, so it responds to your train of thought, not one fragment.
   thought.push(text);
   const coach = latest.session.state.mode === "coach";
-  if (!coach && !phaseNow().nudge) return;   // a real interviewer lets you code in peace
+  const amazon = amazonCodingNow();
+  if (!coach && !phaseNow().nudge && !amazon) return;   // a real interviewer lets you code in peace (except Amazon's, who questions your choices)
   const said = thought.join(" ");
-  if (said.split(/\s+/).length < 8 || Date.now() - lastThinkingReply < (coach ? 15000 : 45000)) return;
+  // Your reply to the interviewer's question gets its follow-up right away; otherwise it waits its turn.
+  const answering = amazon && probe.awaiting > 0;
+  if (said.split(/\s+/).length < (answering ? 4 : 8) || (!answering && Date.now() - lastThinkingReply < (coach ? 15000 : amazon ? 30000 : 45000))) return;
   clearTimeout(voice.nudgeTimer);
   const spokeAt = voice.spokeAt;
   voice.nudgeTimer = setTimeout(() => {
     if (voice.spokeAt !== spokeAt || voice.speaking || pop.streaming) return;
     lastThinkingReply = Date.now();
     thought = [];
-    coachChat({ trigger: "thinking", message: said.slice(-1500) });
+    if (amazon) probeChat({ trigger: answering ? "answer" : "thinking", message: said.slice(-1500) });
+    else coachChat({ trigger: "thinking", message: said.slice(-1500) });
   }, 3000);
+}
+
+// The Amazon rounds' interviewer asks about the code you type, once you pause typing without explaining it, and follows
+// up on your answer to its question (at most twice in a row) before letting you get back to coding.
+const probe = { seen: {}, timer: null, awaiting: 0 };
+async function probeChat(body) {
+  await saveCode();   // it reads your code from the workspace
+  const { entry, failed } = await coachChat(body);
+  const asked = !failed && !!entry && /\?\s*$/.test(entry.answer || "");
+  probe.awaiting = !asked ? 0 : body.trigger === "answer" ? probe.awaiting - 1 : 2;
+  if (code.path) probe.seen[code.path] = codeValue();
+}
+function probeCodeLater() {
+  if (!amazonCodingNow() || !aiOn() || !code.path) return;
+  clearTimeout(probe.timer);
+  probe.timer = setTimeout(() => {
+    const path = code.path, now = codeValue(), before = probe.seen[path];
+    if (before === undefined) { probe.seen[path] = now; return; }
+    const old = new Set(before.split("\n").map(line => line.trim()));
+    const added = now.split("\n").filter(line => line.trim() && !old.has(line.trim()));
+    if (added.length < 3 || Date.now() - lastThinkingReply < 45000 || pop.streaming || voice.speaking || Date.now() - voice.spokeAt < 5000) return;
+    lastThinkingReply = Date.now();
+    probeChat({ trigger: "code", message: added.join("\n").slice(-1500) });
+  }, 8000);
 }
 
 const HINT_ASK = /\b(hint|i'?m stuck|stuck|give me a clue|clue|nudge|help me out|can you help)\b/i;
 const problemNow = () => latest && latest.session.started && latest.interview.format === "problem";
 const resumeNow = () => latest && latest.session.started && latest.interview.format === "resume";
+// An Amazon final round from the coding problem on, where the interviewer questions your choices as you code.
+const amazonCodingNow = () => !!latest && latest.session.started && latest.interview.format === "amazon-final" && ["coding", "wrap"].includes(phaseNow().kind || "wrap");
 let lastActivity = Date.now(), lastNudge = 0;
 const active = () => { lastActivity = Date.now(); };
 
@@ -1745,8 +1777,8 @@ function wire() {
   };
   ["keydown", "pointerdown"].forEach(type => document.addEventListener(type, active, { passive: true }));
   setInterval(async () => {
-    // The coach checks in when you've been quiet for two minutes while coding.
-    if (!problemNow() || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
+    // The coach checks in when you've been quiet for two minutes while coding (so does the Amazon rounds' interviewer).
+    if (!(problemNow() || amazonCodingNow()) || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
     const coach = latest.session.state.mode === "coach";
     if (!coach && !aiOn()) return;
     if (Date.now() - lastActivity < (coach ? 120000 : 150000) || Date.now() - lastNudge < (coach ? 180000 : 240000) || voice.speaking || pop.streaming) return;

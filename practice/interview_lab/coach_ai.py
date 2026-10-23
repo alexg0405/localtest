@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -25,7 +26,7 @@ MODEL = os.environ.get("PRACTICE_COACH_MODEL") or "claude-sonnet-5-5"
 def roomside() -> str:
     """Roomside's dev server, which hosts the Claude Code bridge (read each time, so tests can point it elsewhere)."""
     return (os.environ.get("ROOMSIDE_URL") or "http://127.0.0.1:5173").rstrip("/")
-TRIGGERS = ("message", "hint", "tests", "nudge", "thinking", "open")
+TRIGGERS = ("message", "hint", "tests", "nudge", "thinking", "open", "code", "answer")
 
 # One system prompt for every role, so the bridge's warm Claude Code process serves any of them; the role comes per request.
 SYSTEM = """You play one role in a timed practice interview: a supportive coach or a realistic interviewer for a coding problem, an engineer asking behavioral (Leadership Principles) questions, or a senior engineer interviewing the candidate about their résumé. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
@@ -49,6 +50,16 @@ ROLE_REAL = """You are the INTERVIEWER: a realistic, professional software engin
 - During the approach phase, make sure they state a brute force and the complexity before coding. During coding, stay brief and let them work. During the wrap-up, ask the follow-up questions below one at a time.
 - Hints only when they explicitly ask: one short sentence at the level you're given, said neutrally. Hints count against them, so don't volunteer them.
 - Keep it to one or two short sentences."""
+
+ROLE_AMAZON_CODING = """You are the INTERVIEWER: a software engineer at Amazon in the coding part of an SDE intern final round, watching the candidate type in a shared editor and listening as they narrate. No AI is allowed in this round. Your main job now is to find out whether they understand what they're writing, the way a real Amazon interviewer does:
+- Question their choices as they make them: why this data structure (a dict, a Counter, a heap, a sort), what a step or loop costs, the overall time and space complexity, and why not a simpler or faster option. Push back once on a choice ("Why sort all of them if you only need k?") and see whether they can defend it.
+- Be specific: name the variable, function, or line you're asking about ("What's latest holding there?", "What does that loop do when k is bigger than the number of carriers?").
+- Probe edge cases from the problem facts (ties, duplicates, k of zero, empty input) by asking what their code does with them. Never say it's wrong or point out a bug, and never hint at the fix.
+- If what they say doesn't match their code, ask about it neutrally ("You said you'd keep the latest record. Where does that happen?").
+- Never confirm that it's correct or optimal, never praise, never teach. Answer requirement questions from the facts you're given; anything else, tell them to assume something reasonable and say it.
+- Don't repeat a question you've already asked; once they've answered a point clearly, move to a different choice.
+- In the dry run and wrap-up, ask them to trace the example, give the complexity, and name the tests they'd add, one at a time, then take their questions.
+- Exactly one short question per turn, usually under 20 words, in plain spoken English with contractions. If there's truly nothing worth asking, a two- or three-word acknowledgement ("Okay, keep going.") is fine."""
 
 ROLE_RESUME = """You are a SENIOR SOFTWARE ENGINEER at Amazon interviewing a candidate for the Amazon SDE internship, in a 30-minute conversation about their résumé. Friendly and down to earth, but you dig: you want to find the edge of what they really understand about what they built.
 
@@ -129,9 +140,16 @@ def _problem_text(interview: Interview) -> str:
     return task.split("## How this session works")[0].strip()
 
 
+def _guide_section(guide: str, heading: str) -> str:
+    """The interviewer guide's section whose heading starts with `heading`, without the heading."""
+    match = re.search(rf"^## {re.escape(heading)}[^\n]*\n(.*?)(?=^## |\Z)", guide, re.M | re.S)
+    return match.group(1).strip() if match else ""
+
+
 def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, elapsed: float, phase: str,
                  trigger: str, message: str = "", hint: Optional[Dict[str, Any]] = None) -> str:
-    """Everything the coach or interviewer needs for one reply, kept within the bridge's limits."""
+    """Everything the coach or interviewer needs for one reply, kept within the bridge's limits. In an Amazon final
+    round's coding part, the interviewer questions the candidate's choices as they code (ROLE_AMAZON_CODING)."""
     code_parts = []
     for name in interview.meta.get("editor_files", []):
         try:
@@ -168,8 +186,28 @@ def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, e
             history.append(f"{you}: {item['answer']}")
     conversation = "\n".join(history) or "(nothing yet)"
     followups = "\n".join(f"- {q}" for q in interview.followups())
+    amazon = interview.meta.get("format") == "amazon-final" and not coach
+    revealed = state.get("change_revealed_at") is not None
+    reference, change = interview.approach(), ""
+    if amazon:  # no approach file: the guide's notes on the problem, and on its follow-up once the candidate has it
+        reference = "\n\n".join(part for part in (_guide_section(interview.guide(), "Coding problem"),
+                                                  _guide_section(interview.guide(), "Follow-up at") if revealed else "") if part)
+        change = ("\n" + (f"The interviewer's follow-up, now shown to the candidate:\n{interview.change_request()}" if revealed
+                          else "The interviewer adds a follow-up later. Don't mention or hint at it before then.") + "\n")
 
-    if trigger == "hint" and hint and hint.get("repeat"):
+    if amazon and trigger == "thinking":
+        ask = (f"The candidate is narrating while they work: \"{message}\". Check their understanding: ask one question about a choice they just described or wrote "
+               "(why that data structure, the cost of that step, the overall complexity, why not a simpler option, or what their code does on a specific edge case). "
+               "Tie it to their actual words or code.")
+    elif amazon and trigger == "code":
+        ask = (f"The candidate just typed these lines without explaining them:\n{message}\n"
+               "Ask one question that checks they understand what they wrote: what a specific variable or line is for, why that structure, or what it costs. Name it.")
+    elif amazon and trigger == "answer":
+        ask = (f"The candidate just answered your last question: \"{message}\". If the answer is vague, skips the why, or doesn't match their code, follow up once on "
+               "the same point (ask them to be specific, or to trace it on a small example). If it's clear and specific, acknowledge it in a few neutral words and let them keep going.")
+    elif amazon and trigger == "nudge":
+        ask = "The candidate has gone quiet for a few minutes. Ask them to talk you through what they're doing right now, or about the last thing they wrote."
+    elif trigger == "hint" and hint and hint.get("repeat"):
         ask = (f"The candidate asked for a hint again, but hasn't said, tried, or changed anything since your last hint (level {hint['level']}: {hint['text']}). "
                "Don't give a bigger hint. Talk with them: ask warmly which part is unclear or what they'd try first, and put the same idea another way, ideally as a question about their own code." if coach
                else f"The candidate asked for another hint without trying anything since your last one ({hint['text']}). As the interviewer, say you'd like to see them try that first, and ask what they're thinking.")
@@ -192,22 +230,20 @@ def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, e
     else:
         ask = f"The candidate says: \"{message}\""
 
+    hint_section = (f"Hint ladder (for you only; give a level only when asked for a hint; {used} of {len(hints)} used so far):\n{hint_ladder}\n\n" if hints else "")
     return f"""Your role:
-{ROLE_COACH if coach else ROLE_REAL}
+{ROLE_COACH if coach else ROLE_AMAZON_CODING if amazon else ROLE_REAL}
 
 Problem the candidate is solving:
 {_problem_text(interview)}
-
+{change}
 Facts about the problem (use these to answer requirement questions):
 {clarifications}
 
 Reference approach (for you only; {"only explain it if they give up and ask for the answer" if coach else "never reveal it"}):
-{interview.approach()}
+{reference}
 
-Hint ladder (for you only; give a level only when asked for a hint; {used} of {len(hints)} used so far):
-{hint_ladder}
-
-Follow-up questions for the wrap-up (ask one at a time, only in the last phase):
+{hint_section}Follow-up questions for the wrap-up (ask one at a time, only in the last phase):
 {followups or '- (none)'}
 
 Session: minute {elapsed / 60:.0f} of {interview.meta.get('duration_minutes', 35)}, phase "{phase}"{timing}. If time is running short, say so plainly and help them prioritize, as an interviewer keeping the clock would.

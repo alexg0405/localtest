@@ -112,13 +112,16 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             if not state:
                 raise SessionError("No session yet. Start the interview first.")
             conversation = interview.meta.get("format") == "resume"
-            if interview.meta.get("format") != "problem" and not conversation:
-                raise SessionError("The conversational interviewer is available in the practice problems and the résumé deep dive.")
+            status = sessions.status(interview)
+            # The Amazon final rounds: Claude interviews from the coding problem on (the Leadership Principles part has its own flow).
+            current_kind = next((p.get("kind") for p in status["phases"][status["phase"]:status["phase"] + 1]), "wrap")
+            amazon_coding = interview.meta.get("format") == "amazon-final" and current_kind in ("coding", "wrap")
+            if interview.meta.get("format") != "problem" and not conversation and not amazon_coding:
+                raise SessionError("The conversational interviewer is available in the practice problems, the résumé deep dive, and the Amazon rounds' coding part.")
             trigger = str(body.get("trigger", "message"))
             trigger = trigger if trigger in coach_ai.TRIGGERS else "message"
             message = str(body.get("message", ""))[:6000]
-            hint = sessions.take_hint(interview) if trigger == "hint" and not conversation else None
-            status = sessions.status(interview)
+            hint = sessions.take_hint(interview) if trigger == "hint" and not conversation and not amazon_coding else None
             opening = None  # the reply that opens the Leadership Principles section
             if conversation:
                 saved = resume.load(lab.home)

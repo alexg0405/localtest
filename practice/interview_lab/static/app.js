@@ -23,7 +23,9 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-coding": ["amazon", "Amazon · Coding round"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"] };
+// Rounds with a coding problem and Amazon's interviewer: the final rounds, and the coding round, which is only coding.
+const AMAZON_CODING = ["amazon-final", "amazon-coding"];
 const AMAZON_NOTES = {
   plan: { hint: "<b>Before you code.</b> Your approach: data structures, time and space complexity, and the edge cases you'll handle. Say it out loud too.", placeholder: "## Approach\n- \n\n## Complexity\n- Time: \n- Space: \n\n## Edge cases\n- " },
   assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },
@@ -34,7 +36,7 @@ const TALK_NOTES = {   // the behavioral round and the résumé deep dive: nothi
 };
 const notesFor = () => {
   const format = latest && latest.interview.format;
-  return format === "amazon-final" ? { ...NOTES, ...AMAZON_NOTES } : format === "amazon-behavioral" || format === "resume" ? { ...NOTES, ...TALK_NOTES } : NOTES;
+  return AMAZON_CODING.includes(format) ? { ...NOTES, ...AMAZON_NOTES } : format === "amazon-behavioral" || format === "resume" ? { ...NOTES, ...TALK_NOTES } : NOTES;
 };
 
 function remember(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable */ } }
@@ -356,7 +358,7 @@ function renderFlow(info) {
   const at = info.change_at_minutes;
   if (at !== null) {
     const index = info.phases.findIndex(p => p.start <= at && at < p.end);
-    items.splice(index + 1, 0, `<li class="flow-change"><b>${at}:00</b><span>${info.format === "amazon-final" ? "Interviewer's follow-up" : "Requirement change"}</span></li>`);
+    items.splice(index + 1, 0, `<li class="flow-change"><b>${at}:00</b><span>${info.format === "amazon-coding" ? "Follow-up, once it works" : info.format === "amazon-final" ? "Interviewer's follow-up" : "Requirement change"}</span></li>`);
   }
   document.querySelector(".flow").innerHTML = items.join("");
   document.querySelector(".flow").style.setProperty("--flow-cols", items.length);
@@ -366,13 +368,14 @@ let formatFor = null;
 function applyFormat(info) {
   if (formatFor === info.id) return;
   formatFor = info.id;
-  const amazon = info.format === "amazon-final";
+  const amazon = AMAZON_CODING.includes(info.format), codingRound = info.format === "amazon-coding";
   document.querySelector("#timer .of").textContent = `/ ${info.duration_minutes}:00`;
   $("run-tests").hidden = !info.run_tests_allowed;
   document.querySelector('[data-copy="cmd-assistant"]').parentElement.hidden = !info.ai_allowed;
   document.querySelector("#change-tab").childNodes[1].textContent = amazon ? "Follow-up" : "Change";
-  document.querySelector("#change-locked h3").textContent = `Unlocks at ${info.change_at_minutes}:00`;
-  document.querySelector("#change-locked p").textContent = amazon ? "Partway through the coding problem, the interviewer adds a follow-up, as Amazon interviewers usually do. Keep going." : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
+  document.querySelector("#change-locked h3").textContent = codingRound ? "Comes once your solution works" : `Unlocks at ${info.change_at_minutes}:00`;
+  document.querySelector("#change-locked p").textContent = codingRound ? `When your solution passes the example and it's fast enough, the interviewer extends the problem, as Amazon interviewers usually do (or at ${info.change_at_minutes}:00, if it works but is still slow). Keep going.`
+    : amazon ? "Partway through the coding problem, the interviewer adds a follow-up, as Amazon interviewers usually do. Keep going." : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
   document.querySelector(".change-banner").lastChild.textContent = amazon ? "Follow-up from the interviewer" : "Requirement change from the interviewer";
   const behavioralOnly = info.format === "amazon-behavioral" || info.format === "resume";
   $("change-tab").hidden = info.change_at_minutes === null;
@@ -530,7 +533,7 @@ async function openCode(path) {
 
 function codeChanged() {
   if (code.loading || !code.path) return;
-  active();
+  active(); progressed();
   code.dirty = true;
   markCodeTab();
   $("saved").textContent = "Saving…";
@@ -621,7 +624,7 @@ function popHeader(state) {
   $("pop-who").textContent = coachNow() ? "Coach" : "Interviewer";
   if (state === undefined) {
     if ($("coach-pop").classList.contains("collapsed") && pop.lastReply) state = pop.lastReply;   // minimized, the title bar shows the latest reply
-    else state = aiOn() ? "Claude · your subscription" : problemNow() ? "scripted" : "";
+    else state = aiOn() ? "Claude · your subscription" : problemNow() || codingRoundNow() ? "scripted" : "";
   }
   $("pop-state").textContent = state;
   $("pop-state").title = state;
@@ -744,6 +747,8 @@ async function coachChat(body, path = "api/coach") {
     stream.textContent = e.message;
     stream.parentElement.classList.add("error");
   }
+  // The coding round's interviewer may offer a hint ("Want a hint?"): a yes in the next minute takes it.
+  if (!failed && entry && /\bhint\b[^.!?]*\?\s*$/i.test(entry.answer || "")) hintOffer.at = Date.now();
   pop.streaming = false;
   $("pop-toggle").classList.remove("busy");
   await refresh();   // the reply is now in the conversation, so the live copy goes
@@ -781,7 +786,9 @@ function coachOnThinking(text) {
 const probe = { seen: {}, timer: null, awaiting: 0 };
 async function probeChat(body) {
   await saveCode();   // it reads your code from the workspace
-  const { entry, failed } = await coachChat(body);
+  const result = await coachChat(body);
+  if (!result) return;   // the interviewer was already replying
+  const { entry, failed } = result;
   const asked = !failed && !!entry && /\?\s*$/.test(entry.answer || "");
   probe.awaiting = !asked ? 0 : body.trigger === "answer" ? probe.awaiting - 1 : 2;
   if (code.path) probe.seen[code.path] = codeValue();
@@ -801,19 +808,59 @@ function probeCodeLater() {
 }
 
 const HINT_ASK = /\b(hint|i'?m stuck|stuck|give me a clue|clue|nudge|help me out|can you help)\b/i;
+const YES = /^(yes|yeah|yep|yup|sure|please|ok|okay|that would help|that'd help|i'?d like (one|that))\b/i;
+const hintOffer = { at: 0 };
+const takesOffer = text => Date.now() - hintOffer.at < 60000 && YES.test(text.trim());   // "Want a hint?" "Yes, please."
 const problemNow = () => latest && latest.session.started && latest.interview.format === "problem";
 const resumeNow = () => latest && latest.session.started && latest.interview.format === "resume";
-// An Amazon final round from the coding problem on, where the interviewer questions your choices as you code.
-const amazonCodingNow = () => !!latest && latest.session.started && latest.interview.format === "amazon-final" && ["coding", "wrap"].includes(phaseNow().kind || "wrap");
+// The Amazon coding round: only coding, with an interviewer who pushes you to optimize and helps when you're stuck.
+const codingRoundNow = () => !!latest && latest.session.started && latest.interview.format === "amazon-coding";
+// An Amazon round's coding: the final rounds from the coding problem on, and all of the coding round. The interviewer
+// questions your choices as you code.
+const amazonCodingNow = () => codingRoundNow() || (!!latest && latest.session.started && latest.interview.format === "amazon-final" && ["coding", "wrap"].includes(phaseNow().kind || "wrap"));
 let lastActivity = Date.now(), lastNudge = 0;
 const active = () => { lastActivity = Date.now(); };
+// Progress, for the coding round's interviewer: you said, typed, or ran something (clicking around doesn't count).
+const progress = { at: Date.now(), checked: 0 };
+const progressed = () => { progress.at = Date.now(); };
+
+// The coding round: when you've gone quiet without progress, or the same tests keep failing, the interviewer may step
+// in (a check-in, then a hint, or a nudge to trace the failing test). The session decides whether it does, and how.
+async function stuckCheck(afterTests = false) {
+  if (!codingRoundNow() || latest.session.state.status !== "running" || voice.speaking || pop.streaming || turn.sending) return;
+  if (!afterTests && (Date.now() - progress.at < 150000 || Date.now() - progress.checked < 30000)) return;
+  progress.checked = Date.now();
+  try {
+    const { help } = await call(`/api/stuck?interview=${encodeURIComponent(current)}`);
+    if (!help || pop.streaming || voice.speaking) return;
+    if (aiOn()) await probeChat({ trigger: "stuck" });
+    else { const { entry } = await call("/api/stuck", {}); coachSays(entry); }
+  } catch (e) { /* try again later */ }
+}
+
+// The coding round's interviewer reacts once it has looked at your code (after passing tests, or Done coding): it asks
+// for a faster version, asks you to test it, or moves on to the follow-up or the wrap-up. Claude words the asks.
+async function afterAssess(assessed) {
+  if (!assessed || !assessed.event) { await refresh(); return; }   // nothing to say this time
+  const { event, entry } = assessed;
+  if (event === "optimize" || event === "verify") {
+    if (entry) coachSays(entry); else await probeChat({ trigger: event });
+  } else if (event === "wrap") {
+    await refresh();
+    if (entry) say(entry.answer);
+    toast("On to the complexity, the interviewer's follow-up questions, and yours.");
+  } else await refresh();   // the follow-up: the interviewer says its line (see cues)
+}
 
 async function askForHint() {
-  if (!problemNow()) return;
-  if (latest.session.state.mode !== "coach" && !askForHint.confirmed) {
+  if (!problemNow() && !codingRoundNow()) return;
+  if (problemNow() && latest.session.state.mode !== "coach" && !askForHint.confirmed) {
     if (!confirm("In real mode a hint lowers your problem-solving score, like leaning on a real interviewer would. Get a hint?")) return;
     askForHint.confirmed = true;
   }
+  hintOffer.at = 0;
+  progressed();
+  if (aiOn() && codingRoundNow()) { active(); return probeChat({ trigger: "hint" }); }   // its follow-up questions get answered too
   if (aiOn()) { active(); return coachChat({ trigger: "hint" }); }
   active();
   try {
@@ -828,7 +875,7 @@ async function askForHint() {
 // Practice out loud: resume the mic if you left it on, otherwise invite you once per session.
 const offered = new Set();
 function offerVoice(data) {
-  if (inLobby || !data.session.started || data.session.state.status !== "running" || voice.on || data.interview.format !== "problem") return;
+  if (inLobby || !data.session.started || data.session.state.status !== "running" || voice.on || !["problem", "amazon-coding"].includes(data.interview.format)) return;
   const key = `${current}:${data.session.state.started_at}`;
   if (offered.has(key)) return;
   offered.add(key);
@@ -875,10 +922,10 @@ function render(data) {
   $("launch-mode").className = "mode-chip" + (lobbyMode === "coach" ? " coach" : "");
   $("launch-mode").textContent = lobbyMode === "coach" ? "Coach mode" : "Real interviewer";
   $("ide-mode").hidden = !isProblem;
-  $("hint").hidden = !isProblem || !info.hint_count;
+  $("hint").hidden = !(isProblem || info.format === "amazon-coding") || !info.hint_count;
   $("show-approach").hidden = !isProblem || !(data.session.started && data.session.state.mode === "coach");
   const phaseKind = data.session.started ? (data.session.phases[data.session.phase] || {}).kind : null;
-  $("done-coding").hidden = !(info.format === "amazon-final" && data.session.started && data.session.state.status === "running" && phaseKind === "coding");
+  $("done-coding").hidden = !(AMAZON_CODING.includes(info.format) && data.session.started && data.session.state.status === "running" && phaseKind === "coding");
   renderModeToggles();
   renderFlow(info);
   renderResumePanel(data);
@@ -929,9 +976,11 @@ function render(data) {
       $("change-new").hidden = false;
       if (render.announced !== current) {
         render.announced = current;
-        if (session.state.change_reveal_reason) { toast(session.state.change_reveal_reason === "solved" || session.state.change_reveal_reason === "done" || info.format === "amazon-final" ? "The interviewer added a follow-up: see the Follow-up tab." : "Requirement change revealed: see the Change tab."); showTab("change"); }
+        if (session.state.change_reveal_reason) { toast(session.state.change_reveal_reason === "solved" || session.state.change_reveal_reason === "done" || AMAZON_CODING.includes(info.format) ? "The interviewer added a follow-up: see the Follow-up tab." : "Requirement change revealed: see the Change tab."); showTab("change"); }
       }
     }
+    // The follow-up's example goes in the Custom input console, unless you've written your own there.
+    if (info.followup_custom_input && $("custom-code").value === (info.custom_input || "")) $("custom-code").value = info.followup_custom_input;
   } else {
     $("change-new").hidden = true;
   }
@@ -1246,8 +1295,10 @@ async function handleUtterance(text) {
   text = text.trim();
   if (!latest || !latest.session.started) return;
   if (answeringNow()) { if (text) addToTurn(text); return; }   // it goes when you press Enter (short answers too, like "Yes, I did.")
+  if (codingRoundNow() && text && takesOffer(text)) { askForHint(); return; }   // "Want a hint?" "Yeah."
   if (text.split(/\s+/).length < 2) return;
-  if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
+  progressed();
+  if ((problemNow() || codingRoundNow()) && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
   if (aiOn()) {
     if (isQuestion(text)) { coachChat({ message: text, voice: true }); return; }
     try { await call("/api/speech", { text }); } catch (e) { /* still reply */ }
@@ -1362,7 +1413,7 @@ function renderReport(report) {
   const t = report.tests;
   const percent = t.grading.total ? Math.round((t.grading.passed / t.grading.total) * 100) : 0;
   const ringColor = percent >= 80 ? "var(--green)" : percent >= 50 ? "var(--amber)" : "var(--red)";
-  const names = { core: "Core", edge: "Edge cases", change: "Change" };
+  const names = { core: "Core", edge: "Edge cases", change: report.help ? "Follow-up" : "Change", performance: "Large inputs" };
   const chips = Object.entries(t.grading_by_area).map(([area, b]) => `<span class="chip">${names[area] || area} <b>${b.passed}/${b.total}</b></span>`).join("");
   const list = items => items.length ? `<ul>${items.map(i => `<li>${i}</li>`).join("")}</ul>` : `<p class="none">None.</p>`;
   const missed = report.missed_cases.map(m => { const match = /^\[(\w+)\]\s*(.*)$/.exec(m); return match ? `<span class="area-tag ${match[1]}">${match[1]}</span>${escapeHtml(match[2])}` : escapeHtml(m); });
@@ -1383,6 +1434,12 @@ function renderReport(report) {
       ${tl.stories.length ? `<p class="time-stories">Stories: ${tl.stories.map(s => `${escapeHtml(s.lp || "Story")} <b>${s.minutes} min</b>`).join(" · ")}${tl.story_share ? ` · about ${tl.story_share} min each planned` : ""}</p>` : ""}
       <ul class="time-notes">${tl.notes.map(n => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
     </div>` : "";
+  // The coding round: every time the interviewer stepped in, and why.
+  const HELP_KINDS = { hint: "Hint", checkin: "Check-in", debug: "Nudge", optimize: "Optimize", verify: "Test it" };
+  const helpSection = report.help ? `<h3 class="section-title">How the interviewer helped</h3>
+    <div class="box"><ul class="help-list">${report.help.length ? report.help.map(h => `<li><span class="help-at">${clock(h.at * 60)}</span><span class="help-kind ${escapeHtml(h.kind)}">${HELP_KINDS[h.kind] || escapeHtml(h.kind)}</span><span>${escapeHtml(h.text)}</span></li>`).join("")
+      : `<li class="none">It didn't need to: no hints, check-ins, or pushes for a faster version.</li>`}</ul></div>` : "";
+  const followupWord = report.help ? "follow-up" : "requirement change";
   const resumeRound = !!(latest && latest.interview.id === report.interview && latest.interview.format === "resume") || report.scores.some(s => s.area === "walkthrough");
   const scoreColor = n => (n >= 4 ? "var(--green)" : n >= 3 ? "var(--amber)" : "var(--red)");
   const resumeSummary = resumeRound ? `
@@ -1413,12 +1470,14 @@ function renderReport(report) {
       <div>
         <p class="eyebrow">Session report</p>
         <h2>${t.grading.passed} of ${t.grading.total} grading tests passed</h2>
-        <p>Average rubric score <b>${average}</b> across ${scored.length} observed area${scored.length === 1 ? "" : "s"} · ${report.elapsed_minutes} min · requirement change ${report.change_revealed_at_minutes === null ? "not revealed" : `at ${report.change_revealed_at_minutes} min`}</p>
-        <div class="chips">${chips}${tl && tl.coding_minutes !== null ? `<span class="chip">Coding <b>${tl.coding_minutes} min</b></span>` : ""}<span class="chip">Your new tests <b>${t.your_new_tests}</b></span><span class="chip">Catch starter bugs <b>${t.your_tests_that_catch_starter_bugs}</b></span>${t.your_tests ? `<span class="chip">Your suite <b>${t.your_tests.passed}/${t.your_tests.total}</b></span>` : ""}</div>
+        <p>Average rubric score <b>${average}</b> across ${scored.length} observed area${scored.length === 1 ? "" : "s"} · ${report.elapsed_minutes} min · ${followupWord} ${report.change_revealed_at_minutes === null ? "not revealed" : `at ${report.change_revealed_at_minutes} min`}</p>
+        <div class="chips">${chips}${tl && tl.coding_minutes !== null ? `<span class="chip">Coding <b>${tl.coding_minutes} min</b></span>` : ""}${report.help ? `<span class="chip">Hints <b>${report.hints_used || 0}</b></span>` : ""}<span class="chip">Your new tests <b>${t.your_new_tests}</b></span>${report.help ? "" : `<span class="chip">Catch starter bugs <b>${t.your_tests_that_catch_starter_bugs}</b></span>`}${t.your_tests ? `<span class="chip">Your suite <b>${t.your_tests.passed}/${t.your_tests.total}</b></span>` : ""}</div>
       </div>
     </section>`) + `
 
     ${timeSection}
+
+    ${helpSection}
 
     <h3 class="section-title">Rubric</h3>
     <div class="scores">${report.scores.map(s => `
@@ -1568,8 +1627,8 @@ function wirePop() {
     if (!text) { sendTurn(); return; }   // nothing typed: send what you said out loud
     if (answeringNow() && pop.streaming) { toast("Let the interviewer finish first."); return; }
     $("pop-input").value = "";
-    active();
-    if (problemNow() && HINT_ASK.test(text) && text.split(/\s+/).length < 15) askForHint();
+    active(); progressed();
+    if ((problemNow() || codingRoundNow()) && ((HINT_ASK.test(text) && text.split(/\s+/).length < 15) || (codingRoundNow() && takesOffer(text)))) askForHint();
     else if (aiOn() && !answeringNow()) coachChat({ message: text });
     else { $("question").value = text; $("ask-form").requestSubmit(); }
   };
@@ -1604,14 +1663,22 @@ function wire() {
     const reset = confirm("Also reset the workspace to the starter? Your changed and added files are moved to .practice-backup in the workspace, not deleted.\n\nOK = reset the workspace, Cancel = keep your files.");
     try { changeSeen = false; render.announced = null; behavioralNext.done = false; turn.parts = []; turn.interim = ""; render(await call("/api/start", { reset, mode: latest && latest.session.state.mode || lobbyMode })); $("report").hidden = true; showView(); showTab("problem"); toast("Restarted."); } catch (e) { toast(e.message); }
   };
-  // Done coding: the interviewer's follow-up comes next if it hasn't yet, then the dry run and your questions.
+  // Done coding: the interviewer's follow-up comes next if it hasn't yet, then the dry run and your questions. In the
+  // coding round it looks at your code first, and may ask for a faster version, or for you to test it.
   $("done-coding").onclick = async () => {
+    const button = $("done-coding");
+    if (button.disabled) return;
+    button.disabled = true;
     try {
+      await saveCode();
+      progressed();
       const data = await call("/api/done", {});
+      if (data.event !== undefined) { await afterAssess(data); return; }
       await refresh();
       if (data.entry) say(data.entry.answer);   // the follow-up's own line comes from cues(), as it would on the clock
       if (data.next === "wrap") toast("On to the dry run and your questions.");   // a follow-up announces itself
     } catch (e) { toast(e.message); }
+    finally { button.disabled = false; }
   };
   $("pause").onclick = async () => { try { render(await call("/api/pause", {})); toast("Paused. Paused time doesn't count."); } catch (e) { toast(e.message); } };
   $("resume").onclick = async () => { try { render(await call("/api/resume", {})); } catch (e) { toast(e.message); } };
@@ -1635,8 +1702,8 @@ function wire() {
     const question = $("question").value.trim();
     if (!question) { sendTurn(); return; }   // nothing typed: send what you said out loud
     $("question").disabled = true;
-    active();
-    if (problemNow() && HINT_ASK.test(question) && question.split(/\s+/).length < 15) {
+    active(); progressed();
+    if ((problemNow() || codingRoundNow()) && ((HINT_ASK.test(question) && question.split(/\s+/).length < 15) || (codingRoundNow() && takesOffer(question)))) {
       $("question").value = "";
       $("question").disabled = false;
       await askForHint();
@@ -1692,18 +1759,24 @@ function wire() {
     await saveCode();
     showConsole("tests");
     $("console-summary").innerHTML = `<span class="muted">running…</span>`;
+    let assessed = null, failing = false;
     try {
-      const { result, coach } = await call("/api/test", {});
-      renderTests(result); active();
-      if (coachAiOn()) { await refresh(); coachChat({ trigger: "tests" }); } else if (coach) coachSays(coach); else refresh();
+      const data = await call("/api/test", {});
+      assessed = data.assessed; failing = !data.result.ok;
+      renderTests(data.result); active(); progressed();
+      if (coachAiOn()) { await refresh(); coachChat({ trigger: "tests" }); } else if (data.coach) coachSays(data.coach); else if (!assessed) refresh();
     }
     catch (e) { toast(e.message); $("console-summary").textContent = ""; }
     button.disabled = false; button.lastChild.textContent = "Run tests";
+    // The coding round: passing tests get the interviewer's reaction; the same tests failing over and over may get a nudge.
+    if (assessed) await afterAssess(assessed);
+    else if (failing) stuckCheck(true);
   };
   $("run-custom").onclick = async () => {
     const button = $("run-custom");
     button.disabled = true;
     $("custom-status").textContent = "running…";
+    progressed();
     await saveCode();
     try {
       const result = await call("/api/run", { code: $("custom-code").value });
@@ -1777,6 +1850,8 @@ function wire() {
   };
   ["keydown", "pointerdown"].forEach(type => document.addEventListener(type, active, { passive: true }));
   setInterval(async () => {
+    // The coding round's interviewer helps when you're stuck (see stuckCheck), with or without Claude.
+    if (codingRoundNow()) return stuckCheck();
     // The coach checks in when you've been quiet for two minutes while coding (so does the Amazon rounds' interviewer).
     if (!(problemNow() || amazonCodingNow()) || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
     const coach = latest.session.state.mode === "coach";

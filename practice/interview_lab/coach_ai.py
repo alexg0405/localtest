@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import threading
 import time
 import urllib.error
@@ -26,7 +25,7 @@ MODEL = os.environ.get("PRACTICE_COACH_MODEL") or "claude-sonnet-5-5"
 def roomside() -> str:
     """Roomside's dev server, which hosts the Claude Code bridge (read each time, so tests can point it elsewhere)."""
     return (os.environ.get("ROOMSIDE_URL") or "http://127.0.0.1:5173").rstrip("/")
-TRIGGERS = ("message", "hint", "tests", "nudge", "thinking", "open", "code", "answer")
+TRIGGERS = ("message", "hint", "tests", "nudge", "thinking", "open", "code", "answer", "stuck", "optimize", "verify", "debug")
 
 # One system prompt for every role, so the bridge's warm Claude Code process serves any of them; the role comes per request.
 SYSTEM = """You play one role in a timed practice interview: a supportive coach or a realistic interviewer for a coding problem, an engineer asking behavioral (Leadership Principles) questions, or a senior engineer interviewing the candidate about their résumé. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
@@ -59,6 +58,17 @@ ROLE_AMAZON_CODING = """You are the INTERVIEWER: a software engineer at Amazon i
 - Never confirm that it's correct or optimal, never praise, never teach. Answer requirement questions from the facts you're given; anything else, tell them to assume something reasonable and say it.
 - Don't repeat a question you've already asked; once they've answered a point clearly, move to a different choice.
 - In the dry run and wrap-up, ask them to trace the example, give the complexity, and name the tests they'd add, one at a time, then take their questions.
+- Exactly one short question per turn, usually under 20 words, in plain spoken English with contractions. If there's truly nothing worth asking, a two- or three-word acknowledgement ("Okay, keep going.") is fine."""
+
+ROLE_AMAZON_CODING_ROUND = """You are the INTERVIEWER: a software engineer at Amazon running a coding interview for an SDE intern candidate. It's only coding: one problem, then a follow-up, then your questions and theirs. No AI is allowed. You watch them type in a shared editor and listen as they narrate. Calm and professional: you want to see how they think, and you don't teach.
+How you run it, like a real Amazon interviewer:
+- Before they code, get an approach and its time and space complexity. If it's slower than the target in your notes, ask once whether they can do better. If they can't find it after a couple of tries, tell them to code what they have, and come back to it once it works.
+- Once a slower version works, ask its complexity, then push for better ("Can we do better than n squared?"). Never name the technique or the data structure; ask what work their version repeats instead.
+- Question their choices as they code: why that structure, what a loop costs, what their code does on an edge case from the facts. Be specific: name the variable or line. If what they say doesn't match their code, ask about it.
+- Never say their code is wrong, point out a bug, or give the fix; never confirm it's correct or optimal (not even "that's the right idea"); never praise.
+- Hints only when you're told to give one, and only as much as the hint you're given, ideally as a question about their code. If they've been going in circles for a while, you may ask "Want a hint?"
+- After the follow-up, ask how their design changes, and what each call costs.
+- In the wrap-up: have them trace the example and give the complexity, then ask the follow-up questions one at a time, then take their questions.
 - Exactly one short question per turn, usually under 20 words, in plain spoken English with contractions. If there's truly nothing worth asking, a two- or three-word acknowledgement ("Okay, keep going.") is fine."""
 
 ROLE_RESUME = """You are a SENIOR SOFTWARE ENGINEER at Amazon interviewing a candidate for the Amazon SDE internship, in a 30-minute conversation about their résumé. Friendly and down to earth, but you dig: you want to find the edge of what they really understand about what they built.
@@ -140,16 +150,103 @@ def _problem_text(interview: Interview) -> str:
     return task.split("## How this session works")[0].strip()
 
 
-def _guide_section(guide: str, heading: str) -> str:
-    """The interviewer guide's section whose heading starts with `heading`, without the heading."""
-    match = re.search(rf"^## {re.escape(heading)}[^\n]*\n(.*?)(?=^## |\Z)", guide, re.M | re.S)
-    return match.group(1).strip() if match else ""
+def _round_status(interview: Interview, state: Dict[str, Any]) -> str:
+    """Where the coding round stands, for the interviewer only: which part they're on, what the hidden speed check
+    found, whether you've asked for a faster version, and the hints so far."""
+    config = interview.speed_check() or {}
+    revealed = state.get("change_revealed_at") is not None
+    stage = "followup" if revealed else "main"
+    checks = (state.get("speed") or {}).get(stage, [])
+    asked = (state.get("optimize") or {}).get(stage)
+    lines = []
+    if not revealed and (state.get("coding") or {}).get("first_edit") is None:
+        lines.append("They haven't started coding. Before they do, they should clarify the problem and give you an approach with its time and space complexity.")
+    if revealed:
+        main = (state.get("speed") or {}).get("main", [])
+        lines.append(f"The follow-up came at minute {state['change_revealed_at'] / 60:.0f}, after their main solution "
+                     + ("was fast enough." if any(c["status"] == "fast" for c in main) else "worked but was still slow." if main else "was done."))
+    last = checks[-1] if checks else None
+    if last and last["status"] == "fast":
+        lines.append("Their solution for this part is fast enough: it meets the target." if not revealed else "Their follow-up solution works and is fast enough.")
+    elif last and last["status"] == "slow":
+        took = f"{last['seconds']:.1f} seconds" if last.get("seconds") else f"more than {config.get('timeout_seconds', 2.5):g} seconds"
+        lines.append(str((config.get("slow") or {}).get(stage, "Their solution works but is slower than the target.")).format(days=f"{config.get('days', 12000):,}", seconds=took)
+                     + " Never mention this check or that you ran anything; ask about the complexity instead.")
+    target = config.get("followup_target" if revealed else "target")
+    if target:
+        lines.append(f"The target for this part: {target}.")
+    if asked is not None and not (last and last["status"] == "fast"):
+        lines.append(f"You asked them for a faster version at minute {asked / 60:.0f}. Keep them moving toward the target without naming the technique.")
+    for part, ladder in (("main", interview.hints()), ("followup", interview.followup_hints())):
+        used = sum(1 for h in state.get("hints", []) if h.get("stage", "main") == part)
+        if ladder and (part == "main" or revealed):
+            lines.append(f"Hints given {'for the follow-up' if part == 'followup' else 'for the problem'}: {used} of {len(ladder)}.")
+    return "\n".join(f"- {line}" for line in lines)
+
+
+def _round_ask(state: Dict[str, Any], trigger: str, message: str, hint: Optional[Dict[str, Any]], before_code: bool, wrapping: bool = False) -> Optional[str]:
+    """What the coding round's interviewer is asked to do this turn, or None to use the Amazon interviewer's usual ask."""
+    revealed = state.get("change_revealed_at") is not None
+    stage = "followup" if revealed else "main"
+    checks = (state.get("speed") or {}).get(stage, [])
+    pushing = (state.get("optimize") or {}).get(stage) is not None and not (checks and checks[-1]["status"] == "fast")
+    stuck = bool(hint and hint.get("reason") == "stuck")
+    if wrapping and trigger in ("thinking", "answer", "message"):
+        return (f"It's the wrap-up, and the candidate says: \"{message}\". If it's a question for you, answer it briefly as an engineer on the team would. "
+                "Otherwise, if they haven't yet traced the example or given the time and space complexity, ask for the part that's missing. If they have, "
+                "ask the next follow-up question from your list that you haven't asked yet, one at a time, following up once if an answer is vague. "
+                "Once you've asked them, ask what questions they have for you.")
+    if trigger == "thinking" and before_code:
+        return (f"The candidate is talking through the problem or their approach: \"{message}\". If they're unsure about a requirement, answer from the facts. "
+                "If they've described an approach, ask its time complexity if they haven't given it. If it's slower than the target, ask once whether they can do "
+                "better, without naming the technique; if they've already tried for a while, tell them to code what they have and you'll come back to it. "
+                "Once they have an approach that meets the target and its complexity, tell them to go ahead and code it.")
+    if trigger == "thinking" and pushing:
+        return (f"The candidate is thinking out loud about a faster version: \"{message}\". Ask one question that moves them toward the target without naming "
+                "the technique, such as what work their current version repeats. If they've found it, ask them to code it.")
+    if trigger == "answer":
+        return (f"The candidate just answered your last question: \"{message}\". If the answer is vague, skips the why, or doesn't match their code, follow up once "
+                "on the same point (ask them to be specific, or to trace it on a small example). If you asked for the complexity of a version that's slower than "
+                "the target and they gave it correctly, ask whether they can do better; if the complexity they gave is wrong for their code, ask them about the "
+                "worst case. If it's clear and specific, acknowledge it in a few neutral words and let them keep going.")
+    if trigger == "nudge":
+        return ("The candidate has gone quiet for a couple of minutes without saying, typing, or running anything. Check in the way an interviewer would: ask "
+                "where they are or what they're thinking, in one short question. Don't give a hint.")
+    if trigger == "debug":
+        failing = ", ".join(f.get("name", "") for f in (state.get("last_test_run") or {}).get("failing", [])[:3])
+        return (f"The same tests have kept failing for a few minutes{f' ({failing})' if failing else ''}. Don't point out the bug or how to fix it. Suggest "
+                "one way to find it themselves, such as tracing their code by hand on the smallest failing input and saying what each step does.")
+    if trigger == "optimize":
+        return ("Their solution now works on the example, but it's slower than the target (see where things stand). Ask for its time complexity, in one short "
+                "question. After they answer, you'll push for better." if stage == "main" else
+                "Their follow-up now works on the example, but each call is slower than the target. Ask what one call costs as the number of waiting days "
+                "grows, in one short question.")
+    if trigger == "verify":
+        return ("They said they're done coding, but their code doesn't work on every input yet. Don't say which input or why. Before you move on, ask them to "
+                "test it on the example and one edge case, or to trace it by hand.")
+    if trigger == "hint" and hint and hint.get("repeat"):
+        return (f"They're still stuck after your last hint ({hint['text']}). Put the same idea another way, ideally as a question about their own code, and "
+                "go no further." if stuck else
+                f"The candidate asked for another hint without trying anything since your last one ({hint['text']}). Say you'd like to see them try that "
+                "first, and ask what they're thinking.")
+    if trigger == "hint" and hint:
+        return (f"The candidate seems stuck: no progress for a few minutes, even after you checked in. Step in with a small nudge, the way an Amazon "
+                f"interviewer does, starting with something like \"Let me give you a small hint.\" Go no further than this:\n{hint['text']}" if stuck else
+                "The candidate asked for a hint. Give it the way an Amazon interviewer would: short and neutral, connected to where they are, ideally as a "
+                f"question about their own code, going no further than this:\n{hint['text']}")
+    if trigger == "hint":
+        return "They've had every hint. Say you'd like to see how they'd take it from here, and ask what they'd try."
+    if trigger == "message":
+        return (f"The candidate says: \"{message}\"\nIf it's a question about the requirements, answer it from the facts. Otherwise respond as the "
+                "interviewer would, with at most one question, and without teaching or giving away the approach.")
+    return None
 
 
 def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, elapsed: float, phase: str,
                  trigger: str, message: str = "", hint: Optional[Dict[str, Any]] = None) -> str:
     """Everything the coach or interviewer needs for one reply, kept within the bridge's limits. In an Amazon final
-    round's coding part, the interviewer questions the candidate's choices as they code (ROLE_AMAZON_CODING)."""
+    round's coding part, the interviewer questions the candidate's choices as they code (ROLE_AMAZON_CODING). In the
+    coding round, it also pushes for a faster version, gives hints, and helps when you're stuck (ROLE_AMAZON_CODING_ROUND)."""
     code_parts = []
     for name in interview.meta.get("editor_files", []):
         try:
@@ -186,16 +283,28 @@ def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, e
             history.append(f"{you}: {item['answer']}")
     conversation = "\n".join(history) or "(nothing yet)"
     followups = "\n".join(f"- {q}" for q in interview.followups())
-    amazon = interview.meta.get("format") == "amazon-final" and not coach
+    coding_round = interview.meta.get("format") == "amazon-coding"
+    amazon = interview.meta.get("format") in ("amazon-final", "amazon-coding") and not coach
     revealed = state.get("change_revealed_at") is not None
     reference, change = interview.approach(), ""
     if amazon:  # no approach file: the guide's notes on the problem, and on its follow-up once the candidate has it
-        reference = "\n\n".join(part for part in (_guide_section(interview.guide(), "Coding problem"),
-                                                  _guide_section(interview.guide(), "Follow-up at") if revealed else "") if part)
+        reference = "\n\n".join(part for part in (interview.guide_section("Coding problem"),
+                                                  interview.guide_section("Pushing for the optimal") if coding_round else "",
+                                                  interview.guide_section("Follow-up at") if revealed else "") if part)
         change = ("\n" + (f"The interviewer's follow-up, now shown to the candidate:\n{interview.change_request()}" if revealed
                           else "The interviewer adds a follow-up later. Don't mention or hint at it before then.") + "\n")
+    before_code = (state.get("coding") or {}).get("first_edit") is None and not revealed and phase == interview.phases()[0]["name"]
+    wrapping = next((p.get("kind") for p in interview.phases() if p["name"] == phase), None) == "wrap"
+    round_ask = _round_ask(state, trigger, message, hint, before_code, wrapping) if coding_round else None
+    if coding_round:   # its hints are the ones for the part they're on, and only when one is due
+        stage_hints = interview.followup_hints() if revealed and interview.followup_hints() else hints
+        hints = stage_hints if trigger == "hint" else []
+        hint_ladder = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(hints))
+        used = sum(1 for h in state.get("hints", []) if h.get("stage", "main") == ("followup" if revealed and interview.followup_hints() else "main"))
 
-    if amazon and trigger == "thinking":
+    if round_ask:
+        ask = round_ask
+    elif amazon and trigger == "thinking":
         ask = (f"The candidate is narrating while they work: \"{message}\". Check their understanding: ask one question about a choice they just described or wrote "
                "(why that data structure, the cost of that step, the overall complexity, why not a simpler option, or what their code does on a specific edge case). "
                "Tie it to their actual words or code.")
@@ -231,8 +340,9 @@ def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, e
         ask = f"The candidate says: \"{message}\""
 
     hint_section = (f"Hint ladder (for you only; give a level only when asked for a hint; {used} of {len(hints)} used so far):\n{hint_ladder}\n\n" if hints else "")
+    standing = f"\nWhere things stand (for you only):\n{_round_status(interview, state)}\n" if coding_round else ""
     return f"""Your role:
-{ROLE_COACH if coach else ROLE_AMAZON_CODING if amazon else ROLE_REAL}
+{ROLE_COACH if coach else ROLE_AMAZON_CODING_ROUND if coding_round and amazon else ROLE_AMAZON_CODING if amazon else ROLE_REAL}
 
 Problem the candidate is solving:
 {_problem_text(interview)}
@@ -247,6 +357,7 @@ Reference approach (for you only; {"only explain it if they give up and ask for 
 {followups or '- (none)'}
 
 Session: minute {elapsed / 60:.0f} of {interview.meta.get('duration_minutes', 35)}, phase "{phase}"{timing}. If time is running short, say so plainly and help them prioritize, as an interviewer keeping the clock would.
+{standing}
 
 Candidate's current code:
 {chr(10).join(code_parts) or '(empty)'}

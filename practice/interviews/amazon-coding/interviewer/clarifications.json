@@ -1,0 +1,182 @@
+[
+  {
+    "topic": "The same price again",
+    "important": true,
+    "keywords": [
+      "same price",
+      "equal",
+      "equals",
+      "tie",
+      "ties",
+      "strictly",
+      "lower or equal",
+      "less than or equal",
+      "duplicate",
+      "duplicates",
+      "repeat",
+      "repeated",
+      "unchanged"
+    ],
+    "answer": "Only a strictly lower price counts. If the price comes back to the same value, that day is still waiting."
+  },
+  {
+    "topic": "A day that never gets cheaper",
+    "important": true,
+    "keywords": [
+      "never",
+      "no lower",
+      "no cheaper",
+      "doesn't drop",
+      "does not drop",
+      "never drops",
+      "last day",
+      "minus one",
+      "-1",
+      "none",
+      "null"
+    ],
+    "answer": "If the price never drops below that day's price, that day's answer is 0. That includes the last day."
+  },
+  {
+    "topic": "How long a price history can be",
+    "important": true,
+    "keywords": [
+      "how many",
+      "how long",
+      "how large",
+      "how big",
+      "size",
+      "length",
+      "constraint",
+      "constraints",
+      "scale",
+      "large",
+      "input size",
+      "number of days",
+      "million",
+      "100,000",
+      "bounds"
+    ],
+    "answer": "Up to about 100,000 days per item, and this runs every night for millions of items."
+  },
+  {
+    "topic": "Empty history",
+    "important": true,
+    "keywords": [
+      "empty",
+      "no prices",
+      "no days",
+      "no history",
+      "nothing"
+    ],
+    "answer": "An empty history is possible for a brand-new item. Return an empty list."
+  },
+  {
+    "topic": "Price values",
+    "keywords": [
+      "negative",
+      "float",
+      "floats",
+      "decimal",
+      "cents",
+      "dollars",
+      "integer",
+      "integers",
+      "range of prices",
+      "price range",
+      "values",
+      "zero price",
+      "free"
+    ],
+    "answer": "Prices are positive whole numbers of cents, at most a billion."
+  },
+  {
+    "topic": "What to return",
+    "keywords": [
+      "return",
+      "output",
+      "format",
+      "index",
+      "indices",
+      "day number",
+      "count",
+      "same length",
+      "order of the result",
+      "order"
+    ],
+    "answer": "A list of whole numbers, one per day in the same order as the prices: how many days that day waits for a lower price.",
+    "answer_after_change": "For days_until_cheaper, one number per day, in day order. For PriceWatch.add, the (day, wait) pairs it resolves, oldest day first."
+  },
+  {
+    "topic": "Changing the input",
+    "keywords": [
+      "modify",
+      "mutate",
+      "in place",
+      "change the input",
+      "change the list",
+      "sort the input",
+      "overwrite"
+    ],
+    "answer": "Don't change the list you're given. Other code reads it after you."
+  },
+  {
+    "topic": "Days and gaps",
+    "keywords": [
+      "gap",
+      "gaps",
+      "missing day",
+      "weekend",
+      "weekends",
+      "consecutive",
+      "timestamp",
+      "timestamps",
+      "dates",
+      "every day"
+    ],
+    "answer": "There's exactly one price per day, for consecutive days. No gaps."
+  },
+  {
+    "topic": "Starting simple",
+    "keywords": [
+      "brute force",
+      "nested loop",
+      "nested loops",
+      "simple version",
+      "simplest",
+      "naive",
+      "n squared",
+      "n^2",
+      "quadratic",
+      "o(n"
+    ],
+    "answer": "Start with whatever you can get working, but tell me its time complexity. With 100,000 days per item, we'll want something faster in the end."
+  },
+  {
+    "topic": "Follow-up: how fast add must be",
+    "keywords": [
+      "how fast",
+      "how often",
+      "amortized",
+      "per call",
+      "each call",
+      "each add",
+      "latency"
+    ],
+    "answer": "For now, get it working, and tell me its complexity.",
+    "answer_after_change": "add is called for every price update across millions of items, so each call needs to be cheap on average."
+  },
+  {
+    "topic": "Memory",
+    "keywords": [
+      "memory",
+      "space",
+      "store everything",
+      "keep all",
+      "fits in memory",
+      "ram"
+    ],
+    "answer": "The whole price history for one item fits in memory. Tell me how much extra space your approach uses.",
+    "answer_after_change": "Keep whatever you need in memory for now. We'll talk about how much it uses at the end."
+  }
+]

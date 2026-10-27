@@ -67,6 +67,12 @@ def test_tie_is_alphabetical():
 def test_unreachable():
     assert min_moves(["D#P"]) == -1
 ''',
+    "amazon-coding": '''from pricing.price_alerts import days_until_cheaper
+
+
+def test_the_same_price_is_not_cheaper():
+    assert days_until_cheaper([5, 5, 4]) == [2, 1, 0]
+''',
     "unfamiliar-repo": '''import json
 
 from pipeline.cli import main
@@ -79,6 +85,30 @@ def test_bom_feed_imports(tmp_path):
     assert json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))[0]["name"] == "Café"
 ''',
 }
+
+
+# Versions of the coding round's solution a candidate might write first: right, but quadratic (each day looks ahead;
+# each add scans every waiting day), and one that's wrong (equal prices count as cheaper).
+SLOW_MAIN = '''def days_until_cheaper(prices):
+    waits = []
+    for day, price in enumerate(prices):
+        later = next((other for other in range(day + 1, len(prices)) if prices[other] < price), None)
+        waits.append(0 if later is None else later - day)
+    return waits
+'''
+SLOW_FOLLOWUP = '''
+
+class PriceWatch:
+    def __init__(self):
+        self.waiting, self.today = [], 0
+
+    def add(self, price):
+        resolved = [(day, self.today - day) for day, old in self.waiting if old > price]
+        self.waiting = [(day, old) for day, old in self.waiting if old <= price] + [(self.today, price)]
+        self.today += 1
+        return resolved
+'''
+WRONG_MAIN = SLOW_MAIN.replace("prices[other] < price", "prices[other] <= price")
 
 
 class Checker:
@@ -146,7 +176,7 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
 
         # 2. Starter defects are detectable.
         visible = run_pytest(python, workspace, ["tests"])
-        blank = interview.meta.get("format") == "amazon-final"  # an empty function to write, not planted bugs
+        blank = interview.meta.get("format") in ("amazon-final", "amazon-coding")  # an empty function to write, not planted bugs
         c.check("starter fails visible tests", visible["failed"] + visible["errors"] > 0 and (blank or visible["passed"] > 0), f"{visible['passed']} pass, {visible['failed']} fail")
         starter = scratch / "starter"
         build_starter(interview, starter, home)
@@ -190,11 +220,21 @@ def verify_interview(interview, home: Path, python: str, c: Checker) -> None:
         before = sessions.status(interview)
         no_file = not (workspace / CHANGE_FILE).exists()
         clock.now += 1
-        after = sessions.status(interview)
         c.check("change is hidden before its minute and while paused", paused["change"] is None and before["change"] is None and no_file, f"{before['elapsed'] / 60:.2f} min")
-        c.check(f"change appears at minute {interview.meta.get('change_at_minutes', 30)} in the dashboard and CHANGE_REQUEST.md",
-                after["change"] == interview.change_request() and (workspace / CHANGE_FILE).read_text(encoding="utf-8") == interview.change_request()
-                and after["state"]["change_reveal_reason"] == "scheduled", f"revealed at {after['state']['change_revealed_at'] / 60:.1f} min")
+        if interview.meta.get("format") == "amazon-coding":
+            # The coding round's follow-up waits for a solution that works, and comes once it's fast.
+            c.check("the follow-up waits for a working solution, even past its minute", sessions.status(interview)["change"] is None)
+            sessions.assess(interview, {"status": "fast", "seconds": 0.01})
+            after = sessions.status(interview)
+            examples = sorted(p.name for p in interview.followup_tests.glob("test_*.py"))
+            c.check("a fast solution brings the follow-up, its CHANGE_REQUEST.md, and its example tests",
+                    after["change"] == interview.change_request() and (workspace / CHANGE_FILE).read_text(encoding="utf-8") == interview.change_request()
+                    and after["state"]["change_reveal_reason"] == "solved" and bool(examples) and all((workspace / "tests" / name).exists() for name in examples))
+        else:
+            after = sessions.status(interview)
+            c.check(f"change appears at minute {interview.meta.get('change_at_minutes', 30)} in the dashboard and CHANGE_REQUEST.md",
+                    after["change"] == interview.change_request() and (workspace / CHANGE_FILE).read_text(encoding="utf-8") == interview.change_request()
+                    and after["state"]["change_reveal_reason"] == "scheduled", f"revealed at {after['state']['change_revealed_at'] / 60:.1f} min")
 
         # 6. Reset restores the starter and deletes nothing.
         source = workspace / interview.meta["source_files"][-1]
@@ -695,6 +735,8 @@ def verify_behavioral_claude(interview, port: int, story: str, c: Checker) -> No
 def verify_workflow(interview, home: Path, c: Checker) -> None:
     if interview.meta.get("format") == "amazon-behavioral":
         return verify_behavioral_workflow(interview, home, c)
+    if interview.meta.get("format") == "amazon-coding":
+        return verify_coding_round_workflow(interview, home, c)
     if interview.meta.get("format") == "resume":
         return verify_resume_workflow(interview, home, c)
     if interview.meta.get("format") == "problem":
@@ -811,6 +853,99 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         c.check("API feedback degrades gracefully with API mode off", feedback.get("api_error", {}).get("kind") == "off")
         if amazon:
             verify_amazon_clock(interview, port, c)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def verify_coding_round_workflow(interview, home: Path, c: Checker) -> None:
+    """The coding round through the dashboard, with the scripted interviewer: it asks for a faster version of a slow
+    solution, helps when you're stuck, gives the follow-up once it's fast, and the report says how much help you needed."""
+    from .server import Lab, make_server
+    print(f"\nCoding round workflow without Claude [{interview.id}]")
+    clock = FakeClock()
+    server = make_server(Lab(home, sessions=Sessions(home, clock=clock), api_config=api.ApiConfig(env={})), port=0)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    iid, path = interview.id, interview.meta["editor_files"][0]
+    workspace = workspace_path(interview, home)
+    state = lambda: _http(port, f"/api/state?interview={iid}")["session"]
+    stuck = lambda: _http(port, f"/api/stuck?interview={iid}")["help"]
+
+    def write(code: str) -> None:
+        loaded = _http(port, f"/api/file?interview={iid}&path={path}")
+        _http(port, "/api/file", {"interview": iid, "path": path, "content": code, "mtime": loaded["mtime"]})
+
+    try:
+        _http(port, "/api/start", {"interview": iid, "reset": True})
+        intro = _http(port, "/api/cue", {"interview": iid, "cue": "ac_intro"})["entry"]
+        c.check("the interviewer opens with the problem and asks for an approach before code", "walk me through how you'd solve it" in intro["answer"])
+        equal = next(e for e in interview.clarifications() if e.get("important"))
+        entry = _http(port, "/api/ask", {"interview": iid, "question": f"Is the {equal['keywords'][0]} cheaper?"})["entry"]
+        c.check("it answers a clarifying question from the facts", entry["matched"] and entry["topic"] == equal["topic"], entry["topic"] or "no match")
+
+        clock.now += 160
+        first = stuck()
+        checkin = _http(port, "/api/stuck", {"interview": iid})["entry"]
+        clock.now += 80
+        c.check("quiet while reading: it checks in, but doesn't hand out a hint before you've started", first == "checkin" and checkin["kind"] == "checkin" and stuck() is None)
+
+        write(SLOW_MAIN)
+        slow = _http(port, "/api/test", {"interview": iid})
+        c.check("a slow solution that passes gets asked for its complexity and a faster version",
+                slow["result"]["ok"] and slow["assessed"]["event"] == "optimize" and slow["assessed"]["entry"]["kind"] == "cue:ac_optimize", slow["assessed"]["status"])
+        again = _http(port, "/api/test", {"interview": iid})["assessed"]
+        c.check("it asks once, and the follow-up waits for a faster version", again["event"] is None and state()["state"]["change_revealed_at"] is None)
+
+        clock.now += 160
+        first = stuck()
+        _http(port, "/api/stuck", {"interview": iid})
+        clock.now += 80
+        second = stuck()
+        hint = _http(port, "/api/stuck", {"interview": iid})["entry"]
+        c.check("stuck while coding: it checks in, then gives the first hint", first == "checkin" and second == "hint" and hint["kind"] == "hint:1"
+                and hint["answer"].startswith("Let me give you a small hint.") and interview.hints()[0] in hint["answer"])
+
+        write((interview.solution / path).read_text(encoding="utf-8").split("\n\nclass PriceWatch")[0] + "\n")
+        fast = _http(port, "/api/test", {"interview": iid})["assessed"]
+        session = state()
+        c.check("once it's fast, the follow-up comes, with its example added to your tests", fast["event"] == "followup" and session["state"]["change_reveal_reason"] == "solved"
+                and (workspace / "tests" / "test_followup_example.py").exists())
+        hint = _http(port, "/api/hint", {"interview": iid})["entry"]
+        c.check("hints after the follow-up are the follow-up's own", interview.followup_hints()[0] in hint["answer"])
+
+        write((workspace / path).read_text(encoding="utf-8") + SLOW_FOLLOWUP)
+        slow = _http(port, "/api/test", {"interview": iid})
+        c.check("a slow follow-up gets asked what each call costs", slow["result"]["ok"] and slow["assessed"]["event"] == "optimize"
+                and slow["assessed"]["entry"]["kind"] == "cue:ac_optimize_followup", slow["assessed"]["status"])
+        done = _http(port, "/api/done", {"interview": iid})
+        c.check("Done coding after that moves on to the wrap-up", done["event"] == "wrap" and done["entry"]["kind"] == "cue:ac_wrap_early"
+                and state()["phases"][state()["phase"]]["kind"] == "wrap")
+
+        (workspace / "tests" / "test_regressions.py").write_text(CANDIDATE_TESTS[iid], encoding="utf-8")
+        report = _http(port, "/api/submit", {"interview": iid})["report"]
+        scores = {s["area"]: s for s in report["scores"]}
+        kinds = [item["kind"] for item in report["help"]]
+        c.check("the report scores the coding round's six areas", list(scores) == [a for a, _ in grading.CODING_ROUND_AREAS])
+        c.check("it lists every time the interviewer stepped in", kinds.count("checkin") == 2 and kinds.count("hint") == 2 and kinds.count("optimize") == 2, ", ".join(kinds))
+        c.check("problem solving notes the push to optimize and the hints", any("asked for a faster one" in line for line in scores["problem_solving"]["evidence"])
+                and any("hints on the problem" in line for line in scores["problem_solving"]["evidence"]))
+        c.check("the slow follow-up fails its large-input test, and the example tests aren't counted as yours",
+                any("Follow-up: 100,000 adds" in m for m in report["missed_cases"]) and report["tests"]["your_new_tests"] == 1)
+        parts = [p["part"] for p in report["timeline"]["parts"]]
+        c.check("the report times your approach, the first version, making it faster, the follow-up, and the wrap-up",
+                parts == ["Clarifying and your approach", "Coding a first version", "Making it faster", "The follow-up", "Wrap-up and your questions"], ", ".join(parts))
+        c.check("the report shows how to solve it", "monotonic stack" in (report["approach"] or "") and bool(report["format_note"]))
+        packet = _http(port, f"/api/packet?interview={iid}&kind=interviewer")["text"]
+        c.check("the copyable interviewer prompt has the hints and the follow-up", interview.followup_hints()[0] in packet and interview.change_request()[:40] in packet
+                and "Leadership Principles" not in packet)
+
+        _http(port, "/api/start", {"interview": iid, "reset": True})
+        write(WRONG_MAIN)
+        first = _http(port, "/api/done", {"interview": iid})
+        second = _http(port, "/api/done", {"interview": iid})
+        c.check("Done coding with code that doesn't work yet: it asks you to test it, then moves on without the follow-up",
+                first["event"] == "verify" and first["entry"]["kind"] == "cue:ac_verify" and second["event"] == "wrap" and state()["state"]["change_revealed_at"] is None)
     finally:
         server.shutdown()
         server.server_close()

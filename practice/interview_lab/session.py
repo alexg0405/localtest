@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import random
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -20,6 +21,15 @@ PHASES = DEFAULT_PHASES
 NOTE_FIELDS = ("plan", "assumptions", "patch_review", "explanation", "transcript")
 CHANGE_FILE = "CHANGE_REQUEST.md"
 LOCK = threading.RLock()
+# The coding round's interviewer, with a candidate who seems stuck: it checks in after this long without progress
+# (nothing said, typed, or run), gives a hint if there's still nothing a little after that, and steps in when the same
+# tests keep failing for a few minutes. Its follow-up waits this long after it asked for a faster version.
+QUIET_SECONDS = 150
+HINT_AFTER_CHECKIN = 75
+SPINNING_SECONDS = 180
+OPTIMIZE_GRACE = 240
+FOLLOW_UP_MINUTES = 4   # the least coding time left for the follow-up to be worth giving
+STUCK_ESCALATE = 240    # still stuck this long after a hint, with nothing tried: the next one is bigger
 
 
 class SessionError(Exception):
@@ -177,6 +187,12 @@ class Sessions:
         workspace = workspace_path(interview, self.home)
         if workspace.exists():
             (workspace / CHANGE_FILE).write_text(interview.change_request(), encoding="utf-8")
+            examples = interview.followup_tests
+            for source in sorted(examples.glob("test_*.py")) if examples and examples.is_dir() else []:
+                target = workspace / "tests" / source.name   # the follow-up's example, so Run tests checks it too
+                if not target.exists():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, target)
         self.save(state)
 
     def reveal_now(self, interview: Interview) -> Dict[str, Any]:
@@ -269,6 +285,149 @@ class Sessions:
         early = "amz_wrap_early" if "amz_wrap_early" in interviewer.cues_for(interview) else None
         return {"next": "wrap", "entry": self.move_on(interview, wrap["cue"], say=early) if wrap and wrap.get("cue") else None}
 
+    # The coding round: the interviewer checks a working solution's speed, asks for a faster one when it can be
+    # optimized, gives the follow-up once it's fast, and helps when you're stuck.
+
+    @staticmethod
+    def stage(state: Dict[str, Any]) -> str:
+        """The part of the coding round's problem you're on: "main", then "followup" once it's revealed."""
+        return "followup" if state.get("change_revealed_at") is not None else "main"
+
+    @classmethod
+    def _follow_up_due(cls, interview: Interview, state: Dict[str, Any], elapsed: float) -> bool:
+        """Whether the follow-up comes now that its minute has passed. In the coding round it waits for a solution that
+        works: it comes as soon as that's fast, or a few minutes after the interviewer asked for a faster one, while
+        there's still time to code it."""
+        if interview.meta.get("format") != "amazon-coding":
+            return True
+        asked = (state.get("optimize") or {}).get("main")
+        fast = any(check["status"] == "fast" for check in (state.get("speed") or {}).get("main", []))
+        return (fast or (asked is not None and elapsed - asked >= OPTIMIZE_GRACE)) and not cls._too_late(interview, state, elapsed)
+
+    @classmethod
+    def _too_late(cls, interview: Interview, state: Dict[str, Any], elapsed: float) -> bool:
+        """Too little coding time left to start the follow-up."""
+        index = next((i for i, p in enumerate(interview.phases()) if p.get("kind") == "coding"), None)
+        return index is not None and cls.bounds(interview, state)[index][1] - elapsed / 60 < FOLLOW_UP_MINUTES
+
+    def assess(self, interview: Interview, check: Dict[str, Any], done: bool = False, scripted: bool = False) -> Dict[str, Any]:
+        """What the coding round's interviewer does after checking the current part (a speed check from
+        testing.run_check), when your tests pass or when you say you're done coding. {"event", "entry"}:
+        - "optimize": it works but is slower than it needs to be, so the interviewer asks for its complexity and a
+          faster version (once per part).
+        - "verify": you said you're done, but it doesn't work yet, so it asks you to test it (once per part).
+        - "followup": the main problem is done (fast, or as fast as you got it): the follow-up is revealed, and the page
+          says its line.
+        - "wrap": the follow-up is done, you're done coding, or the main problem is done with too little time left for
+          the follow-up: on to the wrap-up, whose line is the entry.
+        - None: nothing to say (it passes but is still slow, and the interviewer already asked for better).
+        Scripted, the entry is the interviewer's scripted line for "optimize" and "verify"; otherwise Claude words them."""
+        with LOCK:
+            state = self._require(interview.id)
+            stage, at, status = self.stage(state), round(self.elapsed(state), 1), check["status"]
+            state.setdefault("speed", {}).setdefault(stage, []).append({"at": at, "status": status, "seconds": check.get("seconds")})
+            asked, verified = state.setdefault("optimize", {}), state.setdefault("verify", {})
+            if done:
+                state.setdefault("coding", {"first_edit": None, "edits": 0}).setdefault("done", []).append(at)
+            if status == "slow" and stage not in asked:
+                asked[stage], event = at, "optimize"
+            elif status in ("wrong", "missing") and done and stage not in verified:
+                verified[stage], event = at, "verify"
+            elif stage == "main" and (status == "fast" or (done and status == "slow")) and interview.meta.get("change_at_minutes") is not None:
+                event = "wrap" if self._too_late(interview, state, self.elapsed(state)) else "followup"
+                if event == "followup":
+                    self.reveal_change(interview, state, "solved" if status == "fast" else "done")
+            elif done or (stage == "followup" and status == "fast"):
+                event = "wrap"
+            else:
+                event = None
+            self.save(state)
+        if event == "wrap":
+            wrap = next((p for p in interview.phases() if p.get("kind") == "wrap"), None)
+            entry = self.move_on(interview, wrap["cue"], say="ac_wrap_early" if "ac_wrap_early" in interviewer.cues_for(interview) else None) if wrap and wrap.get("cue") else None
+        elif event in ("optimize", "verify") and scripted:
+            entry = self.cue(interview, "ac_verify" if event == "verify" else "ac_optimize_followup" if stage == "followup" else "ac_optimize")
+        else:
+            entry = None
+        return {"event": event, "entry": entry, "stage": stage, "status": status}
+
+    @staticmethod
+    def _last_progress(state: Dict[str, Any]) -> float:
+        """When you last did something: said, asked, or typed anything, or ran your code or the tests (seconds in)."""
+        times = [0.0, (state.get("coding") or {}).get("last_edit") or 0.0]
+        times += [item["at"] for item in state.get("spoken", [])] + [q["at"] for q in state.get("questions", []) if q.get("source") != "interviewer"]
+        times += [run["at"] for run in state.get("test_runs", []) + state.get("code_runs", [])]
+        return max(times)
+
+    @staticmethod
+    def help_given(state: Dict[str, Any]) -> List[Tuple[float, str]]:
+        """When the interviewer stepped in to help, and how: "checkin", "hint", or "debug" (the same tests keep failing)."""
+        given = []
+        for q in state.get("questions", []):
+            kind = q.get("kind") or ""
+            if q.get("source") != "interviewer":
+                continue
+            if kind in ("coach-ai:nudge", "checkin"):
+                given.append((q["at"], "checkin"))
+            elif kind == "coach-ai:hint" or kind.startswith("hint:"):
+                given.append((q["at"], "hint"))
+            elif kind in ("coach-ai:debug", "debug"):
+                given.append((q["at"], "debug"))
+        return given
+
+    def stuck_help(self, interview: Interview) -> Optional[str]:
+        """Whether the coding round's interviewer should step in now, and how:
+        - "debug": the last three test runs failed the same way over three minutes or more, with no help since.
+        - "checkin": two and a half minutes without progress, and no help since then.
+        - "hint": still nothing 75 seconds after checking in, once you've started coding (or reading time is over),
+          while hints are left.
+        None otherwise: you're making progress, or it just stepped in."""
+        with LOCK:
+            state = self.load(interview.id)
+            if not state or state["status"] != "running" or interview.meta.get("format") != "amazon-coding":
+                return None
+            now = self.elapsed(state)
+            phases = interview.phases()
+            phase = self._phase(interview, state, now / 60)
+            if phase >= len(phases) or phases[phase].get("kind") not in ("approach", "coding"):
+                return None
+            given = self.help_given(state)
+            runs = state.get("test_runs", [])[-3:]
+            if (len(runs) == 3 and all(run.get("failing") for run in runs) and len({tuple(run["failing"]) for run in runs}) == 1
+                    and now - runs[0]["at"] >= SPINNING_SECONDS and not any(at >= runs[0]["at"] for at, _ in given)):
+                return "debug"
+            progress = self._last_progress(state)
+            if now - progress < QUIET_SECONDS:
+                return None
+            since = [(at, kind) for at, kind in given if at >= progress]
+            if not since:
+                return "checkin"
+            last_at, last_kind = since[-1]
+            coding = (state.get("coding") or {}).get("first_edit") is not None or phases[phase].get("kind") == "coding"
+            stage, hints = self._ladder(interview, state)
+            left = len(hints) - sum(1 for h in state.get("hints", []) if h.get("stage", "main") == stage)
+            if last_kind == "checkin" and now - last_at >= HINT_AFTER_CHECKIN and coding and left > 0:
+                return "hint"
+            if last_kind != "checkin" and now - last_at >= QUIET_SECONDS:
+                return "checkin"
+            return None
+
+    def checkin(self, interview: Interview) -> Dict[str, Any]:
+        """The scripted interviewer checking in on a quiet candidate (said as often as it's needed)."""
+        with LOCK:
+            state = self._require(interview.id)
+            entry = self._interviewer_message(state, interviewer.cues_for(interview).get("ac_checkin", "Where are you at? Talk me through what you're thinking."), "checkin")
+            self.save(state)
+            return entry
+
+    def debug_nudge(self, interview: Interview) -> Dict[str, Any]:
+        """The scripted interviewer's nudge when the same tests keep failing: find the bug yourself, by hand."""
+        with LOCK:
+            state = self._require(interview.id)
+            entry = self._interviewer_message(state, "Let's slow down for a second. Pick the smallest input that fails, trace your code on it by hand, line by line, and tell me where it stops doing what you expect.", "debug")
+            self.save(state)
+            return entry
+
     def reveal_when_solved(self, interview: Interview) -> bool:
         """The visible tests pass before the follow-up's minute: the interviewer gives the follow-up now. True if it did."""
         with LOCK:
@@ -287,7 +446,7 @@ class Sessions:
             elapsed = self.elapsed(state)
             change_minutes = interview.meta.get("change_at_minutes", 30)
             change_at = change_minutes * 60 if change_minutes is not None else None  # a round can have no change
-            if state["status"] == "running" and change_at is not None and elapsed >= change_at:
+            if state["status"] == "running" and change_at is not None and elapsed >= change_at and self._follow_up_due(interview, state, elapsed):
                 self.reveal_change(interview, state, "scheduled")
             minutes = elapsed / 60
             phases = interview.phases()
@@ -525,21 +684,33 @@ class Sessions:
                 pass
         return False
 
-    def take_hint(self, interview: Interview) -> Optional[Dict[str, Any]]:
-        """The hint to give now: {level, total, text, repeat}. A new level only after the candidate made progress since the
-        last hint; asking again right away repeats the last level (not counted) so it can be rephrased. None when all are used."""
-        hints = interview.hints()
+    @staticmethod
+    def _ladder(interview: Interview, state: Dict[str, Any]) -> Tuple[str, List[str]]:
+        """Which hints apply now: the problem's, or in the coding round, the follow-up's own once it's revealed."""
+        if interview.meta.get("format") == "amazon-coding" and state.get("change_revealed_at") is not None and interview.followup_hints():
+            return "followup", interview.followup_hints()
+        return "main", interview.hints()
+
+    def take_hint(self, interview: Interview, reason: str = "asked") -> Optional[Dict[str, Any]]:
+        """The hint to give now: {level, total, text, repeat, stage}. A new level only after the candidate made progress since
+        the last hint; asking again right away repeats the last level (not counted) so it can be rephrased. None when all are
+        used. `reason` is "asked", or "stuck" when the coding round's interviewer offers it: someone still stuck well after
+        the last hint gets the next one even without progress."""
         with LOCK:
             state = self._require(interview.id)
-            used = state.setdefault("hints", [])
-            if used and not self._progress_since(interview, state, used[-1]):
+            stage, hints = self._ladder(interview, state)
+            used = [h for h in state.setdefault("hints", []) if h.get("stage", "main") == stage]
+            stale = bool(used) and reason == "stuck" and self.elapsed(state) - used[-1]["at"] >= STUCK_ESCALATE
+            if used and not stale and not self._progress_since(interview, state, used[-1]):
                 level = used[-1]["level"]
-                return {"level": level, "total": len(hints), "text": hints[level - 1], "repeat": True}
+                return {"level": level, "total": len(hints), "text": hints[level - 1], "repeat": True, "stage": stage, "reason": reason}
             if len(used) >= len(hints):
                 return None
-            used.append({"at": round(self.elapsed(state), 1), "wall": time.time(), "activity": self._activity(state), "level": len(used) + 1, "mode": state.get("mode", "real")})
+            level = len(used) + 1
+            state["hints"].append({"at": round(self.elapsed(state), 1), "wall": time.time(), "activity": self._activity(state), "level": level,
+                                   "mode": state.get("mode", "real"), "stage": stage, "reason": reason})
             self.save(state)
-            return {"level": len(used), "total": len(hints), "text": hints[len(used) - 1], "repeat": False}
+            return {"level": level, "total": len(hints), "text": hints[level - 1], "repeat": False, "stage": stage, "reason": reason}
 
     def record_coach(self, interview: Interview, trigger: str, message: str, reply: str, voice: bool = False, section: Optional[str] = None) -> Dict[str, Any]:
         """Keeps a conversational coach exchange: the student's message and the reply, or the coach speaking up on its own."""
@@ -564,22 +735,24 @@ class Sessions:
                                       "failing": [{"name": c["name"], "message": c["message"]} for c in result.get("cases", []) if c["outcome"] != "passed"][:8]}
             self.save(state)
 
-    def hint(self, interview: Interview) -> Dict[str, Any]:
+    def hint(self, interview: Interview, reason: str = "asked") -> Dict[str, Any]:
         """The scripted hint, used when Claude isn't available."""
-        hint = self.take_hint(interview)
+        hint = self.take_hint(interview, reason)
         with LOCK:
             state = self._require(interview.id)
             coach = state.get("mode") == "coach"
+            stuck = reason == "stuck"
             if hint is None:
                 text = ("That's all my hints. If you want, open the menu and choose Show the approach, and I'll walk you through the whole solution." if coach
                         else "That's as much as I can give you. Try to take it from there, and tell me what you're thinking.")
                 kind = "hint:none"
             elif hint["repeat"]:
                 text = (f"Let's stay with the last hint for a moment: {hint['text']} Which part of it is unclear, or what would you try first?" if coach
+                        else f"Let me put my last hint another way. {hint['text']}" if stuck
                         else "I'd like to see you try the last hint first. What are you thinking?")
                 kind = "hint:repeat"
             else:
-                text = (f"Hint {hint['level']} of {hint['total']}: " if coach else "Sure, here's a nudge. ") + hint["text"]
+                text = (f"Hint {hint['level']} of {hint['total']}: " if coach else "Let me give you a small hint. " if stuck else "Sure, here's a nudge. ") + hint["text"]
                 kind = f"hint:{hint['level']}"
             entry = self._interviewer_message(state, text, kind)
             self.save(state)

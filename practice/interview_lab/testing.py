@@ -1,6 +1,7 @@
 """Runs pytest in a subprocess and reads per-test results from its JUnit XML report."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -65,3 +66,38 @@ def _parse(report: Path) -> List[Dict[str, Any]]:
 def summary(result: Dict[str, Any]) -> Dict[str, Any]:
     """The part of a run worth keeping in session history."""
     return {key: result[key] for key in ("ok", "passed", "failed", "errors", "skipped", "total")}
+
+
+def run_check(python: str, cwd: Path, script: Path, args: Sequence[str], fast_seconds: float, timeout: float) -> Dict[str, Any]:
+    """Runs an interviewer-only check script against the candidate's code: is it correct, and is it fast enough to call
+    optimal? The script prints a JSON line per check ({"check": "correct" | "speed", "ok", ...}), so a run stopped at the
+    time limit still says whether the answers were right. Returns {"status": "fast" | "slow" | "wrong" | "missing", ...}."""
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
+    timed_out = False
+    try:
+        done = subprocess.run([python, str(script), *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
+        output = done.stdout
+    except subprocess.TimeoutExpired as error:
+        timed_out = True
+        output = error.stdout.decode("utf-8", "replace") if isinstance(error.stdout, bytes) else (error.stdout or "")
+    except OSError as error:
+        return {"status": "missing", "seconds": None, "detail": f"Could not run the check: {error}"}
+    lines = {}
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("check") in ("correct", "speed"):
+            lines[event["check"]] = event
+    correct, speed = lines.get("correct"), lines.get("speed")
+    if not correct:
+        return {"status": "wrong", "seconds": None, "detail": "it didn't finish on short histories (an infinite loop?)" if timed_out else "it crashed"}
+    if not correct.get("ok"):
+        return {"status": "missing" if correct.get("missing") else "wrong", "seconds": None, "detail": str(correct.get("detail", ""))[:300]}
+    if speed is None:
+        return {"status": "slow" if timed_out else "wrong", "seconds": None, "detail": f"over {timeout:g} seconds" if timed_out else "it crashed on the long history"}
+    if not speed.get("ok"):
+        return {"status": "wrong", "seconds": speed.get("seconds"), "detail": "wrong answer on the long history"}
+    seconds = float(speed.get("seconds") or 0)
+    return {"status": "fast" if seconds <= fast_seconds else "slow", "seconds": round(seconds, 3), "detail": ""}

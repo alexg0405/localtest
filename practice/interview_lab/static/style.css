@@ -530,6 +530,18 @@ details.raw pre { margin-top: 8px; padding: 12px 14px; max-height: 260px; overfl
 .time-notes li { margin: 5px 0; }
 .time-notes li::marker { color: var(--acid); }
 
+/* Results: how the coding round's interviewer helped, as a log */
+.box .help-list { list-style: none; padding: 0; }
+.help-list li { display: grid; grid-template-columns: 48px 88px 1fr; gap: 12px; align-items: baseline; margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.help-list li:last-child { border-bottom: 0; }
+.help-list li.none { display: block; border: 0; }
+.help-at { font: 500 12px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.help-kind { justify-self: start; padding: 3px 7px; border: 1px solid var(--line-2); font: 500 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-2); }
+.help-kind.hint { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); }
+.help-kind.optimize { border-color: var(--magenta-line); color: var(--magenta); background: var(--magenta-soft); }
+.help-kind.checkin, .help-kind.debug, .help-kind.verify { border-color: var(--cyan-line); color: var(--cyan); background: var(--cyan-soft); }
+@media (max-width: 560px) { .help-list li { grid-template-columns: 42px 1fr; } .help-list li > span:last-child { grid-column: 2; } }
+
 /* The interviewer's chat window: draggable, resizable, remembered */
 .coach-pop { position: fixed; top: 64px; left: calc(100vw - 396px); z-index: 30; width: 380px; height: 320px; min-width: 280px; min-height: 150px; max-width: calc(100vw - 8px); max-height: calc(100vh - 8px);
   display: flex; flex-direction: column; background: rgba(12, 14, 17, .97); border: 1px solid var(--line-3); box-shadow: 0 28px 70px rgba(0, 0, 0, .65); backdrop-filter: blur(10px);

@@ -7,14 +7,14 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 LAB_ROOT = Path(__file__).resolve().parent.parent
 INTERVIEWS_DIR = LAB_ROOT / "interviews"
 PROBLEMS_DIR = LAB_ROOT / "problems"  # single-problem practice rounds
 CONCEPTS = PROBLEMS_DIR / "_concepts.json"  # what the coach can explain
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-full-loop", "amazon-final-1", "amazon-final-2", "amazon-behavioral", "resume-deep-dive"]
+ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-full-loop", "amazon-final-1", "amazon-final-2", "amazon-coding", "amazon-behavioral", "resume-deep-dive"]
 LP_BANK = INTERVIEWS_DIR / "_amazon" / "leadership_principles.json"  # interviewer-only: questions, follow-ups, signals
 
 
@@ -122,6 +122,11 @@ class Interview:
     def guide(self) -> str:
         return self._text("guide.md")
 
+    def guide_section(self, heading: str) -> str:
+        """The interviewer guide's section whose heading starts with `heading`, without the heading."""
+        match = re.search(rf"^## {re.escape(heading)}[^\n]*\n(.*?)(?=^## |\Z)", self.guide(), re.M | re.S)
+        return match.group(1).strip() if match else ""
+
     def rubric(self) -> str:
         return self._text("rubric.md")
 
@@ -159,6 +164,21 @@ class Interview:
     def hints(self) -> List[str]:
         return self._json("hints.json", [])
 
+    def followup_hints(self) -> List[str]:
+        """The coding round's hints for its follow-up, once it's revealed."""
+        return self._json("followup_hints.json", [])
+
+    @property
+    def followup_tests(self) -> Optional[Path]:
+        """Example tests for the follow-up, added to the workspace's tests when it's revealed."""
+        name = self.meta.get("followup_tests")
+        return self.interviewer / name if name else None
+
+    def speed_check(self) -> Optional[Dict[str, Any]]:
+        """The interviewer's check of whether a working solution is fast enough to call optimal (the coding round)."""
+        config = self.meta.get("speed_check")
+        return {**config, "path": self.interviewer / config["script"]} if config else None
+
     def approach(self) -> str:
         return self._text("approach.md")
 
@@ -173,6 +193,7 @@ class Interview:
         public["run_tests_allowed"] = self.meta.get("run_tests_allowed", True)
         public["phases"] = [{k: p[k] for k in ("start", "end", "name", "kind") if k in p} for p in self.phases()]
         public["hint_count"] = len(self.hints())
+        public["followup_custom_input"] = self.meta.get("followup_custom_input")
         return public
 
 

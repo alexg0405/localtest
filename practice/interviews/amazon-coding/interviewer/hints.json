@@ -1,0 +1,5 @@
+[
+  "Get something working first: from each day, look ahead for the first lower price. Then think about what that look-ahead repeats when prices keep rising.",
+  "Instead of looking ahead from every day, go through the days once and keep the days that are still waiting for a lower price. When today's price comes in, which of the waiting days does it answer?",
+  "Keep the waiting days on a stack, so their prices never go down toward the top. For each new day, pop every waiting day with a higher price and set its wait to the gap in days, then push today. Each day is pushed and popped once, so it's O(n)."
+]

@@ -1,0 +1,133 @@
+{
+  "id": "amazon-coding",
+  "title": "Amazon SDE intern coding round: price-drop alerts",
+  "company": "amazon",
+  "format": "amazon-coding",
+  "inspired_by": "Modeled on candidate reports of Amazon SDE intern technical interviews in the Summer 2026 and Winter 2027 cycles: one LeetCode-medium problem in a plain editor, where the interviewer wants the complexity, pushes you past a brute-force solution, nudges you when you're stuck, and extends the problem with a follow-up. An original simulation, not a real Amazon question.",
+  "level": "SDE intern coding round",
+  "summary": "Just coding: one problem, price-drop alerts. Get it working, make it fast when the interviewer asks, then handle the follow-up. The interviewer checks in and gives a small hint when you're stuck. No AI; write and run your code in the browser editor.",
+  "tags": [
+    "python",
+    "45 min",
+    "no AI",
+    "coding only",
+    "hints",
+    "runs code"
+  ],
+  "package": "pricing",
+  "duration_minutes": 45,
+  "change_at_minutes": 26,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "note_tabs": {
+    "plan": "approach.md",
+    "assumptions": "assumptions.md",
+    "explanation": "dry_run.md"
+  },
+  "source_files": [
+    "pricing/price_alerts.py"
+  ],
+  "editor_files": [
+    "pricing/price_alerts.py"
+  ],
+  "approach_keywords": [
+    "stack",
+    "monotonic",
+    "next smaller",
+    "next lower",
+    "still waiting",
+    "waiting days",
+    "pop",
+    "amortized",
+    "one pass",
+    "single pass"
+  ],
+  "change_keywords": [
+    "pricewatch",
+    "add(",
+    "stream",
+    "live feed",
+    "follow-up",
+    "amortized"
+  ],
+  "speed_check": {
+    "script": "speed_check.py",
+    "days": 12000,
+    "fast_seconds": 0.4,
+    "timeout_seconds": 2.5,
+    "target": "O(n) time and O(n) space",
+    "followup_target": "O(1) amortized per add",
+    "slow": {
+      "main": "Their days_until_cheaper gives the right answers but is too slow: {days} days of rising prices took {seconds}, where the target takes a few milliseconds. It's quadratic.",
+      "followup": "Their PriceWatch gives the right answers, but add is too slow: {days} adds of rising prices took {seconds}, where the target takes a few milliseconds. Each add costs O(n) in the waiting days."
+    }
+  },
+  "followup_tests": "followup_tests",
+  "phases": [
+    {
+      "start": 0,
+      "end": 8,
+      "name": "Clarify, then talk through your approach",
+      "cue": "ac_intro",
+      "kind": "approach",
+      "nudge": "plan",
+      "ends_on_edit": true
+    },
+    {
+      "start": 8,
+      "end": 35,
+      "name": "Code it, test it, and optimize",
+      "cue": "ac_code",
+      "kind": "coding",
+      "checks": [
+        {
+          "left": 10,
+          "cue": "ac_code_10"
+        },
+        {
+          "left": 5,
+          "cue": "ac_code_5"
+        }
+      ]
+    },
+    {
+      "start": 35,
+      "end": 45,
+      "name": "Complexity, follow-up questions, and yours",
+      "cue": "ac_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "cues": {
+    "ac_intro": "Hi, thanks for joining. I'm an engineer on the team, and today is a coding round: one problem, and probably a follow-up. There's no AI, but you can run your code in the editor. The problem is in the Problem tab. Take a minute to read it, and ask me anything that's unclear. Then, before you code, walk me through how you'd solve it.",
+    "ac_code": "Okay, let's get it coded. We have about {left} minutes. It goes in pricing slash price alerts dot py. Start with whatever you can get working, and keep talking me through it.",
+    "ac_code_10": "Quick time check: about ten minutes left for coding.",
+    "ac_code_5": "About five minutes left for coding. Start wrapping up, so we have time to talk it through.",
+    "change": "Okay, let's extend it. I've put a follow-up in the Follow-up tab: the prices now come from a live feed, one day at a time. I added its example to your tests. How does your approach change?",
+    "ac_optimize": "Okay, it works on the example. What's the time complexity, and with a hundred thousand days per item, can you do better?",
+    "ac_optimize_followup": "That works. What does one call to add cost? It runs for every price update, so can you make it cheaper?",
+    "ac_verify": "Before we move on, run it on the example and an edge case, and walk me through what it returns.",
+    "ac_checkin": "Where are you at? Talk me through what you're thinking.",
+    "ac_wrap": "Let's stop coding there. Walk me through your solution on the example, and give me the time and space complexity. Then I have a couple of follow-up questions.",
+    "ac_wrap_early": "Okay, let's stop coding there. Walk me through your solution on the example, and give me the time and space complexity. Then I have a couple of follow-up questions."
+  },
+  "plan_prompts": [
+    "What's the simplest approach, and what's its time complexity?",
+    "With a hundred thousand days per item, is that fast enough? Can you do better?",
+    "What edge cases are you thinking about?"
+  ],
+  "closing_prompts": [
+    "What questions do you have for me?"
+  ],
+  "custom_input": "from pricing.price_alerts import days_until_cheaper\n\nprint(days_until_cheaper([7, 9, 8, 6, 8, 5]))\n",
+  "followup_custom_input": "from pricing.price_alerts import PriceWatch, days_until_cheaper\n\nwatch = PriceWatch()\nfor price in [7, 9, 8, 6, 8, 5]:\n    print(price, watch.add(price))\n",
+  "followups": {
+    "problem_understanding": "Before the next array problem you practice, ask about equal values, what to return when there's no answer, and the input size, and write down the answer you'd assume for each.",
+    "problem_solving": "Re-solve price-drop alerts from scratch: say the brute force and why it's O(n²) on rising prices, then the stack, and explain in two sentences why it's O(n) despite the loop inside a loop. Then do Daily Temperatures (LeetCode 739) and Online Stock Span (901) the same way.",
+    "correctness": "Dry-run your code by hand on [5, 5, 4], [1, 2, 3], and [3, 6, 8, 9, 2] before running anything, and check each answer.",
+    "testing": "Before pressing Run tests, write the five tests you'd add for days_until_cheaper, each with the answer worked out by hand.",
+    "code_quality": "Rewrite days_until_cheaper and PriceWatch.add in under 12 lines each, with names that say what the stack holds.",
+    "communication": "Solve a monotonic-stack problem in 25 minutes with the mic on, narrating; check that you stated the complexity before coding and answered each question in one or two sentences."
+  }
+}

@@ -1,0 +1,4 @@
+[
+  "Keep the days that are still waiting for a lower price inside the class, between calls to add. Which of them can a new price answer, and where are they?",
+  "Keep the waiting days on a stack with prices that never go down toward the top. Each add pops the days with a higher price, which come off newest first, so reverse them before returning, then pushes today. Each day is pushed and popped once, so add is O(1) amortized."
+]

@@ -19,6 +19,7 @@ key. It runs on macOS, Linux, and Windows.
 | `amazon-full-loop` | The full Amazon SDE intern interview (60 min, no AI): a deep dive on a project from your résumé, two Leadership Principles questions, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | Explaining your own work, STAR stories, hash maps and heaps, complexity, testing |
 | `amazon-final-1` | Amazon SDE intern final round 1 (60 min, no AI): two Leadership Principles questions with follow-ups, then "top late carriers" with a streaming follow-up, coded and run in the browser editor. | STAR stories, hash maps and heaps, complexity, testing |
 | `amazon-final-2` | Amazon SDE intern final round 2 (60 min, no AI): two different Leadership Principles, then a warehouse-robot shortest path with a "clear k shelves" follow-up. | STAR stories, BFS, state search, complexity, testing |
+| `amazon-coding` | Amazon coding round (45 min, no AI): just coding. "Price-drop alerts": the interviewer asks for your approach and its complexity, pushes you past a brute-force solution, gives a hint when you're stuck, then adds a streaming follow-up. | Complexity, optimizing past brute force, monotonic stacks, follow-ups, thinking aloud |
 | `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
 | `resume-deep-dive` | Résumé deep dive (30 min): Claude plays an Amazon engineer interviewing you for the SDE internship, who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks two Leadership Principles questions in their own section, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups, STAR stories |
 
@@ -395,6 +396,70 @@ every loop differs. The questions are original. Sources:
 - [Amazon SDE intern 2026 interview experiences on takeUforward](https://takeuforward.org/community/interview-experiences/amazon-sde-intern-interview-experience-2026-hackon-6-month-internship-selected)
 - [Glassdoor: Amazon SDE intern interviews](https://www.glassdoor.com/Interview/Amazon-Software-Development-Engineer-Intern-Interview-Questions-EI_IE6036.0,6_KO7,43.htm)
 - [IT Pro on Amazon's GenAI interview policy](https://itpro.com/business/careers-and-training/amazon-bans-ai-tools-during-job-interviews)
+
+## Amazon coding round
+
+`amazon-coding` is a 45-minute Amazon technical interview that's only coding,
+like a phone screen or a coding-only loop round. It has one problem, a
+LeetCode medium framed as a business task ("price-drop alerts"), then a
+follow-up, then questions. There are no Leadership Principles questions.
+
+| Minutes | What happens |
+|---|---|
+| 0–8 | Read the problem and clarify. Then, before you code, give the interviewer your approach and its complexity. |
+| 8–35 | Code it and talk it through, with time checks at 10 and 5 minutes left. |
+| 35–45 | Trace the example, give the complexity, answer the interviewer's follow-up questions, and ask yours. |
+
+The interviewer behaves the way Amazon interviewers do:
+- **It wants the complexity, and then better.**
+  - Before you code, it asks for your approach and its time and space
+    complexity. If your idea is slower than it needs to be, it asks once
+    whether you can do better. Starting with brute force is fine.
+  - When your tests pass, it checks behind the scenes whether your solution is
+    fast enough. If it's quadratic, it asks for the complexity, then pushes for
+    a faster version without naming the technique. If it's already fast, it
+    doesn't ask.
+- **Hints when you're stuck.**
+  - Say you're stuck, or press **Hint**, at any time.
+  - If you go quiet for two and a half minutes (nothing typed, said, or run),
+    it checks in. If you're still stuck a little after that, once you've
+    started coding, it gives a small hint. Bigger hints come only after you've
+    made progress.
+  - If the same tests keep failing for a few minutes, it suggests tracing the
+    smallest failing input by hand, without saying what's wrong.
+  - When it asks "Want a hint?", a yes takes it.
+  - Each hint after the first lowers your problem-solving score a little.
+- **Follow-ups, Amazon style.**
+  - As soon as your solution passes and is fast, it extends the problem: the
+    prices now stream in, and `PriceWatch.add` has to report each day as soon
+    as it gets cheaper.
+  - Its example lands in your tests. It has its own hints, and its own check:
+    "What does one call to add cost?"
+  - If your first version works but stays slow, the follow-up comes at minute
+    26 anyway, or four minutes after the interviewer asked for better,
+    whichever is later. If nothing works yet, it waits. With less than four
+    minutes of coding left, it skips the follow-up and goes to the wrap-up.
+  - In the wrap-up it asks follow-up questions one at a time: the amortized
+    cost, the worst single call, memory, millions of items, and tests.
+- **It questions your choices as you code**, like the final rounds'
+  interviewer. It never points out bugs, gives the fix, or confirms you're
+  optimal.
+- **Done coding** tells it you're done. It looks at your code first: it asks
+  for a faster version, or for you to test it if it doesn't work yet, then
+  gives the follow-up or moves on to the wrap-up.
+
+With Claude (Roomside running), the interviewer says all of this in its own
+words, about your code. Without Claude, the scripted interviewer says it in
+fixed words.
+
+The report scores six areas: problem understanding, problem solving and
+complexity, correctness and edge cases, testing and dry run, code quality, and
+communication. It also has:
+- **How the interviewer helped:** every hint (and whether you asked for it or
+  were stuck), check-in, nudge, and push for a faster version, with its minute.
+- **Time:** your approach, the first version, making it faster, the follow-up,
+  and the wrap-up, each against the plan.
+- **How to solve it**, from the interviewer's guide.
 
 ## Session flow (60 minutes)
 

@@ -1,0 +1,87 @@
+{
+  "test_example_from_the_problem": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_example_from_the_follow_up": {
+    "area": "change",
+    "description": "Follow-up: the example from the follow-up"
+  },
+  "test_example": {
+    "area": "core",
+    "description": "The example from the problem"
+  },
+  "test_empty_history": {
+    "area": "edge",
+    "description": "An empty price history returns an empty list",
+    "topic": "Empty history"
+  },
+  "test_a_single_day_never_gets_cheaper": {
+    "area": "edge",
+    "description": "A single day never gets cheaper (0)",
+    "topic": "A day that never gets cheaper"
+  },
+  "test_the_same_price_is_not_cheaper": {
+    "area": "edge",
+    "description": "The same price again doesn't count as cheaper",
+    "topic": "The same price again"
+  },
+  "test_rising_prices_never_get_cheaper": {
+    "area": "edge",
+    "description": "Prices that only rise never get cheaper",
+    "topic": "A day that never gets cheaper"
+  },
+  "test_falling_prices_wait_one_day": {
+    "area": "core",
+    "description": "Prices that only fall wait one day each"
+  },
+  "test_a_dip_resolves_several_days_at_once": {
+    "area": "core",
+    "description": "One low price answers several earlier days at once"
+  },
+  "test_matches_a_slow_check_on_random_histories": {
+    "area": "core",
+    "description": "Matches a slow, simple check on 300 random histories"
+  },
+  "test_the_price_history_is_not_changed": {
+    "area": "edge",
+    "description": "The price list passed in isn't changed",
+    "topic": "Changing the input"
+  },
+  "test_a_long_rising_history_is_fast": {
+    "area": "performance",
+    "description": "100,000 rising prices in under 3 seconds (needs better than O(n²))",
+    "topic": "How long a price history can be"
+  },
+  "test_a_long_mixed_history_is_fast": {
+    "area": "performance",
+    "description": "200,000 mixed prices in under 3 seconds",
+    "topic": "How long a price history can be"
+  },
+  "test_change_example": {
+    "area": "change",
+    "description": "Follow-up: the example from the follow-up"
+  },
+  "test_change_returns_the_oldest_day_first": {
+    "area": "change",
+    "description": "Follow-up: the days a price resolves come back oldest first",
+    "topic": "Follow-up: what add returns"
+  },
+  "test_change_the_same_price_does_not_resolve_a_day": {
+    "area": "change",
+    "description": "Follow-up: the same price again doesn't resolve a day"
+  },
+  "test_change_matches_days_until_cheaper_on_random_feeds": {
+    "area": "change",
+    "description": "Follow-up: matches the batch answer on 200 random feeds"
+  },
+  "test_change_each_watch_keeps_its_own_days": {
+    "area": "change",
+    "description": "Follow-up: two watches don't share days"
+  },
+  "test_change_many_adds_are_fast": {
+    "area": "performance",
+    "description": "Follow-up: 100,000 adds, then one drop that resolves them all, in under 3 seconds (add must be O(1) amortized)",
+    "topic": "Follow-up: how fast add must be"
+  }
+}

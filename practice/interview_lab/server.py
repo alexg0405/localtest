@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from . import api, coach_ai, grading, interviewer, resume
 from .catalog import all_interviews, get_interview, shell_commands, test_python
 from .session import SessionError, Sessions
-from .testing import run_pytest, summary
+from .testing import run_check, run_pytest, summary
 from .workspace import WorkspaceError, read_marker, reset_workspace, workspace_path
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -27,7 +27,7 @@ STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/cs
 GRADE_LOCK = threading.Lock()
 # Rounds where Claude can speak for the interviewer (or coach), and rounds that use your résumé: the résumé deep dive
 # needs it, and the Leadership Principles questions draw on it.
-CLAUDE_FORMATS = ("problem", "resume", "amazon-behavioral", "amazon-final")
+CLAUDE_FORMATS = ("problem", "resume", "amazon-behavioral", "amazon-final", "amazon-coding")
 RESUME_FORMATS = ("resume", "amazon-behavioral", "amazon-final")
 
 
@@ -68,6 +68,17 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
         def _error(self, status: int, message: str) -> None:
             self._json(status, {"error": message})
 
+        def _stream_done(self, entry: Optional[Dict[str, Any]]) -> None:
+            """A streamed reply with nothing to stream: just its end, as NDJSON."""
+            self._send(200, (json.dumps({"done": True, "entry": entry}) + "\n").encode("utf-8"), "application/x-ndjson; charset=utf-8")
+
+        def _check(self, interview) -> Dict[str, Any]:
+            """The coding round's speed check of the part you're on (see testing.run_check)."""
+            config = interview.speed_check()
+            stage = lab.sessions.stage(lab.sessions.load(interview.id) or {})
+            return run_check(test_python(lab.home), workspace_path(interview, lab.home), config["path"], [stage, str(config.get("days", 12000))],
+                             float(config.get("fast_seconds", 0.4)), float(config.get("timeout_seconds", 2.5)))
+
         def _interview(self, interview_id: Optional[str]):
             return get_interview(interview_id or "")
 
@@ -99,6 +110,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     return self._json(200, {"resume": {**resume.summary(saved), "text": saved["text"]} if saved else None})
                 if url.path == "/api/packet":
                     return self._json(200, {"text": self._packet(self._interview(query.get("interview")), query.get("kind", ""))})
+                if url.path == "/api/stuck":
+                    return self._json(200, {"help": lab.sessions.stuck_help(self._interview(query.get("interview")))})
                 return self._error(HTTPStatus.NOT_FOUND, "Not found.")
             except KeyError as error:
                 return self._error(HTTPStatus.BAD_REQUEST, str(error.args[0]))
@@ -111,17 +124,26 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             state = sessions.load(interview.id)
             if not state:
                 raise SessionError("No session yet. Start the interview first.")
-            conversation = interview.meta.get("format") == "resume"
+            fmt = interview.meta.get("format")
+            conversation = fmt == "resume"
             status = sessions.status(interview)
-            # The Amazon final rounds: Claude interviews from the coding problem on (the Leadership Principles part has its own flow).
+            # The Amazon final rounds: Claude interviews from the coding problem on (the Leadership Principles part has its
+            # own flow). The coding round is all coding, and its interviewer also gives hints.
             current_kind = next((p.get("kind") for p in status["phases"][status["phase"]:status["phase"] + 1]), "wrap")
-            amazon_coding = interview.meta.get("format") == "amazon-final" and current_kind in ("coding", "wrap")
-            if interview.meta.get("format") != "problem" and not conversation and not amazon_coding:
+            coding_round = fmt == "amazon-coding"
+            amazon_coding = (fmt == "amazon-final" and current_kind in ("coding", "wrap")) or coding_round
+            if fmt != "problem" and not conversation and not amazon_coding:
                 raise SessionError("The conversational interviewer is available in the practice problems, the résumé deep dive, and the Amazon rounds' coding part.")
             trigger = str(body.get("trigger", "message"))
             trigger = trigger if trigger in coach_ai.TRIGGERS else "message"
             message = str(body.get("message", ""))[:6000]
-            hint = sessions.take_hint(interview) if trigger == "hint" and not conversation and not amazon_coding else None
+            stuck = trigger == "stuck"
+            if stuck:   # the page thinks you're stuck; the session decides whether the interviewer steps in, and how
+                help_kind = sessions.stuck_help(interview)
+                if help_kind is None:
+                    return self._stream_done(None)
+                trigger = {"checkin": "nudge", "hint": "hint", "debug": "debug"}[help_kind]
+            hint = sessions.take_hint(interview, "stuck" if stuck else "asked") if trigger == "hint" and not conversation and (coding_round or not amazon_coding) else None
             opening = None  # the reply that opens the Leadership Principles section
             if conversation:
                 saved = resume.load(lab.home)
@@ -170,14 +192,22 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     coach = state.get("mode") == "coach"
                     if hint and hint.get("repeat"):
                         text = (f"Let's stay with the last hint for a moment: {hint['text']} Which part of it is unclear, or what would you try first?" if coach
+                                else f"Let me put my last hint another way. {hint['text']}" if stuck
                                 else "I'd like to see you try the last hint first. What are you thinking?")
                     elif hint:
-                        text = (f"Hint {hint['level']} of {hint['total']}: " if coach else "Sure, here's a nudge. ") + hint["text"]
+                        text = (f"Hint {hint['level']} of {hint['total']}: " if coach else "Let me give you a small hint. " if stuck else "Sure, here's a nudge. ") + hint["text"]
                     else:
                         text = "That's all my hints. If you want, open the menu and choose Show the approach." if coach else "That's as much as I can give you. Try to take it from there."
                     entry = sessions.record_coach(interview, "hint", "", text)
                 elif trigger == "message" and message.strip():
                     entry = sessions.ask(interview, message, bool(body.get("voice")))
+                elif trigger == "nudge" and coding_round:
+                    entry = sessions.checkin(interview)
+                elif trigger == "debug":
+                    entry = sessions.debug_nudge(interview)
+                elif trigger in ("optimize", "verify"):
+                    stage = sessions.stage(sessions.load(interview.id) or {})
+                    entry = sessions.cue(interview, "ac_verify" if trigger == "verify" else "ac_optimize_followup" if stage == "followup" else "ac_optimize")
                 elif trigger == "nudge":
                     entry = sessions.coach_nudge(interview)
                 elif trigger == "tests":
@@ -350,7 +380,15 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 elif action == "/api/move-on":
                     return self._json(200, {"entry": sessions.move_on(interview, str(body.get("cue", "")), str(body.get("say") or "") or None)})
                 elif action == "/api/done":
+                    if interview.meta.get("format") == "amazon-coding":   # the interviewer looks at what you have first
+                        return self._json(200, self._assess(interview, done=True))
                     return self._json(200, sessions.done_coding(interview))
+                elif action == "/api/stuck":
+                    # Without Claude: the scripted interviewer steps in, if you still seem stuck (see Sessions.stuck_help).
+                    help_kind = sessions.stuck_help(interview)
+                    entry = (sessions.checkin(interview) if help_kind == "checkin" else sessions.debug_nudge(interview) if help_kind == "debug"
+                             else sessions.hint(interview, "stuck") if help_kind == "hint" else None)
+                    return self._json(200, {"help": help_kind, "entry": entry})
                 elif action == "/api/followup":
                     return self._json(200, {"entry": sessions.follow_up(interview, str(body.get("phase", "")))})
                 elif action == "/api/test":
@@ -487,19 +525,32 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             if not interview.meta.get("run_tests_allowed", True):
                 raise ValueError("This round simulates an editor that can't run code: dry-run your solution by hand. Grading runs it after you submit.")
             result = run_pytest(test_python(lab.home), workspace, ["tests"])
-            coach = None
+            coach, assessed = None, None
             state = lab.sessions.load(interview.id)
             if state:
-                lab.sessions.record_test_run(interview, summary(result))
+                failing = sorted({c["base"] for c in result["cases"] if c["outcome"] != "passed"})[:20]
+                lab.sessions.record_test_run(interview, {**summary(result), "failing": failing})
                 lab.sessions.record_test_details(interview, result)
                 # Amazon rounds: once the example tests pass, the interviewer gives the follow-up without waiting for its minute.
                 passed = summary(result)
-                if interview.meta.get("format") == "amazon-final" and passed["passed"] and not passed["failed"] and not passed["errors"]:
+                solved = passed["passed"] and not passed["failed"] and not passed["errors"]
+                if interview.meta.get("format") == "amazon-final" and solved:
                     lab.sessions.reveal_when_solved(interview)
+                # The coding round's interviewer first checks whether it's fast enough, and asks for better if it isn't.
+                if interview.meta.get("format") == "amazon-coding" and solved and state["status"] == "running":
+                    assessed = self._assess(interview)
                 # With Claude available, the page asks the conversational coach instead of the scripted reaction.
                 if not (interview.meta.get("format") == "problem" and coach_ai.status()["available"]):
                     coach = lab.sessions.coach_on_tests(interview, result)
-            return {"coach": coach, "result": {**summary(result), "output": result["output"], "cases": [{"name": c["id"].split("::", 1)[-1] if not c["collection_error"] else c["name"], "outcome": c["outcome"], "message": c["message"]} for c in result["cases"]]}}
+            return {"coach": coach, "assessed": assessed,
+                    "result": {**summary(result), "output": result["output"], "cases": [{"name": c["id"].split("::", 1)[-1] if not c["collection_error"] else c["name"], "outcome": c["outcome"], "message": c["message"]} for c in result["cases"]]}}
+
+        def _assess(self, interview, done: bool = False) -> Dict[str, Any]:
+            """The coding round's interviewer looks at the part you're on: is it right, and is it fast? Then optimize,
+            verify, the follow-up, or the wrap-up (see Sessions.assess). Claude words "optimize" and "verify" when it's
+            available; the page asks for them."""
+            check = self._check(interview)
+            return lab.sessions.assess(interview, check, done=done, scripted=not coach_ai.status()["available"])
 
         def _packet(self, interview, kind: str) -> str:
             if kind == "interviewer":

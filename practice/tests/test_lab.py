@@ -788,3 +788,229 @@ def test_amazon_interviewer_questions_your_choices_while_you_code(tmp_path):
     # Practice problems keep their own interviewer.
     problem = next(i for i in all_interviews() if i.meta.get("format") == "problem")
     assert coach_ai.ROLE_AMAZON_CODING not in coach_ai.build_prompt(problem, {"questions": [], "spoken": []}, tmp_path, 60, "Approach", "thinking", "hmm")
+
+
+def test_the_coding_round_is_45_minutes_of_coding_with_hints_and_a_follow_up(tmp_path):
+    coding = get_interview("amazon-coding")
+    phases = coding.phases()
+    assert coding.meta["duration_minutes"] == 45 and phases[-1]["end"] == 45 and all(a["end"] == b["start"] for a, b in zip(phases, phases[1:]))
+    assert [p["kind"] for p in phases] == ["approach", "coding", "wrap"] and phases[0]["ends_on_edit"]
+    code = phases[1]
+    assert code["start"] < coding.meta["change_at_minutes"] < code["end"] and [c["left"] for c in code["checks"]] == [10, 5]
+    cues = interviewer.cues_for(coding)
+    assert all(name in cues for name in ("ac_intro", "ac_code", "ac_code_10", "ac_code_5", "ac_optimize", "ac_optimize_followup", "ac_verify", "ac_checkin", "ac_wrap", "ac_wrap_early", "change"))
+    assert len(coding.hints()) == 3 and len(coding.followup_hints()) == 2 and coding.public()["hint_count"] == 3
+    assert not coding.ai_allowed and coding.public()["run_tests_allowed"] and coding.speed_check()["path"].exists()
+    assert [a for a, _ in grading.areas_for(coding)] == [a for a, _ in grading.CODING_ROUND_AREAS]
+    sessions = Sessions(tmp_path)
+    assert "behavioral" not in sessions.start(coding)   # no Leadership Principles questions
+    workspace = create_workspace(coding, tmp_path)
+    assert not (workspace / "tests" / "test_followup_example.py").exists() and "PriceWatch" not in (workspace / "README.md").read_text()
+
+
+def test_the_speed_check_tells_a_quadratic_solution_from_a_linear_one(tmp_path):
+    from interview_lab.catalog import test_python
+    from interview_lab.testing import run_check
+    from interview_lab.verify import SLOW_FOLLOWUP, SLOW_MAIN, WRONG_MAIN
+    coding = get_interview("amazon-coding")
+    workspace = create_workspace(coding, tmp_path)
+    config = coding.speed_check()
+    source = workspace / "pricing" / "price_alerts.py"
+    check = lambda stage: run_check(test_python(tmp_path), workspace, config["path"], [stage, str(config["days"])], config["fast_seconds"], config["timeout_seconds"])
+    assert check("main")["status"] == "missing"
+    source.write_text(WRONG_MAIN)
+    assert check("main")["status"] == "wrong"   # the same price again counted as cheaper
+    source.write_text(SLOW_MAIN)
+    slow = check("main")
+    assert slow["status"] == "slow" and (slow["seconds"] is None or slow["seconds"] > config["fast_seconds"])
+    solution = (coding.solution / "pricing" / "price_alerts.py").read_text()
+    source.write_text(solution)
+    assert check("main")["status"] == "fast" and check("followup")["status"] == "fast"
+    source.write_text(solution.split("\n\nclass PriceWatch")[0] + SLOW_FOLLOWUP)
+    assert check("followup")["status"] == "slow"
+
+
+def test_the_coding_round_asks_for_a_faster_version_then_gives_the_follow_up(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    coding = get_interview("amazon-coding")
+    sessions.start(coding)
+    workspace = tmp_path / coding.id
+    now[0] = 12 * 60   # a slow version works: the interviewer asks for better, once
+    asked = sessions.assess(coding, {"status": "slow", "seconds": 1.8})
+    assert asked["event"] == "optimize" and asked["entry"] is None   # Claude words it
+    assert sessions.assess(coding, {"status": "slow", "seconds": 1.8}, scripted=True)["event"] is None
+    now[0] = 27 * 60   # past the follow-up's minute, long after asking: it comes even though it's still slow
+    assert sessions.status(coding)["state"]["change_reveal_reason"] == "scheduled"
+    now[0] = base = 100 * 60
+    sessions.start(coding, reset=True)
+    now[0] = base + 12 * 60
+    sessions.assess(coding, {"status": "slow", "seconds": 1.8})
+    now[0] = base + 14 * 60
+    fast = sessions.assess(coding, {"status": "fast", "seconds": 0.002})
+    state = sessions.load(coding.id)
+    assert fast["event"] == "followup" and state["change_reveal_reason"] == "solved" and (workspace / "tests" / "test_followup_example.py").exists()
+    now[0] = base + 18 * 60   # the follow-up: slow, then fast, which ends the coding
+    slow = sessions.assess(coding, {"status": "slow", "seconds": None}, scripted=True)
+    assert slow["event"] == "optimize" and slow["entry"]["kind"] == "cue:ac_optimize_followup"
+    now[0] = base + 22 * 60
+    done = sessions.assess(coding, {"status": "fast", "seconds": 0.004})
+    assert done["event"] == "wrap" and done["entry"]["kind"] == "cue:ac_wrap_early" and coding.phases()[sessions.status(coding)["phase"]]["kind"] == "wrap"
+    assert sessions.load(coding.id)["optimize"] == {"main": 720, "followup": 1080}
+
+
+def test_done_coding_in_the_coding_round_checks_your_code_first(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    coding = get_interview("amazon-coding")
+    sessions.start(coding)
+    now[0] = 15 * 60
+    assert sessions.assess(coding, {"status": "slow", "seconds": 2.0}, done=True, scripted=True)["entry"]["kind"] == "cue:ac_optimize"
+    followup = sessions.assess(coding, {"status": "slow", "seconds": 2.0}, done=True)   # done anyway: on to the follow-up
+    assert followup["event"] == "followup" and sessions.load(coding.id)["change_reveal_reason"] == "done"
+    now[0] = base = 100 * 60
+    sessions.start(coding, reset=True)
+    now[0] = base + 15 * 60
+    assert sessions.assess(coding, {"status": "wrong", "seconds": None}, done=True)["event"] == "verify"
+    wrap = sessions.assess(coding, {"status": "missing", "seconds": None}, done=True)
+    assert wrap["event"] == "wrap" and sessions.load(coding.id)["change_revealed_at"] is None   # no follow-up without a working solution
+    assert sessions.load(coding.id)["coding"]["done"] == [900, 900]
+
+
+def test_the_coding_round_follow_up_waits_for_a_working_solution(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    coding = get_interview("amazon-coding")
+    sessions.start(coding)
+    now[0] = 27 * 60
+    assert sessions.status(coding)["change"] is None   # nothing works yet
+    sessions.assess(coding, {"status": "slow", "seconds": 1.5})
+    now[0] = 30 * 60
+    assert sessions.status(coding)["change"] is None   # it just asked for a faster version
+    now[0] = 31 * 60
+    assert sessions.status(coding)["state"]["change_reveal_reason"] == "scheduled"
+    now[0] = base = 100 * 60
+    sessions.start(coding, reset=True)   # too late to start the follow-up: it goes straight to the wrap-up
+    now[0] = base + 32 * 60
+    late = sessions.assess(coding, {"status": "fast", "seconds": 0.002})
+    assert late["event"] == "wrap" and late["entry"]["kind"] == "cue:ac_wrap_early" and sessions.load(coding.id)["change_revealed_at"] is None
+    now[0] = base + 40 * 60
+    assert sessions.status(coding)["change"] is None
+
+
+def test_a_stuck_candidate_gets_a_check_in_then_a_hint(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    coding = get_interview("amazon-coding")
+    sessions.start(coding)
+    now[0] = 140
+    assert sessions.stuck_help(coding) is None
+    now[0] = 151
+    assert sessions.stuck_help(coding) == "checkin"
+    sessions.checkin(coding)
+    now[0] = 240
+    assert sessions.stuck_help(coding) is None   # no hints while you're still reading
+    now[0] = 300
+    sessions.record_speech(coding, "I think I'd look ahead from every day.")
+    sessions.record_edit(coding)
+    now[0] = 300 + 151
+    assert sessions.stuck_help(coding) == "checkin"
+    sessions.checkin(coding)
+    now[0] += 60
+    assert sessions.stuck_help(coding) is None
+    now[0] += 16
+    assert sessions.stuck_help(coding) == "hint"
+    entry = sessions.hint(coding, "stuck")
+    assert entry["kind"] == "hint:1" and entry["answer"].startswith("Let me give you a small hint.")
+    assert sessions.load(coding.id)["hints"][0]["reason"] == "stuck" and sessions.stuck_help(coding) is None
+    now[0] += 151   # still nothing after the hint: check in again
+    assert sessions.stuck_help(coding) == "checkin"
+    # The same tests failing over and over, three minutes apart: a nudge to trace one by hand.
+    for minute in (12, 14, 15.5):
+        now[0] = minute * 60
+        sessions.record_test_run(coding, {"ok": False, "passed": 0, "failed": 1, "errors": 0, "skipped": 0, "total": 1, "failing": ["test_example_from_the_problem"]})
+    assert sessions.stuck_help(coding) == "debug"
+    sessions.debug_nudge(coding)
+    assert sessions.stuck_help(coding) is None
+    assert [kind for _, kind in Sessions.help_given(sessions.load(coding.id))] == ["checkin", "checkin", "hint", "debug"]
+    assert sessions.stuck_help(get_interview("amazon-final-1")) is None   # only the coding round steps in like this
+
+
+def test_someone_still_stuck_well_after_a_hint_gets_the_next_one(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    coding = get_interview("amazon-coding")
+    sessions.start(coding)
+    now[0] = 600
+    assert sessions.take_hint(coding, "stuck")["level"] == 1
+    now[0] = 700   # nothing tried since: the same hint, said another way
+    again = sessions.take_hint(coding, "stuck")
+    assert again["repeat"] and again["level"] == 1
+    now[0] = 600 + 240   # four minutes on, still stuck: the next one
+    assert sessions.take_hint(coding, "stuck")["level"] == 2
+    now[0] = 1200   # asking yourself without trying anything still gets the same one back
+    assert sessions.take_hint(coding)["repeat"]
+
+
+def test_spoken_complexities_count():
+    assert all(grading.COMPLEXITY.search(said) for said in ("that's o of n squared", "it's o(n log n)", "n squared in the worst case", "linear time"))
+    assert not grading.COMPLEXITY.search("i'll go with a stack and pop the waiting days")
+
+
+def test_coding_round_hints_switch_to_the_follow_up_once_it_comes(tmp_path):
+    sessions = Sessions(tmp_path)
+    coding = get_interview("amazon-coding")
+    sessions.start(coding)
+    first = sessions.take_hint(coding)
+    assert (first["level"], first["stage"], first["reason"], first["text"]) == (1, "main", "asked", coding.hints()[0])
+    sessions.assess(coding, {"status": "fast", "seconds": 0.001})
+    followup = sessions.take_hint(coding, "stuck")
+    assert (followup["level"], followup["total"], followup["stage"], followup["text"]) == (1, 2, "followup", coding.followup_hints()[0])
+    assert [(h["stage"], h["level"], h["reason"]) for h in sessions.load(coding.id)["hints"]] == [("main", 1, "asked"), ("followup", 1, "stuck")]
+
+
+def test_the_coding_round_interviewer_pushes_for_better_and_helps_when_stuck(tmp_path):
+    from interview_lab import coach_ai
+    coding = get_interview("amazon-coding")
+    workspace = create_workspace(coding, tmp_path)
+    reading = {"questions": [], "spoken": [], "hints": []}
+    before = coach_ai.build_prompt(coding, reading, workspace, 3 * 60, coding.phases()[0]["name"], "thinking", "I'd look ahead from every day, so n squared.")
+    assert coach_ai.ROLE_AMAZON_CODING_ROUND in before and coach_ai.ROLE_AMAZON_CODING not in before
+    assert "ask once whether they can do better" in before and "haven't started coding" in before and "O(n) time" in before
+    assert "Hint ladder" not in before and coding.hints()[2] not in before   # hints only when one is due
+    slow = {**reading, "coding": {"first_edit": 300}, "speed": {"main": [{"at": 700, "status": "slow", "seconds": 1.9}]}, "optimize": {"main": 700}}
+    optimize = coach_ai.build_prompt(coding, slow, workspace, 12 * 60, coding.phases()[1]["name"], "optimize")
+    assert "took 1.9 seconds" in optimize and "Never mention this check" in optimize and "Ask for its time complexity" in optimize
+    assert "You asked them for a faster version at minute 12" in optimize
+    hint = {"level": 2, "total": 3, "text": coding.hints()[1], "repeat": False, "stage": "main", "reason": "stuck"}
+    stuck = coach_ai.build_prompt(coding, slow, workspace, 16 * 60, coding.phases()[1]["name"], "hint", hint=hint)
+    assert "seems stuck" in stuck and "Let me give you a small hint." in stuck and coding.hints()[1] in stuck and "Hint ladder" in stuck
+    after = coach_ai.build_prompt(coding, {**slow, "change_revealed_at": 1000, "speed": {"main": [{"at": 990, "status": "fast", "seconds": 0.002}]}}, workspace, 18 * 60,
+                                  coding.phases()[1]["name"], "nudge")
+    assert coding.change_request()[:60] in after and "Check in" in after and "O(1) amortized" in after and "Follow-up at" not in after
+    wrap = coach_ai.build_prompt(coding, {**slow, "change_revealed_at": 1000}, workspace, 37 * 60, coding.phases()[2]["name"], "thinking", "It's O of n overall.")
+    assert "It's the wrap-up" in wrap and "next follow-up question from your list" in wrap and coding.followups()[0] in wrap
+    assert len(coach_ai.SYSTEM) < 8000
+
+
+def test_the_coding_round_report_says_how_much_help_you_needed():
+    coding = get_interview("amazon-coding")
+    cue = lambda name, at: {"at": at, "source": "interviewer", "kind": f"cue:{name}", "answer": "", "question": ""}
+    state = {"questions": [cue("ac_intro", 0), {"at": 200, "source": "interviewer", "kind": "coach-ai:nudge", "answer": "Where are you?", "question": ""}, cue("ac_wrap_early", 33 * 60)],
+             "spoken": [{"at": 60, "text": "I'd look ahead from each day, that's O(n squared)."}],
+             "coding": {"first_edit": 6 * 60, "edits": 30}, "change_revealed_at": 24 * 60,
+             "speed": {"main": [{"at": 14 * 60, "status": "slow", "seconds": 1.7}, {"at": 24 * 60, "status": "fast", "seconds": 0.002}], "followup": [{"at": 30 * 60, "status": "fast", "seconds": 0.004}]},
+             "optimize": {"main": 14 * 60}, "hints": [{"at": 18 * 60, "level": 1, "stage": "main", "reason": "stuck"}, {"at": 21 * 60, "level": 2, "stage": "main", "reason": "asked"}]}
+    lines, penalty, improve = grading.optimization_evidence(coding, state)
+    assert lines[0] == "Your solution was too slow at first. The interviewer asked for a faster one at minute 14, and you had it by minute 24." and penalty == 0
+    assert "had to push for it" in improve and lines[1].startswith("Your follow-up was fast enough as soon as it worked")
+    helped = grading.interviewer_help(coding, state)
+    assert [(h["at"], h["kind"]) for h in helped] == [(3.3, "checkin"), (14.0, "optimize"), (18.0, "hint"), (21.0, "hint")]
+    assert helped[2]["text"] == "Hint 1 of 3, when you seemed stuck"
+    timeline = grading.time_breakdown(coding, state, 40 * 60)
+    parts = {p["part"]: (p["minutes"], p["planned"]) for p in timeline["parts"]}
+    assert parts == {"Clarifying and your approach": (6.0, 8), "Coding a first version": (8.0, 18), "Making it faster": (10.0, None),
+                     "The follow-up": (9.0, 9), "Wrap-up and your questions": (7.0, 10)}
+    assert timeline["coding_minutes"] == 27.0 and any("Making it faster took 10 minutes" in n for n in timeline["notes"])
+    assert any("stepped in 3 times: 1 check-in and 2 hints" in n for n in timeline["notes"])
+    assert not any("without saying your approach's complexity" in n for n in timeline["notes"])   # you said it before coding

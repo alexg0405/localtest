@@ -58,6 +58,15 @@ PROBLEM_AREAS = [
     ("code_quality", "Code quality"),
     ("communication", "Communication"),
 ]
+# The coding round: no Leadership Principles, and the evidence includes how much help you needed (hints, the push to optimize).
+CODING_ROUND_AREAS = [
+    ("problem_understanding", "Problem understanding"),
+    ("problem_solving", "Problem solving and complexity"),
+    ("correctness", "Correctness and edge cases"),
+    ("testing", "Testing and dry run"),
+    ("code_quality", "Code quality"),
+    ("communication", "Communication"),
+]
 RESUME_AREAS = [
     ("walkthrough", "Background walkthrough"),
     ("depth", "Technical depth"),
@@ -68,6 +77,8 @@ RESUME_AREAS = [
 ]
 LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS), **dict(PROBLEM_AREAS), **dict(RESUME_AREAS)}
 CONVERSATION_FORMATS = ("amazon-behavioral", "resume")  # nothing to run or diff: graded from what was said
+# A complexity, written ("O(n)") or as speech recognition spells it ("O of n", "n squared").
+COMPLEXITY = re.compile(r"\bo\(|\bo of\b|big[- ]o|\blinear\b|\blog(arithmic)?\b|n log|quadratic|n squared|constant (time|space)")
 
 
 def resume_deep_dive(interview: Interview) -> bool:
@@ -78,7 +89,8 @@ def resume_deep_dive(interview: Interview) -> bool:
 def areas_for(interview: Interview):
     if resume_deep_dive(interview):
         return [AMAZON_AREAS[0], ("depth", "Technical depth"), *AMAZON_AREAS[1:]]
-    return {"amazon-final": AMAZON_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS, "resume": RESUME_AREAS}.get(interview.meta.get("format"), AREAS)
+    return {"amazon-final": AMAZON_AREAS, "amazon-coding": CODING_ROUND_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS,
+            "resume": RESUME_AREAS}.get(interview.meta.get("format"), AREAS)
 
 
 def _behavioral_scores(interview, state, notes) -> Dict[str, Any]:
@@ -201,6 +213,8 @@ def _run_all(interview: Interview, home: Path) -> Dict[str, Any]:
         else:
             own_on_starter = None
         starter_names = _starter_test_names(pristine / "tests")
+        if interview.followup_tests and interview.followup_tests.is_dir():   # the follow-up's example, added when it was revealed
+            starter_names |= _starter_test_names(interview.followup_tests)
     return {"hidden": hidden, "own": own, "own_on_starter": own_on_starter, "starter_names": starter_names}
 
 
@@ -724,7 +738,7 @@ def _score_problem_solving(interview, notes, runs):
     if not text.strip() and not perf:
         return None, ["No approach or complexity was written or said."], []
     checks = [
-        ("stated the time complexity", re.search(r"\bo\(|big[- ]o|\blinear\b|\blog(arithmic)?\b|n log|quadratic|constant time", text)),
+        ("stated the time complexity", COMPLEXITY.search(text)),
         ("named a fitting data structure or algorithm", any(k in text for k in interview.meta.get("approach_keywords", []))),
         ("compared it with a simpler or brute-force approach", re.search(r"\b(brute[- ]force|naive|simpler|optimi[sz]|better|faster|alternative|instead of|trade-?offs?)\b", text)),
         ("discussed space or memory", re.search(r"\bspace\b|\bmemory\b", text)),
@@ -746,7 +760,9 @@ def _score_problem_solving(interview, notes, runs):
 
 def _score_amazon_communication(interview, state, notes):
     phases = interview.phases()
-    coding = [p for p in phases if p.get("kind") == "coding"]
+    # The coding round's approach comes before its coding part, out loud, so what you said then counts too.
+    kinds = ("approach", "coding") if interview.meta.get("format") == "amazon-coding" else ("coding",)
+    coding = [p for p in phases if p.get("kind") in kinds]
     start, end = (coding[0]["start"] * 60, coding[-1]["end"] * 60) if coding else (0, 10 ** 9)
     narrated = " ".join(s["text"] for s in state.get("spoken", []) if start <= s["at"] < end)
     last = phases[-1]["start"] * 60 if phases else 0
@@ -758,7 +774,7 @@ def _score_amazon_communication(interview, state, notes):
         ("explained the approach before coding", re.search(r"\b(my approach|i('ll| will| am going to| want to)|the idea is|plan is|first i|i think we can)\b", (narrated + " " + notes["plan"]).lower())),
         ("walked through an example or dry run", re.search(r"\b(dry run|walk(ing)? through|trace|let's try|for example|example)\b", (narrated + " " + notes["explanation"]).lower())),
         ("asked the interviewer questions at the end", bool(their_questions)) if interview.meta.get("format") != "problem" else
-        ("stated the complexity out loud", re.search(r"\bo\(|big[- ]o|\blinear\b|\blog(arithmic)?\b|n log|quadratic|constant (time|space)", narrated.lower()) is not None),
+        ("stated the complexity out loud", COMPLEXITY.search(narrated.lower()) is not None),
     ]
     present = [label for label, ok in checks if ok]
     missing = [label for label, ok in checks if not ok]
@@ -811,10 +827,12 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
         return "End each story with what you learned or would do differently, and prepare at least one story about a real mistake."
     if area == "communication" and context["interview"].meta.get("format") == "amazon-behavioral":
         return "Keep each story to about 2–3 minutes (300–450 words), and prepare two questions to ask the interviewer at the end."
+    if area == "problem_solving" and context.get("optimization"):   # the coding round: what the interviewer had to push for
+        return context["optimization"]
     if area == "problem_solving":
         missing = context.get("solving_missing", [])
         return ("Before you code, say your approach and its complexity, and how it beats brute force. You never: " + "; ".join(missing[:3]) + ".") if missing else "Practice stating time and space complexity in one sentence before writing any code."
-    if area == "communication" and context["interview"].meta.get("format") == "amazon-final":
+    if area == "communication" and context["interview"].meta.get("format") in ("amazon-final", "amazon-coding"):
         missing = context["communication_missing"]
         return ("Narrate while you code: " + "; ".join(missing[:3]) + ".") if missing else "Prepare two or three questions about the team to ask at the end."
     if area == "communication":
@@ -880,7 +898,8 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
     context = {"interview": interview, "coverage": coverage, "prompt_missing": prompt_missing, "patch": patch, "tests": tests, "smells": smells, "communication_missing": communication_missing}
     amazon = interview.meta.get("format") == "amazon-final"
     problem = interview.meta.get("format") == "problem"
-    if amazon or problem:
+    coding_round = interview.meta.get("format") == "amazon-coding"
+    if amazon or problem or coding_round:
         lp_score, lp_evidence, context["leadership_missing"] = _score_leadership(interview, state) if amazon else (None, [], [])
         ps_score, ps_evidence, context["solving_missing"] = _score_problem_solving(interview, notes, runs)
         cm_score, cm_evidence, context["communication_missing"] = _score_amazon_communication(interview, state, notes)
@@ -900,6 +919,18 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
             if state.get("approach_revealed") and ps_score is not None:
                 ps_score = min(ps_score, 3)
                 ps_evidence = ps_evidence + ["You opened the reference approach, so this score is capped at 3. Re-solve it in real mode to earn the rest."]
+        if coding_round:
+            # How much the interviewer had to help: the push for a faster version, and hints (the first one is free).
+            lines, penalty, context["optimization"] = optimization_evidence(interview, state)
+            used = {stage: [h for h in state.get("hints", []) if h.get("stage", "main") == stage] for stage in ("main", "followup")}
+            if used["main"] or used["followup"]:
+                stuck = sum(1 for h in state.get("hints", []) if h.get("reason") == "stuck")
+                lines.append(f"Used {len(used['main'])} of {len(interview.hints())} hints on the problem and {len(used['followup'])} of {len(interview.followup_hints())} on the follow-up"
+                             + (f" ({stuck} offered when you were stuck)" if stuck else "") + ". Past the first, each one lowers this score.")
+                penalty += max(0, len(used["main"]) - 1) + (1 if len(used["main"]) >= len(interview.hints()) else 0) + (1 if interview.followup_hints() and len(used["followup"]) >= len(interview.followup_hints()) else 0)
+            ps_evidence = ps_evidence + lines
+            if ps_score is not None:
+                ps_score = _clamp(ps_score - penalty)
         scores.update({"leadership": (lp_score, lp_evidence), "problem_solving": (ps_score, ps_evidence), "communication": (cm_score, cm_evidence), "testing": (te_score, te_evidence)})
     if resume_deep_dive(interview):
         saved = resume.load(home)
@@ -934,9 +965,9 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
     for path in diff["data_edits"]:
         assumptions.append(f"Edited {path}, assuming the input data could be changed; real supplier or customer data usually cannot.")
     if revealed_at is None and interview.meta.get("change_at_minutes", 30) is not None:
-        assumptions.append("Submitted before the interviewer's follow-up was revealed, so it was not addressed." if amazon else "Submitted before the requirement change was revealed, so the change was not addressed.")
+        assumptions.append("Submitted before the interviewer's follow-up was revealed, so it was not addressed." if amazon or coding_round else "Submitted before the requirement change was revealed, so the change was not addressed.")
     elif tests["by_area"].get("change", {}).get("passed", 0) == 0 and tests["by_area"].get("change"):
-        assumptions.append("The requirement change was revealed but none of its cases pass.")
+        assumptions.append("The interviewer's follow-up was revealed but none of its cases pass." if coding_round else "The requirement change was revealed but none of its cases pass.")
 
     elapsed = sessions.elapsed(state)
     report = {
@@ -961,12 +992,13 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         "follow_up": follow_up,
         "patch_review": {"found": patch["found"], "needed": patch["needed"], "answer": patch["expected"]} if patch["expected"] else None,
         "format_note": ("A conversation about your résumé, scored from what you said. The scores are heuristics; the interviewer's written notes below are the fuller picture." if resume_round
-                        else "No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only
+                        else "No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only or coding_round
                         else (f"Coach mode: you used {len(state.get('hints', []))} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}. Try it again in real mode once it feels easy." if problem and state.get("mode") == "coach"
                               else (f"Real mode: {len(state.get('hints', []))} hint(s) used." if problem else None))),
         "mode": state.get("mode", "real") if problem else None,
-        "hints_used": len(state.get("hints", [])) if problem else None,
-        "approach": interview.approach() if problem else None,
+        "hints_used": len(state.get("hints", [])) if problem or coding_round else None,
+        "help": interviewer_help(interview, state) if coding_round else None,
+        "approach": interview.approach() if problem else _guide_approach(interview) if coding_round else None,
         "lp_breakdown": ([{"lp": story["lp"], "question": story["question"], "score": story["score"], "missing": story["missing"]} for story in resume_principles(interview, state)]
                          if resume_round else lp_breakdown(interview, state) if amazon or behavioral_only else None),
         "behavioral_only": behavioral_only,
@@ -1000,10 +1032,138 @@ def _cue_at(state: Dict[str, Any], *names: str) -> Optional[float]:
     return min(times) if times else None
 
 
+def _guide_approach(interview: Interview) -> str:
+    """How to solve the coding round's problem and its follow-up, from the interviewer guide, for the report."""
+    parts = [("Coding problem", interview.guide_section("Coding problem")), ("The follow-up", interview.guide_section("Follow-up at"))]
+    return "\n\n".join(f"**{title}.** {text}" for title, text in parts if text)
+
+
+def optimization_evidence(interview: Interview, state: Dict[str, Any]) -> Tuple[List[str], int, str]:
+    """The coding round: whether each working solution was fast enough on its own, after the interviewer asked for a
+    faster one, or never. Returns the evidence for problem solving, how much to take off it, and the improvement to
+    suggest ("" when there's nothing to say)."""
+    speed, asked = state.get("speed") or {}, state.get("optimize") or {}
+    minute = lambda seconds: f"minute {seconds / 60:.0f}"
+    lines: List[str] = []
+    penalty, improve = 0, ""
+    for stage in ("main", "followup"):
+        if stage == "followup" and state.get("change_revealed_at") is None:
+            break
+        checks = speed.get(stage, [])
+        working = [c for c in checks if c["status"] in ("fast", "slow")]
+        fast = next((c for c in checks if c["status"] == "fast"), None)
+        what = "Your solution" if stage == "main" else "Your follow-up"
+        if not working:
+            lines.append(f"{what} never passed its example test while the interviewer was watching, so its speed wasn't checked.")
+        elif stage not in asked:
+            lines.append(f"{what} was fast enough as soon as it worked ({minute(working[0]['at'])}), so the interviewer didn't have to ask for a faster one.")
+        elif fast and fast["at"] >= asked[stage]:
+            lines.append(f"{what} was too slow at first. The interviewer asked for a faster one at {minute(asked[stage])}, and you had it by {minute(fast['at'])}.")
+            improve = improve or ("Find the faster approach before you code: ask yourself what work your first idea repeats, and say each idea's complexity out loud. "
+                                  "This time the interviewer had to push for it.")
+        else:
+            lines.append(f"{what} stayed slower than it needed to be after the interviewer asked for a faster one at {minute(asked[stage])}.")
+            penalty += 1
+            improve = ("You didn't get past the slower version. Re-solve this problem until you find the faster approach on your own, then practice two more "
+                       "problems that use the same idea.")
+    return lines, penalty, improve
+
+
+def interviewer_help(interview: Interview, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Each time the coding round's interviewer stepped in, oldest first: hints, check-ins when you'd gone quiet, nudges
+    when the same tests kept failing, and asks for a faster or a working version."""
+    minute = lambda seconds: round(seconds / 60, 1)
+    totals = {"main": len(interview.hints()), "followup": len(interview.followup_hints())}
+    items = [{"at": minute(h["at"]), "kind": "hint", "text": f"Hint {h['level']} of {totals.get(h.get('stage', 'main'), h['level'])}"
+              + (" for the follow-up" if h.get("stage") == "followup" else "") + (", when you seemed stuck" if h.get("reason") == "stuck" else ", when you asked")}
+             for h in state.get("hints", [])]
+    for at, kind in Sessions.help_given(state):
+        if kind == "checkin":
+            items.append({"at": minute(at), "kind": "checkin", "text": "Checked in after you'd gone quiet"})
+        elif kind == "debug":
+            items.append({"at": minute(at), "kind": "debug", "text": "Suggested tracing a failing test by hand, after the same tests kept failing"})
+    for stage, at in (state.get("optimize") or {}).items():
+        items.append({"at": minute(at), "kind": "optimize", "text": "Asked for a faster version" + (" of the follow-up" if stage == "followup" else "")})
+    for stage, at in (state.get("verify") or {}).items():
+        items.append({"at": minute(at), "kind": "verify", "text": "Asked you to test it, when you said you were done" + (" with the follow-up" if stage == "followup" else "") + " but it didn't work yet"})
+    return sorted(items, key=lambda item: item["at"])
+
+
+def _coding_round_time(interview: Interview, state: Dict[str, Any], elapsed: float) -> Dict[str, Any]:
+    """The coding round against the clock: your approach, the first version, making it faster, the follow-up, and the
+    wrap-up, each next to its planned length, with notes on your pacing and on how much help you needed."""
+    phases = interview.phases()
+    span = lambda phase: (phase["end"] - phase["start"]) if phase else None
+    code_phase = next((p for p in phases if p.get("kind") == "coding"), None)
+    wrap_phase = next((p for p in phases if p.get("kind") == "wrap"), None)
+    coding = state.get("coding") or {}
+    first_edit = coding.get("first_edit")
+    wrap_at = _cue_at(state, "ac_wrap", "ac_wrap_early")
+    followup_at = state.get("change_revealed_at")
+    speed, asked = state.get("speed") or {}, (state.get("optimize") or {}).get("main")
+    fast_at = next((c["at"] for c in speed.get("main", []) if c["status"] == "fast"), None)
+    change_at = interview.meta.get("change_at_minutes")
+    first = lambda *times: next((t for t in times if t is not None), None)
+    minutes = lambda seconds: round(seconds / 60, 1)
+    parts: List[Dict[str, Any]] = []
+
+    def part(label: str, start: Optional[float], stop: Optional[float], planned: Optional[float]) -> None:
+        if start is not None:
+            parts.append({"part": label, "start": minutes(start), "minutes": minutes(max(0.0, (elapsed if stop is None else stop) - start)), "planned": planned})
+
+    part("Clarifying and your approach", 0.0, first(first_edit, wrap_at), span(phases[0]) if phases else None)
+    coding_minutes = None
+    if first_edit is not None:
+        planned = change_at - code_phase["start"] if code_phase and change_at is not None else span(code_phase)
+        if asked is not None:
+            part("Coding a first version", first_edit, asked, planned)
+            part("Making it faster", asked, first(fast_at if fast_at is not None and fast_at >= asked else None, followup_at, wrap_at), None)
+        else:
+            part("Coding it", first_edit, first(followup_at, wrap_at), planned)
+        if followup_at is not None:
+            part("The follow-up", followup_at, wrap_at, code_phase["end"] - change_at if code_phase and change_at is not None else None)
+        coding_minutes = minutes(first(wrap_at, elapsed) - first_edit)
+    part("Wrap-up and your questions", wrap_at, None, span(wrap_phase))
+
+    notes: List[str] = []
+    said_before = " ".join(s["text"] for s in state.get("spoken", []) if first_edit is None or s["at"] < first_edit).lower()
+    if first_edit is None:
+        notes.append("You didn't write any code in the editor.")
+    else:
+        lag = first_edit / 60
+        if lag > 10:
+            notes.append(f"You started coding {lag:.0f} minutes in. Settle on an approach within 5–8 minutes: you can code the simple version and improve it after.")
+        elif not COMPLEXITY.search(said_before):
+            notes.append(f"You started coding {lag:.0f} minute{'' if round(lag) == 1 else 's'} in without saying your approach's complexity. Give the interviewer the approach and its time and space complexity first.")
+    if asked is not None and fast_at is not None and fast_at >= asked:
+        notes.append(f"Making it faster took {(fast_at - asked) / 60:.0f} minutes after the interviewer asked.")
+    elif asked is None and fast_at is not None:
+        notes.append("Your first working version was already fast enough, so no time went to optimizing.")
+    if followup_at is None and first_edit is not None:
+        notes.append("The round never reached the follow-up. Get a working version early, so there's time to improve it and extend it.")
+    help_items = interviewer_help(interview, state)
+    hints, checkins = [h for h in help_items if h["kind"] == "hint"], [h for h in help_items if h["kind"] in ("checkin", "debug")]
+    if hints or checkins:
+        notes.append(f"The interviewer stepped in {len(hints) + len(checkins)} time{'s' if len(hints) + len(checkins) != 1 else ''}: "
+                     f"{len(checkins)} check-in{'s' if len(checkins) != 1 else ''} and {len(hints)} hint{'s' if len(hints) != 1 else ''}. "
+                     "When you're stuck, say what you're considering out loud: it lets the interviewer help with less.")
+    if wrap_at is None and first_edit is not None:
+        notes.append("The round never reached the wrap-up. Leave the last 5–10 minutes for the complexity and follow-up questions.")
+    elif wrap_at is not None and (elapsed - wrap_at) / 60 < 3:
+        spent = (elapsed - wrap_at) / 60
+        amount = "Less than a minute" if spent < 1 else "Only about a minute" if spent < 1.5 else f"Only {spent:.0f} minutes"
+        notes.append(f"{amount} went to the wrap-up; aim for 5–10, for the complexity, the follow-up questions, and yours.")
+    if not notes:
+        notes.append("Your pacing kept to the plan.")
+    return {"duration": interview.meta.get("duration_minutes"), "parts": parts, "stories": [], "story_share": None, "coding_minutes": coding_minutes, "notes": notes}
+
+
 def time_breakdown(interview: Interview, state: Dict[str, Any], elapsed: float) -> Optional[Dict[str, Any]]:
     """The Amazon rounds against the clock: how long each part took next to its planned length, how long each
     Leadership Principles story ran, how long you coded, and what to change about your pacing."""
     fmt = interview.meta.get("format")
+    if fmt == "amazon-coding":
+        return _coding_round_time(interview, state, elapsed)
     if fmt not in ("amazon-final", "amazon-behavioral"):
         return None
     phases = interview.phases()
@@ -1098,6 +1258,8 @@ def render_markdown(report: Dict[str, Any]) -> str:
         lines += ["", "## Time", "", "| Part | Took | Planned |", "|---|---|---|"]
         lines += [f"| {p['part']} | {p['minutes']} min | {p['planned'] if p['planned'] is not None else '–'} min |" for p in timeline["parts"]]
         lines += [""] + [f"- {note}" for note in timeline["notes"]]
+    if report.get("help") is not None:
+        lines += ["", "## How the interviewer helped", ""] + ([f"- Minute {item['at']:.0f}: {item['text']}." for item in report["help"]] or ["- It didn't need to: no hints, check-ins, or pushes."])
     lines += ["", "## Scores", "", "| Area | Score |", "|---|---|"]
     lines += [f"| {s['label']} | {s['score'] if s['score'] is not None else 'not observed'} |" for s in report["scores"]]
     lines += ["", "## Evidence", ""]
@@ -1129,10 +1291,15 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
     area_names = ", ".join(label for _, label in areas_for(interview))
     problem = interview.meta.get("format") == "problem"
     hints = state.get("hints", [])
+    helped = "; ".join(f"minute {item['at']:.0f}: {item['text']}" for item in (report.get("help") or [])) or "it never needed to"
     setting = ("This is a simulated Amazon SDE intern final-round interview with no AI assistant (Amazon tells candidates not to use GenAI during interviews). It has Leadership Principles questions with follow-ups, then a coding problem in an editor that can run tests."
-               if amazon else (f"This is a single-problem practice round with no AI assistant, in {state.get('mode', 'real')} mode. The candidate used {len(hints)} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}." if problem
+               if amazon else ("This is a simulated Amazon SDE intern coding round with no AI assistant: one problem and a follow-up, in an editor that can run tests. The interviewer asked for the complexity, "
+                               f"pushed for a faster version when a working one was too slow, and helped when the candidate was stuck ({helped}). Weigh how much help they needed." if interview.meta.get("format") == "amazon-coding"
+                               else f"This is a single-problem practice round with no AI assistant, in {state.get('mode', 'real')} mode. The candidate used {len(hints)} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}." if problem
                                else "The candidate used an AI coding assistant (Claude Code), which is allowed and expected."))
-    ai_rule = "- Judge Leadership Principles answers on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon else "- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant."
+    ai_rule = ("- Judge Leadership Principles answers on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon
+               else "- Judge problem solving on whether the candidate found the faster approach alone, after the interviewer's push, or only with hints, and whether they explained its complexity." if interview.meta.get("format") == "amazon-coding"
+               else "- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant.")
     behavioral = "\n".join(f"- Q: {a['question']}" + (f" [{a['lp']}]" if a.get("lp") else "") + "".join(f"\n  Prompt: {p}" for p in a.get("prompts", [])[1:]) + "\n  Answer: " + " ".join(part["text"] for part in a.get("parts", [])) for a in state.get("behavioral", {}).get("answers", [])) or "(none)"
     return f"""You are grading a {interview.meta.get('duration_minutes', 60)}-minute practice software engineering interview ("{interview.title}"). {setting}
 

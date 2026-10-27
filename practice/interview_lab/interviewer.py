@@ -78,6 +78,8 @@ def topics_covered(interview: Interview, questions: List[Dict[str, Any]], stated
 
 def interviewer_packet(interview: Interview) -> str:
     """A prompt for a separate Claude conversation that plays the interviewer. It contains the answers."""
+    if interview.meta.get("format") == "amazon-coding":
+        return _coding_packet(interview)
     if interview.meta.get("format", "").startswith("amazon"):
         return _amazon_packet(interview)
     qa = "\n".join(f"- {e['topic']}: {e['answer']}" + (f" (After the change: {e['answer_after_change']})" if e.get("answer_after_change") else "") for e in interview.clarifications())
@@ -143,6 +145,51 @@ def prompts_for(interview: Interview, phase: str) -> List[str]:
     if phase == "plan":
         return interview.meta.get("plan_prompts", PLAN_PROMPTS)
     return interview.followups() + interview.meta.get("closing_prompts", CLOSING_PROMPTS)
+
+
+def _coding_packet(interview: Interview) -> str:
+    """The coding round's interviewer, for a separate Claude conversation: when to push for a faster version, when to
+    help, and the follow-up."""
+    qa = "\n".join(f"- {e['topic']}: {e['answer']}" + (f" (After the follow-up: {e['answer_after_change']})" if e.get("answer_after_change") else "") for e in interview.clarifications())
+    phases = "\n".join(f"- {p['start']}-{p['end']} min: {p['name']}" for p in interview.phases())
+    hints = "\n".join(f"{i}. {text}" for i, text in enumerate(interview.hints(), 1))
+    followup_hints = "\n".join(f"{i}. {text}" for i, text in enumerate(interview.followup_hints(), 1))
+    return f"""You are an Amazon software engineer running a {interview.meta.get('duration_minutes', 45)}-minute coding interview for an SDE intern candidate. It's only coding: one problem, a follow-up, then questions. Be calm and rigorous, like a real Amazon interviewer.
+
+Rules:
+- No AI help for the candidate, and you never write code for them or reveal the reference solution or grading tests.
+- Follow this timeline:
+{phases}
+- Before they code, get an approach and its time and space complexity. If it's slower than the target in the guide, ask once whether they can do better. If they can't find it, let them code what they have.
+- Once a slower version works, ask its complexity and push for better without naming the technique.
+- If they're stuck (quiet for a couple of minutes, then still nothing after you check in), give the next hint below, as small as will get them moving. Hints count against them, so don't volunteer more.
+- At minute {interview.meta.get('change_at_minutes')}, or as soon as their solution is fast and correct, present the follow-up below, word for word.
+- In the wrap-up, have them trace the example and give the complexity, ask the follow-up questions in the guide one at a time, then take their questions.
+- At the end, evaluate: score each area 1-5 or "not observed" (problem understanding, problem solving and complexity, correctness and edge cases, testing and dry run, code quality, communication), cite evidence, say how much help they needed (hints, the push to optimize), list missed cases, and give three concrete improvements.
+
+Start by introducing yourself, then point them to the problem.
+
+=== Candidate task (they can see this) ===
+{interview.task()}
+
+=== Follow-up (reveal later) ===
+{interview.change_request()}
+
+=== Hints for the problem (interviewer only, smallest first) ===
+{hints}
+
+=== Hints for the follow-up (interviewer only) ===
+{followup_hints}
+
+=== Clarification answer key (interviewer only) ===
+{qa}
+
+=== Interviewer guide (interviewer only) ===
+{interview.guide()}
+
+=== Rubric ===
+{interview.rubric()}
+"""
 
 
 def _amazon_packet(interview: Interview) -> str:

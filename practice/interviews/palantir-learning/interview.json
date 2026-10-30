@@ -1,0 +1,207 @@
+{
+  "id": "palantir-learning",
+  "title": "Palantir FDSE learning interview: the hospital supply sync",
+  "company": "palantir",
+  "format": "palantir-learning",
+  "inspired_by": "Modeled on candidate reports of Palantir's Forward Deployed Software Engineer onsite (2025 and 2026): the Learning round gives you documentation for an unfamiliar library, about five minutes to read it, and the rest of a 30-minute round to extend code with it in short stages, while the interviewer watches how you read, what you ask, and how you build. An original simulation: relay and the customer are made up.",
+  "level": "FDSE onsite · Learning round",
+  "summary": "A library you've never seen, its docs, and a hospital network's nightly sync to extend with it: five minutes to read, then 25 to build, in up to four parts. Ask good questions, explain what you're using, and build in small tested steps. No AI; write and run your code in the browser editor.",
+  "tags": [
+    "python",
+    "30 min",
+    "no AI",
+    "new library",
+    "4 parts",
+    "runs code"
+  ],
+  "duration_minutes": 30,
+  "change_at_minutes": null,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "docs": "relay/DOCS.md",
+  "note_tabs": {
+    "plan": "notes.md",
+    "assumptions": "assumptions.md"
+  },
+  "source_files": [
+    "supplysync/sync.py"
+  ],
+  "editor_files": [
+    "supplysync/sync.py",
+    "supplysync/client.py",
+    "supplysync/report.py"
+  ],
+  "approach_keywords": [
+    "runner",
+    "submit",
+    "gather",
+    "retry",
+    "cancelled",
+    "key",
+    "on_finish",
+    "tally"
+  ],
+  "concepts": {
+    "leaving the with block cancels queued jobs": [
+      "queued",
+      "with block",
+      "end of the block",
+      "leave the block",
+      "cancels the queued",
+      "never run"
+    ],
+    "result() raises JobFailed, with the cause inside": [
+      "jobfailed",
+      "job failed",
+      "cause",
+      "wrapped",
+      "wraps"
+    ],
+    "jobs with the same key run one at a time": [
+      "same key",
+      "per key",
+      "each key",
+      "keys",
+      "serial"
+    ],
+    "gather returns outcomes in finishing order": [
+      "finishing order",
+      "order they finish",
+      "order they finished",
+      "completion order",
+      "finish order",
+      "not the order"
+    ],
+    "Retry(times=2) means three tries": [
+      "three tries",
+      "3 tries",
+      "three times",
+      "3 times",
+      "times means",
+      "times=2",
+      "more times",
+      "plus one",
+      "times plus",
+      "times + 1"
+    ],
+    "running jobs stop only when they check cancelled()": [
+      "cancelled()",
+      "cooperative",
+      "can't interrupt",
+      "can't be interrupted",
+      "can't stop",
+      "check if it's cancelled",
+      "check cancelled"
+    ],
+    "callbacks run on worker threads": [
+      "callback",
+      "on_finish",
+      "thread safe",
+      "thread-safe",
+      "tally",
+      "a lock",
+      "threading.lock"
+    ]
+  },
+  "phases": [
+    {
+      "start": 0,
+      "end": 5,
+      "name": "Read the docs and the code",
+      "cue": "pl_intro",
+      "kind": "learn"
+    },
+    {
+      "start": 5,
+      "end": 30,
+      "name": "Extend the sync, one part at a time",
+      "cue": "pl_part1",
+      "kind": "coding",
+      "checks": [
+        {
+          "left": 10,
+          "cue": "pl_code_10"
+        },
+        {
+          "left": 5,
+          "cue": "pl_code_5"
+        }
+      ]
+    },
+    {
+      "start": 30,
+      "end": 30,
+      "name": "What you learned, and your questions",
+      "cue": "pl_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "parts": [
+    {
+      "title": "Part 1: pull the hospitals in parallel",
+      "task": "parts/part1.md",
+      "tests": "parts/test_part1_parallel.py",
+      "cue": "pl_part1",
+      "hints": [
+        "Look at section 1 of the docs: what does submit give you back, and where do you have to wait for the results?",
+        "Submit one job per hospital that runs pull_hospital, on a Runner with four workers, and collect the results inside the with block. A hospital's pages stay in order inside its own job."
+      ]
+    },
+    {
+      "title": "Part 2: flaky and offline hospitals",
+      "task": "parts/part2.md",
+      "tests": "parts/test_part2_failures.py",
+      "cue": "pl_part2",
+      "hints": [
+        "Section 5: what does times count, and which exceptions get retried? Then look at what result() or gather gives you back when a job fails.",
+        "Pass retry=relay.Retry(times=2, on=(TransientError,)). With gather, outcome.error is the job's own exception, so you can put TransientError and HospitalOffline in missing."
+      ]
+    },
+    {
+      "title": "Part 3: the nightly window",
+      "task": "parts/part3.md",
+      "tests": "parts/test_part3_deadline.py",
+      "cue": "pl_part3",
+      "hints": [
+        "gather takes a timeout. What happens to the jobs that aren't finished when it runs out, and what can a running job do about it?",
+        "Use gather(handles, timeout=deadline): the cancelled outcomes are late. In pull_hospital, check relay.cancelled() before each page, and raise relay.Cancelled to stop."
+      ]
+    },
+    {
+      "title": "Part 4 (stretch): live progress",
+      "task": "parts/part4.md",
+      "tests": "parts/test_part4_progress.py",
+      "cue": "pl_part4",
+      "hints": [
+        "Section 7: where do on_finish callbacks run, and what does that mean for a count they share?",
+        "Register runner.on_finish before you submit, count finished hospitals with a relay.Tally, and skip the cancelled ones."
+      ]
+    }
+  ],
+  "cues": {
+    "pl_intro": "Hi, thanks for joining. I'm an engineer on one of our commercial deployments, a network of six hospitals. This is a learning interview: you'll work with relay, a small job library our team wrote, which you haven't seen before. Its docs are in the Docs tab, and the customer's sync tool is in the editor. Take about five minutes to read both, and ask me anything as you go. Then you'll extend the sync, one part at a time, for the rest of our half hour. When you're ready, say so, and I'll give you the first part.",
+    "pl_part1": "Okay, here's the first part, in the Tasks tab. The sync pulls one hospital at a time and takes forty minutes, so make it pull them in parallel with relay. Before you code, tell me how you'd do it.",
+    "pl_part2": "Okay, part two, in the Tasks tab. One hospital's system drops connections now and then, and another goes offline for maintenance. How would you handle each with relay?",
+    "pl_part3": "Okay, part three, in the Tasks tab. The report has to be ready by six, so pull_all gets a deadline. How would you stop the slow hospitals in time?",
+    "pl_part4": "Last part, a stretch, in the Tasks tab. The operations team wants live progress while the sync runs. How would you report it?",
+    "pl_code_10": "Quick time check: about ten minutes left.",
+    "pl_code_5": "About five minutes left. Get what you have working.",
+    "pl_verify": "Before we move on, run the tests and tell me what they show.",
+    "pl_checkin": "Where are you at? Tell me what you're looking at right now.",
+    "pl_wrap": "That's time, so let's stop there. Thanks for working through it with me.",
+    "pl_wrap_early": "Okay, that's as far as we'll go with the parts. With the time we have left, tell me what surprised you about relay, and what you'd change about it, or about the sync. Then I'm happy to take your questions."
+  },
+  "closing_prompts": [
+    "What questions do you have for me?"
+  ],
+  "custom_input": "from supplysync import sample\nfrom supplysync.client import HospitalAPI\nfrom supplysync.sync import pull_all\n\napi = HospitalAPI(sample.inventories(), latency=0.02)\npull = pull_all(api, sample.HOSPITALS)\nprint(sorted(pull.stock), pull.missing, pull.late)\nprint(\"most requests at once:\", api.max_in_flight)\n",
+  "followups": {
+    "understanding": "Pick a library you haven't used (concurrent.futures, or trio), give yourself five minutes with its docs, and write five sentences on how it differs from what you'd have guessed. Check each sentence with a tiny script.",
+    "questions": "Before your next unfamiliar codebase, write down three questions for its owner, and check each against the docs first: only ask the ones the docs don't answer.",
+    "applying": "Re-do part 2 twice, once with result() and JobFailed and once with gather, and say out loud why outcome.error isn't wrapped.",
+    "pace": "Time yourself from opening an unfamiliar repo to your first passing change. Get it under ten minutes by reading the tests and the docs' first section before anything else.",
+    "code_quality": "Rewrite your pull_all so the paging stays in pull_hospital and pull_all only schedules jobs and sorts outcomes, in under 25 lines.",
+    "communication": "Read one docs section aloud, then say in one sentence what you think it means before you use it. Do it for every section of relay."
+  }
+}

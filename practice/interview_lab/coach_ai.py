@@ -104,7 +104,20 @@ How you talk, like a real interviewer on a video call:
 - Never talk about the plan: don't say you'll ask something different, that they already covered something, or how many questions are left. Just ask.
 - A vague, hypothetical, or "we did" answer gets pulled back to one specific time and what they did themselves."""
 
-DEBRIEF_SYSTEM = """You are a senior software engineer at Amazon writing your interview notes after a 30-minute résumé deep dive with a candidate for the Amazon SDE internship, for the candidate to learn from. Judge them as an intern candidate, not as an experienced engineer. Be specific, honest, and kind. Quote the candidate's own words as evidence. Write in Markdown with short sections. Don't invent anything that isn't in the transcript or résumé."""
+DEBRIEF_SYSTEM = """You are a senior software engineer at Amazon writing your interview notes after a 30-minute résumé deep dive with a candidate for the Amazon SDE internship, for the candidate to learn from. Judge them as an intern candidate, not as an experienced engineer. Be specific, honest, and kind. Quote the candidate's own words as evidence. Write to the candidate directly, as "you": don't use their name, and don't call them he or she. Write in Markdown with short sections. Don't invent anything that isn't in the transcript or résumé."""
+
+ROLE_PALANTIR_LEARNING = """You are a FORWARD DEPLOYED ENGINEER at Palantir, on a commercial deployment for a hospital network, running the 30-minute Learning interview of a Forward Deployed Software Engineer onsite. The candidate is learning relay, an internal library they've never seen, from its docs (about five minutes of reading), and extending the customer's sync tool with it in parts (the other 25). You're friendly and collaborative, like a teammate pairing with a new hire: you want to see how fast they learn and how they think, not what they already know.
+How you run it:
+- Reading time is short, so mostly let them read. Answer their questions, and when they explain what they've read, check their model with one of your understanding questions. Keep checking it once the parts start.
+- When their model is wrong, don't correct it outright: ask a question that sends them back to the right section of the docs. If they're still wrong after that, tell them which section to reread. When it's right, say "Right." and move on, with no praise.
+- Answer questions honestly and briefly. If the docs answer it, answer and say which section. If they don't, answer from the facts. Never invent behavior relay doesn't document.
+- Before they code each part, ask how they'd do it with relay. While they code, ask about the relay calls they write: what a call returns, raises, or when it runs.
+- Honesty is the signal you value most. "I'm not sure" is good: help them find where to look. If they say something confidently that's wrong, ask how they know.
+- Never write their code or hand them a solution. Hints only when you're told to give one, and only as much as the hint, ideally as a pointer to the docs or a question.
+- Keep it moving: if they're stuck on a detail that doesn't matter for the task, say so.
+- Exactly one short question per turn, usually under 20 words, in plain spoken English with contractions. Don't praise or evaluate."""
+
+DEBRIEF_LEARNING_SYSTEM = """You are a Palantir engineer writing your notes after the Learning interview of a Forward Deployed Software Engineer onsite, for the candidate to learn from. The candidate learned relay, an internal library, from its docs, and extended a customer's tool with it in parts. Judge them as an intern or new-grad candidate. Be specific, honest, and kind. Quote the candidate's own words as evidence, and check what they said about relay against its docs. Write to the candidate directly, as "you": don't use their name, and don't call them he or she. Write in Markdown with short sections. Don't invent anything that isn't in the transcript, the code, or the test results."""
 
 _status = {"at": 0.0, "value": None}
 _lock = threading.Lock()
@@ -588,6 +601,177 @@ One or two sentences per principle asked: how well the story showed it (STAR, wh
 Items on their résumé that they didn't explain well or weren't asked about yet, and the question you'd expect for each.
 ## Practice next
 One concrete exercise for before their next interview."""
+
+
+def _learning_ask(kind: str, part: int, trigger: str, message: str, hint: Optional[Dict[str, Any]]) -> str:
+    """What the learning round's interviewer is asked to do this turn, by the part of the round and what happened."""
+    stuck = bool(hint and hint.get("reason") == "stuck")
+    if kind == "over":
+        return (f"The round's time is up. The candidate says: \"{message}\"\nIf it's a question for you, answer it briefly. "
+                "Otherwise say you're at time and thank them. Don't ask anything new, and don't help with the code.")
+    if trigger == "hint" and hint and hint.get("repeat"):
+        return (f"They're still stuck after your last hint ({hint['text']}). Put the same idea another way, ideally as a pointer to the docs, and go no further." if stuck
+                else f"They asked for another hint without trying your last one ({hint['text']}). Say you'd like to see them try that first, and ask what they'd do.")
+    if trigger == "hint" and hint:
+        return ((f"The candidate seems stuck on part {part}: no progress for a few minutes, even after you checked in. Step in with a small nudge, starting with "
+                 f"something like \"Let me point you somewhere.\" Go no further than this:\n{hint['text']}") if stuck else
+                f"The candidate asked for a hint on part {part}. Give it the way a teammate would, ideally as a pointer to the docs or a question, going no further than this:\n{hint['text']}")
+    if trigger == "hint":
+        return "They've had every hint for this part. Say you'd like to see how they'd take it from here, or suggest they move on to the next part."
+    if trigger == "nudge":
+        return f"They've gone quiet on part {part} for a couple of minutes. Check in: ask where they are or what they're looking at, in one short question. Don't give a hint."
+    if trigger == "debug":
+        return (f"The same tests for part {part} have kept failing for a few minutes. Don't say what's wrong. Suggest one way to find it themselves: rereading the docs "
+                "section for the relay call involved, or printing what a handle's state or an outcome holds.")
+    if trigger == "verify":
+        return f"They asked to move on, but the tests for part {part} fail. Ask them to run the tests and tell you what they show. Don't say what's wrong."
+    if trigger == "code":
+        return (f"The candidate just typed these lines without explaining them:\n{message}\n"
+                "Ask one question that checks they understand how a relay call there behaves: what it returns, what it raises, or when it runs. Name the call.")
+    if kind == "learn":
+        return (f"While reading, the candidate says: \"{message}\"\nIf it's a question the docs answer, answer it in a sentence and name the section. If the docs don't "
+                "cover it, answer from the facts. If they're explaining what they've read, check it against the docs: if it's right, say so in a word and let "
+                "them keep reading, or ask one understanding question from your list that they haven't covered; if it's wrong or vague, ask a question that "
+                "sends them back to the right section, without giving the answer. Reading time is only five minutes, so keep it short. Don't give them the "
+                "first part yet.")
+    if kind == "wrap":
+        return (f"It's the wrap-up, and the candidate says: \"{message}\"\nIf it's a question for you, answer it briefly, as an engineer on the deployment would. "
+                "Otherwise ask the next follow-up question from your list that you haven't asked, one at a time; once you've asked them, ask what questions they have for you.")
+    return (f"The candidate is working on part {part} and says: \"{message}\"\nIf it's a question, answer it: name the docs section if the docs answer it, or use the facts. "
+            "If they're planning, make sure they've said how they'll use relay, and if the plan relies on something relay doesn't do, ask about that exact behavior. "
+            "Otherwise ask one question that checks they understand the relay call they're using, or tell them to go ahead.")
+
+
+def build_learning_prompt(interview: Interview, status: Dict[str, Any], workspace: Path, trigger: str, message: str = "",
+                          hint: Optional[Dict[str, Any]] = None) -> str:
+    """One turn of the Palantir learning round: the library's docs, the parts so far, the facts, the candidate's code
+    and tests, and the conversation, with what the interviewer should do now."""
+    state, elapsed = status["state"], status["elapsed"]
+    phases, index = status["phases"], status["phase"]
+    phase = phases[index] if index < len(phases) else None
+    kind = (phase or {}).get("kind", "over")
+    parts, revealed = interview.parts(), state.get("parts") or []
+    part = len(revealed)
+    code = []
+    for name in interview.meta.get("editor_files", []):
+        try:
+            code.append(f"--- {name} ---\n{(workspace / name).read_text(encoding='utf-8')[:12000]}")
+        except OSError:
+            pass
+    run = state.get("last_test_run")
+    tests = (f"Latest test run at minute {run['at'] / 60:.0f}: {run['passed']} passed, {run['failed']} failed, {run['errors']} errors."
+             + "".join(f"\n- {c['name']}: {c['message']}" for c in run.get("failing", [])[:5])) if run else "They haven't run the tests yet."
+    history: List[str] = []
+    events = [(q["at"], q.get("n", 0), q) for q in state.get("questions", [])] + [(s["at"], s.get("n", 0), {"spoken": s["text"]}) for s in state.get("spoken", [])]
+    for _, _, item in sorted(events, key=lambda e: (e[0], e[1]))[-30:]:
+        if "spoken" in item:
+            history.append(f"Candidate: {item['spoken']}")
+        elif item.get("source") == "interviewer":
+            history.append(f"Interviewer: {item['answer']}")
+        else:
+            history.append(f"Candidate: {item['question']}")
+            history.append(f"Interviewer: {item['answer']}")
+    facts = "\n".join(f"- {e['topic']}: {e['answer']}" + (f" (the docs cover this, in section {e['docs']})" if e.get("docs") else " (not in the docs)")
+                      for e in interview.clarifications())
+    shown = "\n\n".join(f"{p['text'].strip()}" + (" [done]" if revealed[i]["done_at"] is not None else " [they're on this part]")
+                        for i, p in enumerate(parts[:part])) or "(none yet: they're still reading)"
+    end = status["bounds"][index][1] if index < len(status["bounds"]) else None
+    on_part = f" They've been on part {part} for {max(0, round((elapsed - revealed[-1]['at']) / 60))} minutes." if revealed else ""
+    used = sum(1 for h in state.get("hints", []) if h.get("stage") == f"part{part}")
+    standing = (f"Minute {elapsed / 60:.0f} of {interview.meta.get('duration_minutes', 60)}, in \"{(phase or {}).get('name', 'overtime')}\""
+                + (f", about {max(0, round(end - elapsed / 60))} minutes left in it" if end is not None else "") + "."
+                + (f" Part {part} of {len(parts)}.{on_part} Hints on this part: {used} of {len(parts[part - 1]['hints'])}." if 0 < part <= len(parts) else ""))
+    return f"""Your role:
+{ROLE_PALANTIR_LEARNING}
+
+The candidate's task (they can see this):
+{interview.task().strip()}
+
+relay's docs (they have these in the Docs tab):
+<<<
+{interview.docs()}
+>>>
+
+The parts so far (each was shown to them when it came):
+{shown}
+
+Facts (use these to answer; say which docs section when the docs cover it):
+{facts}
+
+Your understanding questions, for while they read (one at a time; for you only, with the answers):
+{interview.guide_section("Questions to check understanding")}
+
+Notes on each part (for you only; never reveal them):
+{interview.guide_section("The parts")}
+
+Follow-up questions for the wrap-up (one at a time, only if the parts end with time to spare):
+{chr(10).join(f"- {q}" for q in interview.followups())}
+
+Where things stand: {standing}
+
+Their code:
+{chr(10).join(code) or "(empty)"}
+
+{tests}
+
+Conversation so far (most recent last):
+{chr(10).join(history) or "(nothing yet)"}
+
+Now: {_learning_ask(kind, part, trigger, message, hint)}
+
+Reply as the interviewer, in one or two short spoken sentences."""[-110_000:]
+
+
+def build_learning_debrief_prompt(interview: Interview, state: Dict[str, Any], report: Dict[str, Any], diff: str) -> str:
+    """The learning round's interviewer's notes, from the transcript, the parts, the tests, and the code."""
+    scores = "\n".join(f"- {s['label']}: {s['score'] if s['score'] is not None else 'not observed'}/5" for s in report.get("scores", []))
+    parts = interview.parts()
+    progress = "\n".join(f"- {parts[i]['title']}: shown at minute {p['at'] / 60:.0f}, " + ("not finished" if p["done_at"] is None else
+                         f"{'moved on without passing' if p['skipped'] else 'tests passed'} at minute {p['done_at'] / 60:.0f}")
+                         for i, p in enumerate(state.get("parts", [])) if i < len(parts)) or "- They never got to the first part."
+    help_lines = "\n".join(f"- minute {h['at']:.0f}: {h['text']}" for h in report.get("help") or []) or "- none"
+    plan = {p.get("kind"): p["end"] - p["start"] for p in interview.phases()}
+    return f"""Write your notes on this Learning interview for the candidate.
+
+relay's docs, to check their claims against:
+<<<
+{interview.docs()[:9000]}
+>>>
+
+The parts and how far they got ({interview.meta.get('duration_minutes', 60)} minutes in all: about {plan.get('learn')} to read, then {plan.get('coding')} for the parts, where two parts is a solid pace):
+{progress}
+
+When you stepped in:
+{help_lines}
+
+Grading tests after they submitted: {report['tests']['grading']['passed']} of {report['tests']['grading']['total']} passed. Missed: {"; ".join(report.get("missed_cases", [])[:8]) or "none"}.
+
+Their changes (diff against the starter):
+<<<
+{diff[:20000] or "(no changes)"}
+>>>
+
+Transcript (oldest first):
+{_resume_conversation(state)[-60_000:] or "(nothing was said)"}
+
+Automatic heuristic scores, for reference (you may disagree):
+{scores}
+
+Rules for evidence: quote only what the candidate said (the "Candidate:" lines) or wrote in their code. If the transcript is short, say how far the interview got and keep each section brief instead of padding it.
+
+Write these sections, in Markdown, about 250–400 words in all (less for a short transcript):
+## Overall
+Two or three sentences: how fast you got productive with relay, whether the interviewer would move you forward, and why.
+## How you learned relay
+What you understood correctly and what you got wrong, each with a quote, and whether you read before coding.
+## Your questions
+Which questions were purposeful, which the docs already answered, and the important one you did or didn't ask.
+## Building it
+How you worked through the parts: small steps, tests, how you used relay's calls, where you got stuck.
+## What to work on
+Three bullets, each specific, with what a stronger candidate would have done.
+## Practice next
+One concrete exercise for before their next learning round."""
 
 
 def stream(prompt: str, timeout: int = 90, system: str = SYSTEM) -> Iterator[str]:

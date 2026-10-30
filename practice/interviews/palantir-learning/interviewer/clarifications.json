@@ -1,0 +1,230 @@
+[
+  {
+    "topic": "Queued jobs when the with block ends",
+    "docs": "1. The basics",
+    "keywords": [
+      "with block",
+      "end of the block",
+      "leave the block",
+      "exit",
+      "context manager",
+      "close",
+      "after the block",
+      "shut down",
+      "shutdown"
+    ],
+    "answer": "Leaving the with block waits for the jobs that are already running but cancels the ones still queued, so wait for your results inside the block."
+  },
+  {
+    "topic": "What result() raises",
+    "docs": "2. Handles",
+    "keywords": [
+      "result()",
+      "raise",
+      "raises",
+      "exception",
+      "error from result",
+      "jobfailed",
+      "what happens if the job fails",
+      "if it fails",
+      "throws"
+    ],
+    "answer": "If the job raised, result() raises relay.JobFailed, and the job's own exception is in .cause. A cancelled job raises relay.Cancelled."
+  },
+  {
+    "topic": "Keys",
+    "docs": "3. Keys",
+    "keywords": [
+      "key",
+      "keys",
+      "same key",
+      "one at a time",
+      "serial",
+      "lane",
+      "limit("
+    ],
+    "answer": "Jobs with the same key run one at a time, in the order you submitted them. Different keys, or no key, run in parallel up to the worker count. runner.limit(key, n) allows n at once."
+  },
+  {
+    "topic": "Order of gather's outcomes",
+    "docs": "4. Waiting for many jobs",
+    "keywords": [
+      "order",
+      "gather",
+      "outcome",
+      "outcomes",
+      "same order",
+      "sorted",
+      "which job"
+    ],
+    "answer": "gather returns outcomes in the order the jobs finished, not the order you passed them. Each outcome has its handle, so keep a dict from handle to whatever the job was for."
+  },
+  {
+    "topic": "outcome.error",
+    "docs": "4. Waiting for many jobs",
+    "keywords": [
+      "outcome.error",
+      "error attribute",
+      "wrapped",
+      "unwrapped",
+      ".cause"
+    ],
+    "answer": "outcome.error is the job's exception as it was raised, not wrapped in JobFailed, or a relay.Cancelled if the job was cancelled."
+  },
+  {
+    "topic": "Retry counts",
+    "docs": "5. Retries",
+    "keywords": [
+      "retry",
+      "retries",
+      "times",
+      "how many times",
+      "attempts",
+      "backoff",
+      "try again"
+    ],
+    "answer": "Retry(times=n) runs the job up to n more times after the first, so times=2 means three tries in all. Only exceptions listed in on are retried, and each try starts the function over."
+  },
+  {
+    "topic": "Stopping a running job",
+    "docs": "6. Cancellation and timeouts",
+    "keywords": [
+      "cancel",
+      "cancelled",
+      "cancellation",
+      "stop a running",
+      "interrupt",
+      "kill",
+      "timeout",
+      "deadline"
+    ],
+    "answer": "relay can't interrupt a running thread. cancel() and gather's timeout ask the job to stop: relay.cancelled() turns True inside it, and the job should check it between steps and raise relay.Cancelled."
+  },
+  {
+    "topic": "Which thread runs on_finish",
+    "docs": "7. Callbacks and Tally",
+    "keywords": [
+      "callback",
+      "callbacks",
+      "on_finish",
+      "thread safe",
+      "thread-safe",
+      "lock",
+      "tally",
+      "race"
+    ],
+    "answer": "on_finish callbacks run on the thread that finished the job, usually a worker, so several can run at once. Use a lock or relay.Tally for anything they share."
+  },
+  {
+    "topic": "Threads or processes",
+    "docs": "1. The basics",
+    "keywords": [
+      "thread",
+      "threads",
+      "process",
+      "processes",
+      "gil",
+      "asyncio",
+      "async"
+    ],
+    "answer": "Threads. The jobs here spend their time waiting on the network, so threads are fine."
+  },
+  {
+    "topic": "Other errors",
+    "important": true,
+    "keywords": [
+      "other error",
+      "other errors",
+      "other exception",
+      "other exceptions",
+      "unexpected",
+      "valueerror",
+      "anything else",
+      "parse",
+      "bug",
+      "something else goes wrong",
+      "unknown error"
+    ],
+    "answer": "Anything other than a dropped connection or an offline hospital is a bug, in their data or in our code. Let it fail the sync loudly so someone looks at it."
+  },
+  {
+    "topic": "Changing relay",
+    "important": true,
+    "keywords": [
+      "change relay",
+      "modify relay",
+      "edit relay",
+      "change the library",
+      "modify the library",
+      "fork",
+      "patch the library"
+    ],
+    "answer": "Don't change relay: other deployments use it. Work around it in supplysync."
+  },
+  {
+    "topic": "Changing pull_all's signature",
+    "keywords": [
+      "signature",
+      "parameters",
+      "arguments",
+      "return type",
+      "change pull_all",
+      "keep pull_all"
+    ],
+    "answer": "Keep pull_all's name and its first two parameters, and keep returning a Pull. Each part says what it adds."
+  },
+  {
+    "topic": "How the hospitals' systems behave",
+    "keywords": [
+      "one request",
+      "concurrent requests",
+      "how many requests",
+      "hospital system",
+      "rate limit",
+      "per hospital",
+      "toomanyrequests"
+    ],
+    "answer": "Each hospital's system takes one request at a time; a second one in flight fails with TooManyRequests. Across hospitals, the VPN takes at most four requests at once."
+  },
+  {
+    "topic": "Page order",
+    "keywords": [
+      "page order",
+      "pages in order",
+      "order of pages",
+      "page 0",
+      "out of order",
+      "which page",
+      "pages",
+      "order do pages",
+      "fetch pages"
+    ],
+    "answer": "Pages can be fetched in any order, but you only learn how many there are from a page. Page 0 always exists."
+  },
+  {
+    "topic": "Partial data",
+    "keywords": [
+      "partial",
+      "half",
+      "some of the pages",
+      "incomplete",
+      "part of a hospital"
+    ],
+    "answer": "Never report part of a hospital's inventory. A hospital is either all there, missing, or late."
+  },
+  {
+    "topic": "Who reads the report",
+    "keywords": [
+      "who uses",
+      "who reads",
+      "supply team",
+      "why",
+      "what is the report for",
+      "customer",
+      "6am",
+      "par level",
+      "par"
+    ],
+    "answer": "The supply team reads it at 6am and reorders anything below par. A missing hospital means they phone that hospital, so it matters that missing is right."
+  }
+]

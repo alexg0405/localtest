@@ -23,7 +23,7 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-coding": ["amazon", "Amazon · Coding round"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-coding": ["amazon", "Amazon · Coding round"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"], "palantir-learning": ["palantir", "Palantir FDSE · Learning"] };
 // Rounds with a coding problem and Amazon's interviewer: the final rounds, and the coding round, which is only coding.
 const AMAZON_CODING = ["amazon-final", "amazon-coding"];
 const AMAZON_NOTES = {
@@ -31,12 +31,17 @@ const AMAZON_NOTES = {
   assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },
   explanation: { hint: "<b>40–45 min.</b> Dry-run your code on the example by hand: the state after each step, then the answer.", placeholder: "## Dry run on the example\n1. \n\n## Complexity\n- " },
 };
+const LEARNING_NOTES = {   // the learning round: your mental model of the library, as you read
+  plan: { hint: "<b>While you read.</b> relay in your own words: what you'd tell a teammate before they used it. Say it out loud too.", placeholder: "## relay, in my words\n- \n\n## Surprises\n- \n\n## Questions to ask\n- " },
+  assumptions: { hint: "<b>Any time.</b> What you assumed where the docs or the task didn't say.", placeholder: "- I'm assuming…" },
+};
 const TALK_NOTES = {   // the behavioral round and the résumé deep dive: nothing to plan in code
   plan: { hint: "<b>Any time.</b> The stories and numbers you want to bring up, and your questions for the interviewer.", placeholder: "## Stories to tell\n- \n\n## Numbers to mention\n- \n\n## Questions for the interviewer\n- " },
 };
 const notesFor = () => {
   const format = latest && latest.interview.format;
-  return AMAZON_CODING.includes(format) ? { ...NOTES, ...AMAZON_NOTES } : format === "amazon-behavioral" || format === "resume" ? { ...NOTES, ...TALK_NOTES } : NOTES;
+  return AMAZON_CODING.includes(format) ? { ...NOTES, ...AMAZON_NOTES } : format === "palantir-learning" ? { ...NOTES, ...LEARNING_NOTES }
+    : format === "amazon-behavioral" || format === "resume" ? { ...NOTES, ...TALK_NOTES } : NOTES;
 };
 
 function remember(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable */ } }
@@ -217,7 +222,9 @@ function renderPhases(session) {
   $("change-tick").hidden = session.change_at === null;
   if (session.change_at !== null) $("change-tick").style.left = `calc(${(session.change_at / session.duration) * 100}% - 1px)`;
   const phase = session.phases[Math.min(session.phase, session.phases.length - 1)];
-  $("phase-pill").innerHTML = session.state.status === "submitted" ? "Submitted" : session.phase >= session.phases.length ? "<b>Overtime</b> · wrap up and submit" : `<b>Phase ${session.phase + 1}/${session.phases.length}</b> · ${escapeHtml(phase.name)}<span class="part-left" id="part-left"></span>`;
+  // A part with no time of its own (the learning round's wrap-up, only when the parts end early) counts once it starts.
+  const count = session.phases.filter((p, i) => p.end > p.start || i <= session.phase).length;
+  $("phase-pill").innerHTML = session.state.status === "submitted" ? "Submitted" : session.phase >= session.phases.length ? "<b>Overtime</b> · wrap up and submit" : `<b>Phase ${session.phase + 1}/${count}</b> · ${escapeHtml(phase.name)}<span class="part-left" id="part-left"></span>`;
 }
 
 // When this part of the interview really ends: the plan's time, unless it started early and keeps its own length.
@@ -354,7 +361,7 @@ function wireResume() {
 }
 
 function renderFlow(info) {
-  const items = info.phases.map(p => `<li><b>${p.start}–${p.end}</b><span>${escapeHtml(p.name)}</span></li>`);
+  const items = info.phases.map(p => `<li><b>${p.end > p.start ? `${p.start}–${p.end}` : "If time's left"}</b><span>${escapeHtml(p.name)}</span></li>`);
   const at = info.change_at_minutes;
   if (at !== null) {
     const index = info.phases.findIndex(p => p.start <= at && at < p.end);
@@ -368,17 +375,20 @@ let formatFor = null;
 function applyFormat(info) {
   if (formatFor === info.id) return;
   formatFor = info.id;
-  const amazon = AMAZON_CODING.includes(info.format), codingRound = info.format === "amazon-coding";
+  const amazon = AMAZON_CODING.includes(info.format), codingRound = info.format === "amazon-coding", learning = info.format === "palantir-learning";
   document.querySelector("#timer .of").textContent = `/ ${info.duration_minutes}:00`;
   $("run-tests").hidden = !info.run_tests_allowed;
   document.querySelector('[data-copy="cmd-assistant"]').parentElement.hidden = !info.ai_allowed;
-  document.querySelector("#change-tab").childNodes[1].textContent = amazon ? "Follow-up" : "Change";
-  document.querySelector("#change-locked h3").textContent = codingRound ? "Comes once your solution works" : `Unlocks at ${info.change_at_minutes}:00`;
-  document.querySelector("#change-locked p").textContent = codingRound ? `When your solution passes the example and it's fast enough, the interviewer extends the problem, as Amazon interviewers usually do (or at ${info.change_at_minutes}:00, if it works but is still slow). Keep going.`
+  document.querySelector("#change-tab").childNodes[1].textContent = learning ? "Tasks" : amazon ? "Follow-up" : "Change";
+  document.querySelector("#change-locked h3").textContent = learning ? "Comes when you're ready" : codingRound ? "Comes once your solution works" : `Unlocks at ${info.change_at_minutes}:00`;
+  document.querySelector("#change-locked p").textContent = learning ? "Read the docs and the code first, and explain them to the interviewer. When you're ready, press Ready for the task (or say so), and the first part shows up here. It comes at 10:00 either way."
+    : codingRound ? `When your solution passes the example and it's fast enough, the interviewer extends the problem, as Amazon interviewers usually do (or at ${info.change_at_minutes}:00, if it works but is still slow). Keep going.`
     : amazon ? "Partway through the coding problem, the interviewer adds a follow-up, as Amazon interviewers usually do. Keep going." : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
-  document.querySelector(".change-banner").lastChild.textContent = amazon ? "Follow-up from the interviewer" : "Requirement change from the interviewer";
+  document.querySelector(".change-banner").lastChild.textContent = learning ? "The task, one part at a time" : amazon ? "Follow-up from the interviewer" : "Requirement change from the interviewer";
+  $("change-note").innerHTML = learning ? "Also in <code>TASKS.md</code> in your workspace. Each part's example test is in <code>tests/</code>." : "Also saved as <code>CHANGE_REQUEST.md</code> in your workspace, so your assistant can read it.";
+  $("docs-tab").hidden = !info.has_docs;
   const behavioralOnly = info.format === "amazon-behavioral" || info.format === "resume";
-  $("change-tab").hidden = info.change_at_minutes === null;
+  $("change-tab").hidden = info.change_at_minutes === null && !info.part_count;
   $("console").hidden = behavioralOnly;
   $("custom-tab").hidden = !(info.editor_files || []).length;
   $("custom-code").value = info.custom_input || "";
@@ -573,7 +583,7 @@ async function syncCode(files) {
 // The interviewer chat window: the whole conversation, with the reply streaming in at the bottom.
 // Drag it by its title bar, resize it from any edge or corner, minimize or close it; it remembers all of that.
 const pop = { streaming: false, seen: null, lastReply: "" };
-const aiOn = () => (problemNow() || resumeNow() || amazonCodingNow()) && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in any role
+const aiOn = () => (problemNow() || resumeNow() || probingNow()) && !!latest.coach_ai && latest.coach_ai.available;   // Claude, in any role
 const coachAiOn = () => aiOn() && latest.session.state.mode === "coach";
 const coachNow = () => !!latest && latest.session.state.mode === "coach" && latest.interview.format === "problem";
 const POP_MIN = { w: 280, h: 160 };
@@ -624,7 +634,7 @@ function popHeader(state) {
   $("pop-who").textContent = coachNow() ? "Coach" : "Interviewer";
   if (state === undefined) {
     if ($("coach-pop").classList.contains("collapsed") && pop.lastReply) state = pop.lastReply;   // minimized, the title bar shows the latest reply
-    else state = aiOn() ? "Claude · your subscription" : problemNow() || codingRoundNow() ? "scripted" : "";
+    else state = aiOn() ? "Claude · your subscription" : problemNow() || guidedNow() ? "scripted" : "";
   }
   $("pop-state").textContent = state;
   $("pop-state").title = state;
@@ -764,7 +774,7 @@ function coachOnThinking(text) {
   // Everything you've said since the coach last replied, so it responds to your train of thought, not one fragment.
   thought.push(text);
   const coach = latest.session.state.mode === "coach";
-  const amazon = amazonCodingNow();
+  const amazon = probingNow();   // Amazon's interviewer, or the learning round's: both ask about what you say and write
   if (!coach && !phaseNow().nudge && !amazon) return;   // a real interviewer lets you code in peace (except Amazon's, who questions your choices)
   const said = thought.join(" ");
   // Your reply to the interviewer's question gets its follow-up right away; otherwise it waits its turn.
@@ -794,7 +804,7 @@ async function probeChat(body) {
   if (code.path) probe.seen[code.path] = codeValue();
 }
 function probeCodeLater() {
-  if (!amazonCodingNow() || !aiOn() || !code.path) return;
+  if (!probingNow() || !aiOn() || !code.path || (learningNow() && latest.session.overtime)) return;   // once the learning round's time is up, your code isn't questioned
   clearTimeout(probe.timer);
   probe.timer = setTimeout(() => {
     const path = code.path, now = codeValue(), before = probe.seen[path];
@@ -818,6 +828,13 @@ const codingRoundNow = () => !!latest && latest.session.started && latest.interv
 // An Amazon round's coding: the final rounds from the coding problem on, and all of the coding round. The interviewer
 // questions your choices as you code.
 const amazonCodingNow = () => codingRoundNow() || (!!latest && latest.session.started && latest.interview.format === "amazon-final" && ["coding", "wrap"].includes(phaseNow().kind || "wrap"));
+// The Palantir learning round: an unfamiliar library from its docs, and a task in parts.
+const learningNow = () => !!latest && latest.session.started && latest.interview.format === "palantir-learning";
+// Rounds whose interviewer helps when you're stuck and takes hints by voice, and rounds whose interviewer asks about
+// what you say and type as you go.
+const guidedNow = () => codingRoundNow() || learningNow();
+const probingNow = () => amazonCodingNow() || learningNow();
+const READY = /\b(i'?m ready|ready for the (first )?(task|part)|let'?s (start|begin|get started)|give me the (first )?(task|part)|i'?m done reading)\b/i;
 let lastActivity = Date.now(), lastNudge = 0;
 const active = () => { lastActivity = Date.now(); };
 // Progress, for the coding round's interviewer: you said, typed, or ran something (clicking around doesn't count).
@@ -827,7 +844,7 @@ const progressed = () => { progress.at = Date.now(); };
 // The coding round: when you've gone quiet without progress, or the same tests keep failing, the interviewer may step
 // in (a check-in, then a hint, or a nudge to trace the failing test). The session decides whether it does, and how.
 async function stuckCheck(afterTests = false) {
-  if (!codingRoundNow() || latest.session.state.status !== "running" || voice.speaking || pop.streaming || turn.sending) return;
+  if (!guidedNow() || latest.session.state.status !== "running" || voice.speaking || pop.streaming || turn.sending) return;
   if (!afterTests && (Date.now() - progress.at < 150000 || Date.now() - progress.checked < 30000)) return;
   progress.checked = Date.now();
   try {
@@ -848,19 +865,22 @@ async function afterAssess(assessed) {
   } else if (event === "wrap") {
     await refresh();
     if (entry) say(entry.answer);
-    toast("On to the complexity, the interviewer's follow-up questions, and yours.");
+    toast(learningNow() ? "On to what you learned, and your questions." : "On to the complexity, the interviewer's follow-up questions, and yours.");
+  } else if (event === "part") {   // the learning round's next part: its line, and the Tasks tab
+    await refresh();
+    if (entry) say(entry.answer);
   } else await refresh();   // the follow-up: the interviewer says its line (see cues)
 }
 
 async function askForHint() {
-  if (!problemNow() && !codingRoundNow()) return;
+  if (!problemNow() && !guidedNow()) return;
   if (problemNow() && latest.session.state.mode !== "coach" && !askForHint.confirmed) {
     if (!confirm("In real mode a hint lowers your problem-solving score, like leaning on a real interviewer would. Get a hint?")) return;
     askForHint.confirmed = true;
   }
   hintOffer.at = 0;
   progressed();
-  if (aiOn() && codingRoundNow()) { active(); return probeChat({ trigger: "hint" }); }   // its follow-up questions get answered too
+  if (aiOn() && guidedNow()) { active(); return probeChat({ trigger: "hint" }); }   // its follow-up questions get answered too
   if (aiOn()) { active(); return coachChat({ trigger: "hint" }); }
   active();
   try {
@@ -900,7 +920,7 @@ async function coachSays(entry) {
 function showTab(name) {
   document.querySelectorAll("[data-tab]").forEach(tab => tab.classList.toggle("active", tab.dataset.tab === name));
   document.querySelectorAll("[data-panel]").forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
-  if (name === "change" && latest && latest.session.change) { changeSeen = true; $("change-new").hidden = true; }
+  if (name === "change" && latest && (latest.session.change || (latest.session.parts || []).length)) { changeSeen = true; $("change-new").hidden = true; }
   if (name === "interviewer") setTimeout(() => $("question").focus(), 0);
 }
 
@@ -922,10 +942,16 @@ function render(data) {
   $("launch-mode").className = "mode-chip" + (lobbyMode === "coach" ? " coach" : "");
   $("launch-mode").textContent = lobbyMode === "coach" ? "Coach mode" : "Real interviewer";
   $("ide-mode").hidden = !isProblem;
-  $("hint").hidden = !(isProblem || info.format === "amazon-coding") || !info.hint_count;
+  $("hint").hidden = !(isProblem || ["amazon-coding", "palantir-learning"].includes(info.format)) || !info.hint_count;
   $("show-approach").hidden = !isProblem || !(data.session.started && data.session.state.mode === "coach");
   const phaseKind = data.session.started ? (data.session.phases[data.session.phase] || {}).kind : null;
-  $("done-coding").hidden = !(AMAZON_CODING.includes(info.format) && data.session.started && data.session.state.status === "running" && phaseKind === "coding");
+  // Done coding; in the learning round, Ready for the task while you read, then Next part.
+  const learningRound = info.format === "palantir-learning";
+  $("done-coding").hidden = !((AMAZON_CODING.includes(info.format) || learningRound) && data.session.started && data.session.state.status === "running"
+    && (phaseKind === "coding" || (learningRound && phaseKind === "learn")));
+  $("done-coding").textContent = !learningRound ? "Done coding" : phaseKind === "learn" ? "Ready for the task" : "Next part";
+  $("done-coding").title = !learningRound ? "Tell the interviewer you're done coding: the follow-up comes next, then the dry run and your questions"
+    : phaseKind === "learn" ? "Tell the interviewer you're ready: the first part comes now" : "Move on to the next part. If your tests don't pass yet, the interviewer asks you to check them first";
   renderModeToggles();
   renderFlow(info);
   renderResumePanel(data);
@@ -943,6 +969,7 @@ function render(data) {
   tickBase = { elapsed: session.elapsed, at: Date.now() };
   if (renderedFor !== current) {
     $("task").innerHTML = markdown(data.task);
+    $("docs").innerHTML = data.docs ? markdown(data.docs) : "";
     if (info.format === "resume") showResumeInTask();
     $("test-result").className = "test-empty";
     $("test-result").innerHTML = info.run_tests_allowed
@@ -965,12 +992,26 @@ function render(data) {
   cues(session);
   renderNotes(session.state.notes, renderedFor !== current);
   renderedFor = current;
-  const revealed = !!session.change;
+  // The learning round: a part that arrives while you watch opens the Tasks tab (not one that was there on page load).
+  const parts = session.parts || [];
+  const partsSeen = render.partsSeen && render.partsSeen.for === current ? render.partsSeen.count : null;
+  render.partsSeen = { for: current, count: parts.length };
+  const revealed = !!session.change || parts.length > 0;
   $("change").hidden = !revealed;
   $("change-locked").hidden = revealed;
   $("change-tab").classList.toggle("revealed", revealed);
   $("change-icon").innerHTML = `<use href="#${revealed ? "i-bolt" : "i-lock"}"/>`;
-  if (revealed) {
+  if (parts.length) {
+    // The learning round's parts so far, the current one on top.
+    $("change-text").innerHTML = parts.map((part, i) => `<section class="part${i === parts.length - 1 ? " current" : ""}${part.done ? " done" : ""}"><p class="part-state">${
+      i === parts.length - 1 && !part.done ? "Now" : part.skipped ? "Moved on" : part.done ? "Done" : ""}</p>${markdown(part.task)}</section>`).reverse().join("");
+    if (partsSeen !== null && parts.length > partsSeen) {
+      changeSeen = false;
+      toast(`${parts[parts.length - 1].title}: in the Tasks tab.`);
+      showTab("change");
+    }
+    $("change-new").hidden = changeSeen;
+  } else if (revealed) {
     $("change-text").innerHTML = markdown(session.change);
     if (!changeSeen) {
       $("change-new").hidden = false;
@@ -1295,10 +1336,19 @@ async function handleUtterance(text) {
   text = text.trim();
   if (!latest || !latest.session.started) return;
   if (answeringNow()) { if (text) addToTurn(text); return; }   // it goes when you press Enter (short answers too, like "Yes, I did.")
-  if (codingRoundNow() && text && takesOffer(text)) { askForHint(); return; }   // "Want a hint?" "Yeah."
+  if (guidedNow() && text && takesOffer(text)) { askForHint(); return; }   // "Want a hint?" "Yeah."
+  // The learning round: ending with "I'm ready" while you read starts the first part, as the button does (what you
+  // said before it still counts as think-aloud).
+  const lastSentence = text.split(/(?<=[.!?])\s+/).filter(Boolean).pop() || text;
+  if (learningNow() && phaseNow().kind === "learn" && READY.test(lastSentence) && lastSentence.split(/\s+/).length < 12 && !$("done-coding").hidden) {
+    progressed();
+    try { await call("/api/speech", { text }); } catch (e) { /* the part still comes */ }
+    $("done-coding").click();
+    return;
+  }
   if (text.split(/\s+/).length < 2) return;
   progressed();
-  if ((problemNow() || codingRoundNow()) && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
+  if ((problemNow() || guidedNow()) && HINT_ASK.test(text) && text.split(/\s+/).length < 15) { askForHint(); return; }
   if (aiOn()) {
     if (isQuestion(text)) { coachChat({ message: text, voice: true }); return; }
     try { await call("/api/speech", { text }); } catch (e) { /* still reply */ }
@@ -1388,6 +1438,10 @@ async function cues(session) {
   const phase = session.phases[session.phase];
   if (phase && phase.cue) wanted.push(phase.cue);
   for (const check of (phase && phase.checks) || []) if (partEnd(session) * 60 - session.elapsed <= check.left * 60) wanted.push(check.cue);
+  // Time ran out before the last part of the interview began (the learning round's wrap-up only comes when the parts end
+  // early): its line still closes the round.
+  const last = session.phases[session.phases.length - 1];
+  if (!phase && session.overtime && last && last.cue) wanted.push(last.cue);
   if (session.change) wanted.push("change");
   for (const name of wanted) {
     if ((session.state.cues || []).includes(name) || cues.pending.has(name)) continue;
@@ -1414,7 +1468,8 @@ function renderReport(report) {
   const percent = t.grading.total ? Math.round((t.grading.passed / t.grading.total) * 100) : 0;
   const ringColor = percent >= 80 ? "var(--green)" : percent >= 50 ? "var(--amber)" : "var(--red)";
   const names = { core: "Core", edge: "Edge cases", change: report.help ? "Follow-up" : "Change", performance: "Large inputs" };
-  const chips = Object.entries(t.grading_by_area).map(([area, b]) => `<span class="chip">${names[area] || area} <b>${b.passed}/${b.total}</b></span>`).join("");
+  const areaName = area => names[area] || (/^part\d+$/.test(area) ? `Part ${area.slice(4)}` : area);
+  const chips = Object.entries(t.grading_by_area).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true })).map(([area, b]) => `<span class="chip">${areaName(area)} <b>${b.passed}/${b.total}</b></span>`).join("");
   const list = items => items.length ? `<ul>${items.map(i => `<li>${i}</li>`).join("")}</ul>` : `<p class="none">None.</p>`;
   const missed = report.missed_cases.map(m => { const match = /^\[(\w+)\]\s*(.*)$/.exec(m); return match ? `<span class="area-tag ${match[1]}">${match[1]}</span>${escapeHtml(match[2])}` : escapeHtml(m); });
   const scored = report.scores.filter(s => s.score !== null);
@@ -1441,6 +1496,9 @@ function renderReport(report) {
       : `<li class="none">It didn't need to: no hints, check-ins, or pushes for a faster version.</li>`}</ul></div>` : "";
   const followupWord = report.help ? "follow-up" : "requirement change";
   const resumeRound = !!(latest && latest.interview.id === report.interview && latest.interview.format === "resume") || report.scores.some(s => s.area === "walkthrough");
+  const learningRound = report.notes_by === "learning";
+  const notesBox = `<h3 class="section-title">The interviewer's notes</h3>
+    <div class="notes-box"><div class="md" id="interviewer-notes">${report.interviewer_notes ? markdown(report.interviewer_notes) : `<p class="writing">${learningRound ? "The interviewer is" : "Sam is"} writing up notes…</p>`}</div></div>`;
   const scoreColor = n => (n >= 4 ? "var(--green)" : n >= 3 ? "var(--amber)" : "var(--red)");
   const resumeSummary = resumeRound ? `
     <section class="summary">
@@ -1452,9 +1510,21 @@ function renderReport(report) {
         <div class="chips">${report.scores.map(s => `<span class="chip">${escapeHtml(s.label)} <b>${s.score === null ? "–" : s.score + "/5"}</b></span>`).join("")}</div>
       </div>
     </section>
-    <h3 class="section-title">The interviewer's notes</h3>
-    <div class="notes-box"><div class="md" id="interviewer-notes">${report.interviewer_notes ? markdown(report.interviewer_notes) : '<p class="writing">Sam is writing up notes…</p>'}</div></div>` : null;
-  const summary = resumeSummary || (report.behavioral_only ? `
+    ${notesBox}` : null;
+  // The learning round: how far you got through the parts, then the interviewer's notes.
+  const reachedParts = (report.parts || []).filter(p => p.reached).length, doneParts = (report.parts || []).filter(p => p.done).length;
+  const learningSummary = learningRound ? `
+    <section class="summary">
+      <div class="ring" style="--p:${(report.parts || []).length ? (doneParts / report.parts.length) * 100 : 0};--ring:${doneParts >= 3 ? "var(--green)" : doneParts >= 2 ? "var(--amber)" : "var(--red)"}"><div><b>${doneParts}/${(report.parts || []).length}</b><span>parts done</span></div></div>
+      <div>
+        <p class="eyebrow">Learning round report</p>
+        <h2>${doneParts} of ${(report.parts || []).length} parts done${reachedParts > doneParts ? `, ${reachedParts - doneParts} more started` : ""} · ${report.elapsed_minutes} min</h2>
+        <p>Average rubric score <b>${average}</b> across ${scored.length} observed area${scored.length === 1 ? "" : "s"} · grading tests ${t.grading.passed} of ${t.grading.total}. The interviewer's notes below are the fuller picture.</p>
+        <div class="chips">${chips}<span class="chip">Hints <b>${report.hints_used || 0}</b></span></div>
+      </div>
+    </section>
+    ${notesBox}` : null;
+  const summary = resumeSummary || learningSummary || (report.behavioral_only ? `
     <section class="summary">
       <div class="ring" style="--p:${lpAverage * 20};--ring:${lpColor(Math.round(lpAverage))}"><div><b>${lps.length ? lpAverage.toFixed(1) : "–"}</b><span>avg story score</span></div></div>
       <div>
@@ -1511,7 +1581,7 @@ function renderReport(report) {
   $("report").hidden = false;
   showView();
   $("report").querySelector(".results-body").scrollTop = 0;
-  if (resumeRound && !report.interviewer_notes) writeNotes(report);
+  if ((resumeRound || learningRound) && !report.interviewer_notes) writeNotes(report);
 }
 
 // After the résumé deep dive, the interviewer writes up notes (Claude, on your subscription), saved with the report.
@@ -1628,7 +1698,7 @@ function wirePop() {
     if (answeringNow() && pop.streaming) { toast("Let the interviewer finish first."); return; }
     $("pop-input").value = "";
     active(); progressed();
-    if ((problemNow() || codingRoundNow()) && ((HINT_ASK.test(text) && text.split(/\s+/).length < 15) || (codingRoundNow() && takesOffer(text)))) askForHint();
+    if ((problemNow() || guidedNow()) && ((HINT_ASK.test(text) && text.split(/\s+/).length < 15) || (guidedNow() && takesOffer(text)))) askForHint();
     else if (aiOn() && !answeringNow()) coachChat({ message: text });
     else { $("question").value = text; $("ask-form").requestSubmit(); }
   };
@@ -1673,6 +1743,7 @@ function wire() {
       await saveCode();
       progressed();
       const data = await call("/api/done", {});
+      if (data.result) renderTests(data.result);   // the learning round's Next part runs the tests first
       if (data.event !== undefined) { await afterAssess(data); return; }
       await refresh();
       if (data.entry) say(data.entry.answer);   // the follow-up's own line comes from cues(), as it would on the clock
@@ -1703,7 +1774,7 @@ function wire() {
     if (!question) { sendTurn(); return; }   // nothing typed: send what you said out loud
     $("question").disabled = true;
     active(); progressed();
-    if ((problemNow() || codingRoundNow()) && ((HINT_ASK.test(question) && question.split(/\s+/).length < 15) || (codingRoundNow() && takesOffer(question)))) {
+    if ((problemNow() || guidedNow()) && ((HINT_ASK.test(question) && question.split(/\s+/).length < 15) || (guidedNow() && takesOffer(question)))) {
       $("question").value = "";
       $("question").disabled = false;
       await askForHint();
@@ -1851,7 +1922,7 @@ function wire() {
   ["keydown", "pointerdown"].forEach(type => document.addEventListener(type, active, { passive: true }));
   setInterval(async () => {
     // The coding round's interviewer helps when you're stuck (see stuckCheck), with or without Claude.
-    if (codingRoundNow()) return stuckCheck();
+    if (guidedNow()) return stuckCheck();
     // The coach checks in when you've been quiet for two minutes while coding (so does the Amazon rounds' interviewer).
     if (!(problemNow() || amazonCodingNow()) || latest.session.state.status !== "running" || phaseNow().kind !== "coding") return;
     const coach = latest.session.state.mode === "coach";

@@ -60,6 +60,8 @@ def answer(interview: Interview, question: str, change_revealed: bool, mode: str
     text = entry.get("answer_after_change") if change_revealed and entry.get("answer_after_change") else entry["answer"]
     if coach and entry.get("important"):
         text = "Good question, that's exactly the kind of thing to clarify. " + text
+    if entry.get("docs"):   # the learning round: the docs answer it, so say where
+        text = f"That's in the docs, in section {entry['docs']}: {text}"
     return {"topic": entry["topic"], "answer": text, "matched": True}
 
 
@@ -80,6 +82,8 @@ def interviewer_packet(interview: Interview) -> str:
     """A prompt for a separate Claude conversation that plays the interviewer. It contains the answers."""
     if interview.meta.get("format") == "amazon-coding":
         return _coding_packet(interview)
+    if interview.meta.get("format") == "palantir-learning":
+        return _learning_packet(interview)
     if interview.meta.get("format", "").startswith("amazon"):
         return _amazon_packet(interview)
     qa = "\n".join(f"- {e['topic']}: {e['answer']}" + (f" (After the change: {e['answer_after_change']})" if e.get("answer_after_change") else "") for e in interview.clarifications())
@@ -182,6 +186,48 @@ Start by introducing yourself, then point them to the problem.
 {followup_hints}
 
 === Clarification answer key (interviewer only) ===
+{qa}
+
+=== Interviewer guide (interviewer only) ===
+{interview.guide()}
+
+=== Rubric ===
+{interview.rubric()}
+"""
+
+
+def _learning_packet(interview: Interview) -> str:
+    """The learning round's interviewer, for a separate Claude conversation: the library's docs, the parts, and what
+    to watch for."""
+    qa = "\n".join(f"- {e['topic']}: {e['answer']}" + (f" (in the docs: {e['docs']})" if e.get("docs") else " (not in the docs)") for e in interview.clarifications())
+    phases = "\n".join(f"- {p['start']}-{p['end']} min: {p['name']}" if p["end"] > p["start"] else f"- If time's left after the parts: {p['name']}"
+                       for p in interview.phases())
+    parts = "\n\n".join(f"{part['text'].strip()}\nHints, smallest first: " + " / ".join(part["hints"]) for part in interview.parts())
+    return f"""You are a Palantir engineer on a commercial deployment, running the Learning interview of a Forward Deployed Software Engineer onsite ({interview.meta.get('duration_minutes', 60)} minutes). The candidate works with relay, an internal library they've never seen, from its docs, and extends a customer's tool with it in parts. You're friendly and collaborative: you want to see how fast they learn, not what they already know.
+
+Rules:
+- No AI help for the candidate, and you never write their code.
+- Follow this timeline:
+{phases}
+- Reading time is short, so mostly let them read: answer their questions, and when they explain what they've read, check it with one of the guide's questions. If they're wrong, don't correct them outright: ask them to look at the section again.
+- Answer questions honestly. If the docs answer it, say which section. If the docs don't cover it, answer from the facts below.
+- Give the parts one at a time, word for word, when they're ready for the next one. Before they code each part, ask how they'd do it.
+- Once the parts start, if they're stuck (quiet for a couple of minutes, then still nothing after you check in), give the part's next hint. Don't interrupt their reading.
+- Watch for: reading before coding, saying their mental model aloud, purposeful questions, small tested steps, and honesty. Bluffing is the worst signal.
+- If the parts end with time to spare, ask the follow-up questions in the guide and take their questions. When time's up, stop, then evaluate: score each area 1-5 or "not observed" (reading and understanding, questions, applying the library, pace through the parts, code quality, communication and honesty), cite evidence, and give three concrete improvements.
+
+Start by introducing yourself and the round.
+
+=== Candidate task (they can see this) ===
+{interview.task()}
+
+=== relay's docs (they can see these) ===
+{interview.docs()}
+
+=== The parts (reveal one at a time) ===
+{parts}
+
+=== Facts (interviewer only) ===
 {qa}
 
 === Interviewer guide (interviewer only) ===

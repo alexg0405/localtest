@@ -30,6 +30,10 @@ SPINNING_SECONDS = 180
 OPTIMIZE_GRACE = 240
 FOLLOW_UP_MINUTES = 4   # the least coding time left for the follow-up to be worth giving
 STUCK_ESCALATE = 240    # still stuck this long after a hint, with nothing tried: the next one is bigger
+# Rounds whose interviewer steps in when you seem stuck: the Amazon coding round and the Palantir learning round.
+GUIDED_FORMATS = ("amazon-coding", "palantir-learning")
+PARTS_FILE = "TASKS.md"   # the learning round's parts so far, in the workspace
+PART_MINUTES = 3          # the least time left in the round's coding part for a new part to be worth starting
 
 
 class SessionError(Exception):
@@ -353,10 +357,11 @@ class Sessions:
 
     @staticmethod
     def _last_progress(state: Dict[str, Any]) -> float:
-        """When you last did something: said, asked, or typed anything, or ran your code or the tests (seconds in)."""
+        """When you last did something: said, asked, or typed anything, or ran your code or the tests (seconds in). A new
+        part of the learning round starts the clock again, so a quiet read isn't held against its first part."""
         times = [0.0, (state.get("coding") or {}).get("last_edit") or 0.0]
         times += [item["at"] for item in state.get("spoken", [])] + [q["at"] for q in state.get("questions", []) if q.get("source") != "interviewer"]
-        times += [run["at"] for run in state.get("test_runs", []) + state.get("code_runs", [])]
+        times += [run["at"] for run in state.get("test_runs", []) + state.get("code_runs", [])] + [part["at"] for part in state.get("parts", [])]
         return max(times)
 
     @staticmethod
@@ -376,15 +381,16 @@ class Sessions:
         return given
 
     def stuck_help(self, interview: Interview) -> Optional[str]:
-        """Whether the coding round's interviewer should step in now, and how:
+        """Whether the interviewer should step in now, and how (the coding round, and the learning round):
         - "debug": the last three test runs failed the same way over three minutes or more, with no help since.
         - "checkin": two and a half minutes without progress, and no help since then.
         - "hint": still nothing 75 seconds after checking in, once you've started coding (or reading time is over),
           while hints are left.
-        None otherwise: you're making progress, or it just stepped in."""
+        None otherwise: you're making progress, it just stepped in, or you're reading the learning round's docs (five
+        minutes is too short to interrupt)."""
         with LOCK:
             state = self.load(interview.id)
-            if not state or state["status"] != "running" or interview.meta.get("format") != "amazon-coding":
+            if not state or state["status"] != "running" or interview.meta.get("format") not in GUIDED_FORMATS:
                 return None
             now = self.elapsed(state)
             phases = interview.phases()
@@ -416,7 +422,8 @@ class Sessions:
         """The scripted interviewer checking in on a quiet candidate (said as often as it's needed)."""
         with LOCK:
             state = self._require(interview.id)
-            entry = self._interviewer_message(state, interviewer.cues_for(interview).get("ac_checkin", "Where are you at? Talk me through what you're thinking."), "checkin")
+            lines = interviewer.cues_for(interview)
+            entry = self._interviewer_message(state, lines.get("ac_checkin") or lines.get("pl_checkin") or "Where are you at? Talk me through what you're thinking.", "checkin")
             self.save(state)
             return entry
 
@@ -437,6 +444,68 @@ class Sessions:
             self.reveal_change(interview, state, "solved")
             return True
 
+    # The learning round's task comes in parts: the first when the coding part of the round starts, each next one as
+    # soon as your tests pass (or when you move on without finishing), and the wrap-up after the last.
+
+    def reveal_part(self, interview: Interview, state: Dict[str, Any], index: int, reason: str) -> None:
+        """Shows part `index`: its task joins TASKS.md in the workspace, and its example test joins your tests."""
+        parts = interview.parts()
+        revealed = state.setdefault("parts", [])
+        if index != len(revealed) or index >= len(parts):
+            return
+        revealed.append({"at": round(self.elapsed(state), 1), "reason": reason, "done_at": None, "skipped": False})
+        workspace = workspace_path(interview, self.home)
+        if workspace.exists():
+            source = parts[index]["tests_path"]
+            target = workspace / "tests" / source.name
+            if source.is_file() and not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+            (workspace / PARTS_FILE).write_text("\n\n".join(part["text"].strip() for part in parts[:index + 1]) + "\n", encoding="utf-8")
+        self.save(state)
+
+    def advance_part(self, interview: Interview, passed: bool, done: bool = False, scripted: bool = False) -> Dict[str, Any]:
+        """What the learning round's interviewer does after your tests run (passed) or when you ask for the next part
+        (done). {"event", "entry", "part"}:
+        - "part": this part is done (or you moved on), so the next one is revealed, and the entry is its line.
+        - "verify": you asked to move on, but the tests fail, so it asks you to run them first (once per part; the
+          entry is the scripted line, or None for Claude to word it).
+        - "wrap": that was the last part, or there's too little time left for another: on to the wrap-up.
+        - None: nothing to do (the tests fail and you didn't ask to move on)."""
+        with LOCK:
+            state = self._require(interview.id)
+            revealed, parts = state.get("parts") or [], interview.parts()
+            over = self._phase(interview, state, self.elapsed(state) / 60) >= len(interview.phases())   # time's up: nothing moves on
+            if not revealed or state["status"] != "running" or over:
+                return {"event": None, "entry": None, "part": len(revealed)}
+            current, at = revealed[-1], round(self.elapsed(state), 1)
+            verified = state.setdefault("verify", {})
+            key = f"part{len(revealed)}"
+            if (not passed and not done) or current["done_at"] is not None:   # nothing new: say, running the tests again after the last part
+                return {"event": None, "entry": None, "part": len(revealed)}
+            if not passed and key not in verified:
+                verified[key] = at
+                self.save(state)
+                event = "verify"
+            else:
+                current["done_at"], current["skipped"] = at, not passed
+                coding = next((i for i, p in enumerate(interview.phases()) if p.get("kind") == "coding"), None)
+                left = self.bounds(interview, state)[coding][1] - self.elapsed(state) / 60 if coding is not None else 0
+                if len(revealed) < len(parts) and left >= PART_MINUTES:
+                    self.reveal_part(interview, state, len(revealed), "skipped" if not passed else "solved")
+                    event = "part"
+                else:
+                    self.save(state)
+                    event = "wrap"
+        if event == "part":
+            return {"event": "part", "entry": self.cue(interview, parts[len(revealed) - 1]["cue"]), "part": len(revealed)}
+        if event == "verify":
+            return {"event": "verify", "entry": self.cue(interview, "pl_verify") if scripted else None, "part": len(revealed)}
+        wrap = next((p for p in interview.phases() if p.get("kind") == "wrap"), None)
+        early = "pl_wrap_early" if "pl_wrap_early" in interviewer.cues_for(interview) else None
+        entry = self.move_on(interview, wrap["cue"], say=early) if wrap and wrap.get("cue") else None
+        return {"event": "wrap", "entry": entry, "part": len(revealed)}
+
     def status(self, interview: Interview) -> Dict[str, Any]:
         """The session as the dashboard sees it. Reveals the change once 30 minutes have run."""
         with LOCK:
@@ -451,8 +520,14 @@ class Sessions:
             minutes = elapsed / 60
             phases = interview.phases()
             phase = self._phase(interview, state, minutes)
+            if (interview.parts() and state["status"] == "running" and not state.get("parts") and phase < len(phases)
+                    and phases[phase].get("kind") == "coding"):
+                self.reveal_part(interview, state, 0, "scheduled")   # the learning round's first part opens its coding part
             revealed = state.get("change_revealed_at") is not None
+            parts = interview.parts()
             return {
+                "parts": [{"title": parts[i]["title"], "task": parts[i]["text"], "at": part["at"], "done": part["done_at"] is not None,
+                           "skipped": part["skipped"]} for i, part in enumerate(state.get("parts", [])) if i < len(parts)],
                 "started": True,
                 "state": state,
                 "elapsed": elapsed,
@@ -686,9 +761,14 @@ class Sessions:
 
     @staticmethod
     def _ladder(interview: Interview, state: Dict[str, Any]) -> Tuple[str, List[str]]:
-        """Which hints apply now: the problem's, or in the coding round, the follow-up's own once it's revealed."""
+        """Which hints apply now: the problem's; in the coding round, the follow-up's own once it's revealed; in the
+        learning round, the current part's (none while you read)."""
         if interview.meta.get("format") == "amazon-coding" and state.get("change_revealed_at") is not None and interview.followup_hints():
             return "followup", interview.followup_hints()
+        parts = interview.parts()
+        if parts:
+            current = len(state.get("parts") or [])
+            return (f"part{current}", parts[current - 1]["hints"]) if 0 < current <= len(parts) else ("part0", [])
         return "main", interview.hints()
 
     def take_hint(self, interview: Interview, reason: str = "asked") -> Optional[Dict[str, Any]]:

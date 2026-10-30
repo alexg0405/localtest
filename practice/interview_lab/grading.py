@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import interviewer, resume
 from .catalog import Interview, leadership_bank, test_python
-from .session import CHANGE_FILE, Sessions
+from .session import CHANGE_FILE, PARTS_FILE, Sessions
 from .testing import run_pytest, summary
 from .workspace import build_starter, diff_against_starter, iter_files, workspace_path
 
@@ -75,7 +75,18 @@ RESUME_AREAS = [
     ("leadership", "Leadership Principles"),
     ("communication", "Communication and questions"),
 ]
-LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS), **dict(PROBLEM_AREAS), **dict(RESUME_AREAS)}
+# The Palantir learning round: how you learned an unfamiliar library and built with it, more than how much you built.
+LEARNING_AREAS = [
+    ("understanding", "Reading and understanding"),
+    ("questions", "Questions"),
+    ("applying", "Applying the library"),
+    ("pace", "Pace through the parts"),
+    ("code_quality", "Code quality"),
+    ("communication", "Communication and honesty"),
+]
+LABELS = {**dict(AREAS), **dict(AMAZON_AREAS), **dict(BEHAVIORAL_AREAS), **dict(PROBLEM_AREAS), **dict(RESUME_AREAS), **dict(LEARNING_AREAS)}
+# Saying you aren't sure, or going to check, out loud: what the learning round wants instead of a confident guess.
+HONEST = re.compile(r"\b(i'?m not sure|not sure|i don'?t know|let me check|let me look|let me reread|i think|i guess|i might be wrong|if i understand|correct me)\b")
 CONVERSATION_FORMATS = ("amazon-behavioral", "resume")  # nothing to run or diff: graded from what was said
 # A complexity, written ("O(n)") or as speech recognition spells it ("O of n", "n squared").
 COMPLEXITY = re.compile(r"\bo\(|\bo of\b|big[- ]o|\blinear\b|\blog(arithmic)?\b|n log|quadratic|n squared|constant (time|space)")
@@ -90,7 +101,7 @@ def areas_for(interview: Interview):
     if resume_deep_dive(interview):
         return [AMAZON_AREAS[0], ("depth", "Technical depth"), *AMAZON_AREAS[1:]]
     return {"amazon-final": AMAZON_AREAS, "amazon-coding": CODING_ROUND_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS,
-            "resume": RESUME_AREAS}.get(interview.meta.get("format"), AREAS)
+            "resume": RESUME_AREAS, "palantir-learning": LEARNING_AREAS}.get(interview.meta.get("format"), AREAS)
 
 
 def _behavioral_scores(interview, state, notes) -> Dict[str, Any]:
@@ -120,7 +131,7 @@ def _behavioral_scores(interview, state, notes) -> Dict[str, Any]:
     scores["leadership"] = _score_leadership(interview, state)[:2]
     return scores
 NOT_SOURCE_PREFIXES = ("tests/", "patch_review/", ".claude/", ".vscode/", "examples/out/")
-NOT_SOURCE_FILES = {CHANGE_FILE, "CLAUDE.md", "README.md", ".gitignore", "pytest.ini"}
+NOT_SOURCE_FILES = {CHANGE_FILE, PARTS_FILE, "CLAUDE.md", "README.md", ".gitignore", "pytest.ini"}
 DISCLAIMER = (
     "Automatic scores are heuristics computed from test results, your diff, and the text you recorded. "
     "Each score lists the evidence it used; 'not observed' means there was no evidence, not a low score. "
@@ -215,6 +226,8 @@ def _run_all(interview: Interview, home: Path) -> Dict[str, Any]:
         starter_names = _starter_test_names(pristine / "tests")
         if interview.followup_tests and interview.followup_tests.is_dir():   # the follow-up's example, added when it was revealed
             starter_names |= _starter_test_names(interview.followup_tests)
+        for folder in {part["tests_path"].parent for part in interview.parts()}:   # the learning round's examples, one per part
+            starter_names |= _starter_test_names(folder)
     return {"hidden": hidden, "own": own, "own_on_starter": own_on_starter, "starter_names": starter_names}
 
 
@@ -786,9 +799,117 @@ def _score_amazon_communication(interview, state, notes):
     return _clamp(1 + len(present)), evidence, missing
 
 
+LEARNING_PACE = (1, 3, 4, 5, 5)   # the pace score by parts finished in the learning round's 25 minutes of building
+
+
+def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[str, str], tests: Dict[str, Any], diff: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """The learning round's scores, each from evidence: what you said while you read, the questions you asked, the
+    grading tests for the parts you reached, how far you got, and how you talked. Also the context for improvements."""
+    parts = state.get("parts") or []
+    reading_end = parts[0]["at"] if parts else None
+    first_edit = (state.get("coding") or {}).get("first_edit")
+    spoken = state.get("spoken", [])
+    asked = [q for q in state.get("questions", []) if q.get("source") != "interviewer" and q.get("question")]
+    # Five minutes is too short to explain all of relay while you read, so what you explain as you use it counts too.
+    said = " ".join([s["text"] for s in spoken] + [q["question"] for q in asked])
+    concepts = interview.meta.get("concepts", {})
+    lowered = (said + " " + notes["plan"]).lower()
+    mentions = lambda word: re.search(rf"(?<!\w){re.escape(word)}", lowered) is not None   # from the start of a word: "because" isn't "cause"
+    covered = [name for name, words in concepts.items() if any(mentions(word) for word in words)]
+    missed_concepts = [name for name in concepts if name not in covered]
+    scores: Dict[str, Any] = {}
+
+    if len(said.split()) < 15 and not covered:
+        scores["understanding"] = (None, ["Nothing was said or written about relay, so how you understood it wasn't observed."])
+    else:
+        points = 1 + 4 * len(covered) / max(1, len(concepts))
+        evidence = [f"Out loud or in your notes, you covered {len(covered)} of relay's {len(concepts)} main ideas"
+                    + (": " + "; ".join(covered) + "." if covered else ".")]
+        if missed_concepts:
+            evidence.append("Never mentioned: " + "; ".join(missed_concepts) + ".")
+        if first_edit is not None and first_edit < 120 and (reading_end is None or first_edit < reading_end):
+            points -= 1
+            evidence.append(f"You started changing code {first_edit:.0f} seconds in, before you'd read the docs.")
+        scores["understanding"] = (_clamp(points), evidence)
+
+    in_docs = {e["topic"]: e["docs"] for e in interview.clarifications() if e.get("docs")}
+    open_topics = {e["topic"] for e in interview.clarifications() if not e.get("docs")}
+    from_docs = [q for q in asked if q.get("topic") in in_docs]
+    open_ones = [q for q in asked if q.get("topic") in open_topics]
+    coverage = interviewer.topics_covered(interview, asked, notes["assumptions"] + " " + notes["plan"])
+    if not asked:
+        scores["questions"] = (1, ["You didn't ask the interviewer anything. In a learning round, a few targeted questions are part of the signal."])
+    else:
+        points = 2 + min(2, len(open_ones)) + (1 if coverage["covered"] else 0) - (1 if len(from_docs) > 3 else 0)
+        evidence = [f"You asked {len(asked)} question(s): {len(from_docs)} the docs answer, {len(open_ones)} they don't."]
+        if from_docs:
+            evidence.append("The docs answered: " + "; ".join(sorted({f'{q["topic"]} (section {in_docs[q["topic"]]})' for q in from_docs})) + ".")
+        if coverage["covered"]:
+            evidence.append("You asked about: " + "; ".join(coverage["covered"]) + ".")
+        if coverage["missed"]:
+            evidence.append("You didn't ask about: " + "; ".join(coverage["missed"]) + ".")
+        scores["questions"] = (_clamp(points), evidence)
+
+    reached = {f"part{i + 1}" for i in range(len(parts))}
+    graded = {area: bucket for area, bucket in tests["by_area"].items() if area in reached}
+    if not graded:
+        scores["applying"] = (None, ["You didn't get to the first part, so how you applied relay wasn't observed."])
+    else:
+        passed, total = sum(b["passed"] for b in graded.values()), sum(b["total"] for b in graded.values())
+        scores["applying"] = (_band(passed / total), [f"Grading tests for the parts you reached: {passed} of {total} passed."]
+                              + [f"Part {area[4:]}: {b['passed']}/{b['total']}." for area, b in sorted(graded.items())])
+
+    done = [p for p in parts if p["done_at"] is not None and not p["skipped"]]
+    skipped = [p for p in parts if p["skipped"]]
+    if not parts:
+        scores["pace"] = (None, ["You didn't reach the first part."])
+    else:
+        runs = state.get("test_runs", [])
+        evidence = [f"You finished {len(done)} of {len(interview.parts())} parts" + (f" and moved on from {len(skipped)} without passing" if skipped else "") + "."]
+        for i, part in enumerate(parts):
+            stop = part["done_at"]
+            ran = sum(1 for run in runs if part["at"] <= run["at"] and (stop is None or run["at"] <= stop))
+            evidence.append(f"Part {i + 1}: " + (f"{(stop - part['at']) / 60:.0f} minutes, " if stop is not None else "not finished, ")
+                            + f"{ran} test run{'' if ran == 1 else 's'}.")
+        building = next((p["end"] - p["start"] for p in interview.phases() if p.get("kind") == "coding"), None)
+        evidence.append(f"In {building} minutes of building, two parts is a solid pace and three is strong.")
+        scores["pace"] = (LEARNING_PACE[min(len(done), len(LEARNING_PACE) - 1)], evidence)
+
+    talked = " ".join(s["text"] for s in spoken)
+    honest = len(HONEST.findall(talked.lower()))
+    early = _cue_at(state, "pl_wrap_early")   # the parts ended with time to spare, so the interviewer took your questions
+    theirs = [q for q in asked if early is not None and q["at"] >= early]
+    if not talked.strip() and not asked:
+        scores["communication"] = (None, ["Nothing was said aloud or typed to the interviewer."])
+    else:
+        checks = [("talked through your thinking (150+ words)", len(talked.split()) >= 150),
+                  ("said when you weren't sure, or that you'd check", honest > 0),
+                  ("explained how relay works as you used it", bool(covered))]
+        if early is not None:
+            checks.append(("asked the interviewer questions at the end", bool(theirs)))
+        present, missing = [label for label, ok in checks if ok], [label for label, ok in checks if not ok]
+        evidence = [f"You said {len(talked.split())} words in all."] + (["You " + "; ".join(present) + "."] if present else []) + (["Missing: " + "; ".join(missing) + "."] if missing else [])
+        scores["communication"] = (_clamp(1 + 4 * len(present) / len(checks)), evidence)
+    return scores, {"concepts_missed": missed_concepts, "questions_missing": coverage["missed"], "from_docs": len(from_docs), "parts_done": len(done)}
+
+
+LEARNING_IMPROVEMENTS = {
+    "understanding": "Read a section, then say in one sentence what it means before you use it.{concepts}",
+    "questions": "Ask fewer, sharper questions: check the docs first, then ask about what they don't cover, such as {topics}.",
+    "applying": "Before you use a relay call, say what it returns, what it raises, and when it runs, and check that against its section of the docs.",
+    "pace": "Get each part working in the smallest step that passes its example test, run the tests, and only then improve it.",
+    "communication": "Narrate your mental model as you go, and say \"I'm not sure, let me check\" instead of guessing: the interviewer can only correct what they hear.",
+}
+
+
 def _improvement(area: str, context: Dict[str, Any]) -> str:
     if context["interview"].meta.get("format") == "resume":
         return RESUME_IMPROVEMENTS.get(area, "")
+    if context["interview"].meta.get("format") == "palantir-learning" and area in LEARNING_IMPROVEMENTS:
+        learned = context.get("learning", {})
+        missed = learned.get("concepts_missed", [])[:3]
+        return LEARNING_IMPROVEMENTS[area].format(concepts=f" The ideas you didn't explain back: {'; '.join(missed)}." if missed else "",
+                                                  topics="; ".join(learned.get("questions_missing", [])[:2]) or "what to do with errors the task doesn't mention")
     if area == "problem_understanding":
         missed = context["coverage"]["missed"][:3]
         return ("Spend the first five minutes on questions. You did not clarify: " + "; ".join(missed) + ". Ask about each, or write your assumption down.") if missed else "Write your assumptions down explicitly, one line each, before you start coding."
@@ -842,6 +963,9 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
 
 
 NOT_OBSERVED_HELP = {
+    "understanding": "Explain relay out loud (mic) or in the chat as you read and use it, so your understanding can be assessed.",
+    "applying": "Press Ready for the task once you've read the docs, so you get to the parts.",
+    "pace": "Press Ready for the task once you've read the docs, so you get to the parts.",
     "walkthrough": "Answer the interviewer's first question out loud (mic) or in the chat, so your background walkthrough can be assessed.",
     "depth": "Answer the résumé deep-dive questions out loud (mic) or in the chat, so the interviewer can ask how your projects work.",
     "leadership": "Answer the interviewer's Leadership Principles questions out loud (mic) or in the chat, so they can be assessed.",
@@ -941,6 +1065,10 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
     elif behavioral_only:
         scores.update(_behavioral_scores(interview, state, notes))
         context["leadership_missing"] = _score_leadership(interview, state)[2]
+    learning = interview.meta.get("format") == "palantir-learning"
+    if learning:
+        learned, context["learning"] = _learning_scores(interview, state, notes, tests, diff)
+        scores.update(learned)
     areas = areas_for(interview)
     observed = sorted((area for area, _ in areas if scores[area][0] is not None), key=lambda a: (scores[a][0], [x for x, _ in areas].index(a)))
     improvements = [_improvement(area, context) for area in observed if scores[area][0] < 5][:3]
@@ -992,13 +1120,17 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         "follow_up": follow_up,
         "patch_review": {"found": patch["found"], "needed": patch["needed"], "answer": patch["expected"]} if patch["expected"] else None,
         "format_note": ("A conversation about your résumé, scored from what you said. The scores are heuristics; the interviewer's written notes below are the fuller picture." if resume_round
+                        else "A learning round, scored from what you said, asked, and built. The scores are heuristics; the interviewer's written notes below are the fuller picture." if learning
                         else "No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only or coding_round
                         else (f"Coach mode: you used {len(state.get('hints', []))} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}. Try it again in real mode once it feels easy." if problem and state.get("mode") == "coach"
                               else (f"Real mode: {len(state.get('hints', []))} hint(s) used." if problem else None))),
         "mode": state.get("mode", "real") if problem else None,
-        "hints_used": len(state.get("hints", [])) if problem or coding_round else None,
-        "help": interviewer_help(interview, state) if coding_round else None,
-        "approach": interview.approach() if problem else _guide_approach(interview) if coding_round else None,
+        "hints_used": len(state.get("hints", [])) if problem or coding_round or learning else None,
+        "help": interviewer_help(interview, state) if coding_round or learning else None,
+        "approach": interview.approach() if problem else _guide_approach(interview) if coding_round else interview.guide_section("The parts") if learning else None,
+        "parts": [{"title": title, "done": i < len(state.get("parts", [])) and state["parts"][i]["done_at"] is not None and not state["parts"][i]["skipped"],
+                   "reached": i < len(state.get("parts", []))} for i, title in enumerate(part["title"] for part in interview.parts())] if learning else None,
+        "notes_by": "learning" if learning else "resume" if resume_round else None,
         "lp_breakdown": ([{"lp": story["lp"], "question": story["question"], "score": story["score"], "missing": story["missing"]} for story in resume_principles(interview, state)]
                          if resume_round else lp_breakdown(interview, state) if amazon or behavioral_only else None),
         "behavioral_only": behavioral_only,
@@ -1070,12 +1202,13 @@ def optimization_evidence(interview: Interview, state: Dict[str, Any]) -> Tuple[
 
 
 def interviewer_help(interview: Interview, state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Each time the coding round's interviewer stepped in, oldest first: hints, check-ins when you'd gone quiet, nudges
-    when the same tests kept failing, and asks for a faster or a working version."""
+    """Each time the interviewer stepped in (the coding round, and the learning round), oldest first: hints, check-ins
+    when you'd gone quiet, nudges when the same tests kept failing, and asks for a faster or a working version."""
     minute = lambda seconds: round(seconds / 60, 1)
-    totals = {"main": len(interview.hints()), "followup": len(interview.followup_hints())}
+    totals = {"main": len(interview.hints()), "followup": len(interview.followup_hints()), **{f"part{i + 1}": len(part["hints"]) for i, part in enumerate(interview.parts())}}
+    where = lambda stage: " for the follow-up" if stage == "followup" else f" on part {stage[4:]}" if stage.startswith("part") else ""
     items = [{"at": minute(h["at"]), "kind": "hint", "text": f"Hint {h['level']} of {totals.get(h.get('stage', 'main'), h['level'])}"
-              + (" for the follow-up" if h.get("stage") == "followup" else "") + (", when you seemed stuck" if h.get("reason") == "stuck" else ", when you asked")}
+              + where(h.get("stage", "main")) + (", when you seemed stuck" if h.get("reason") == "stuck" else ", when you asked")}
              for h in state.get("hints", [])]
     for at, kind in Sessions.help_given(state):
         if kind == "checkin":
@@ -1085,7 +1218,8 @@ def interviewer_help(interview: Interview, state: Dict[str, Any]) -> List[Dict[s
     for stage, at in (state.get("optimize") or {}).items():
         items.append({"at": minute(at), "kind": "optimize", "text": "Asked for a faster version" + (" of the follow-up" if stage == "followup" else "")})
     for stage, at in (state.get("verify") or {}).items():
-        items.append({"at": minute(at), "kind": "verify", "text": "Asked you to test it, when you said you were done" + (" with the follow-up" if stage == "followup" else "") + " but it didn't work yet"})
+        items.append({"at": minute(at), "kind": "verify", "text": f"Asked you to run the tests before moving on from part {stage[4:]}, which didn't pass yet" if stage.startswith("part")
+                      else "Asked you to test it, when you said you were done" + (" with the follow-up" if stage == "followup" else "") + " but it didn't work yet"})
     return sorted(items, key=lambda item: item["at"])
 
 
@@ -1158,12 +1292,55 @@ def _coding_round_time(interview: Interview, state: Dict[str, Any], elapsed: flo
     return {"duration": interview.meta.get("duration_minutes"), "parts": parts, "stories": [], "story_share": None, "coding_minutes": coding_minutes, "notes": notes}
 
 
+def _learning_time(interview: Interview, state: Dict[str, Any], elapsed: float) -> Dict[str, Any]:
+    """The learning round against the clock: reading, each part, and the wrap-up when the parts ended with time to
+    spare, with notes on your pacing and on how much help you needed."""
+    phases = interview.phases()
+    span = lambda kind: next(((p["end"] - p["start"]) for p in phases if p.get("kind") == kind), None)
+    parts = state.get("parts") or []
+    stopped = _cue_at(state, "pl_wrap", "pl_wrap_early")   # time ran out, or the parts ended early
+    early = _cue_at(state, "pl_wrap_early")
+    minutes = lambda seconds: round(seconds / 60, 1)
+    rows: List[Dict[str, Any]] = []
+
+    def part(label: str, start: Optional[float], stop: Optional[float], planned: Optional[float]) -> None:
+        if start is not None:
+            rows.append({"part": label, "start": minutes(start), "minutes": minutes(max(0.0, (elapsed if stop is None else stop) - start)), "planned": planned})
+
+    part("Reading the docs", 0.0, parts[0]["at"] if parts else stopped, span("learn"))
+    for i, revealed in enumerate(parts):
+        following = parts[i + 1]["at"] if i + 1 < len(parts) else None
+        part(f"Part {i + 1}" + (" (moved on)" if revealed["skipped"] else ""), revealed["at"], revealed["done_at"] or following or stopped, None)
+    part("Wrap-up and your questions", early, None, None)   # no time is set aside for it
+
+    notes: List[str] = []
+    total = len(interview.parts())
+    if not parts:
+        notes.append("The round never got to the first part. Press Ready for the task once you've read the docs.")
+    else:
+        if parts[0]["at"] < 0.4 * (span("learn") or 0) * 60:
+            read = parts[0]["at"] / 60
+            took = "less than a minute" if read < 1 else f"{read:.0f} minute{'s' if round(read) != 1 else ''}"
+            notes.append(f"You asked for the first part after {took} of reading. Read a little longer: most mistakes in this round come from guessing at the library.")
+        done = [p for p in parts if p["done_at"] is not None and not p["skipped"]]
+        notes.append(f"You finished {len(done)} of {total} parts." + (" Not finishing is normal; how you got there counts more." if len(done) < total else ""))
+    help_items = interviewer_help(interview, state)
+    hints, checkins = [h for h in help_items if h["kind"] == "hint"], [h for h in help_items if h["kind"] in ("checkin", "debug")]
+    if hints or checkins:
+        notes.append(f"The interviewer stepped in {len(hints) + len(checkins)} time{'s' if len(hints) + len(checkins) != 1 else ''}: "
+                     f"{len(checkins)} check-in{'s' if len(checkins) != 1 else ''} and {len(hints)} hint{'s' if len(hints) != 1 else ''}.")
+    return {"duration": interview.meta.get("duration_minutes"), "parts": rows, "stories": [], "story_share": None,
+            "coding_minutes": minutes((stopped or elapsed) - parts[0]["at"]) if parts else None, "notes": notes}
+
+
 def time_breakdown(interview: Interview, state: Dict[str, Any], elapsed: float) -> Optional[Dict[str, Any]]:
     """The Amazon rounds against the clock: how long each part took next to its planned length, how long each
     Leadership Principles story ran, how long you coded, and what to change about your pacing."""
     fmt = interview.meta.get("format")
     if fmt == "amazon-coding":
         return _coding_round_time(interview, state, elapsed)
+    if fmt == "palantir-learning":
+        return _learning_time(interview, state, elapsed)
     if fmt not in ("amazon-final", "amazon-behavioral"):
         return None
     phases = interview.phases()
@@ -1295,10 +1472,14 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
     setting = ("This is a simulated Amazon SDE intern final-round interview with no AI assistant (Amazon tells candidates not to use GenAI during interviews). It has Leadership Principles questions with follow-ups, then a coding problem in an editor that can run tests."
                if amazon else ("This is a simulated Amazon SDE intern coding round with no AI assistant: one problem and a follow-up, in an editor that can run tests. The interviewer asked for the complexity, "
                                f"pushed for a faster version when a working one was too slow, and helped when the candidate was stuck ({helped}). Weigh how much help they needed." if interview.meta.get("format") == "amazon-coding"
+                               else ("This is a simulated Palantir FDSE Learning interview with no AI assistant: the candidate learned relay, an internal library, from its docs (in the "
+                                     f"interviewer guide below), and extended a customer's sync with it in parts. The interviewer stepped in: {helped}. Judge how they learned, not only what they built.")
+                               if interview.meta.get("format") == "palantir-learning"
                                else f"This is a single-problem practice round with no AI assistant, in {state.get('mode', 'real')} mode. The candidate used {len(hints)} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}." if problem
                                else "The candidate used an AI coding assistant (Claude Code), which is allowed and expected."))
     ai_rule = ("- Judge Leadership Principles answers on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon
                else "- Judge problem solving on whether the candidate found the faster approach alone, after the interviewer's push, or only with hints, and whether they explained its complexity." if interview.meta.get("format") == "amazon-coding"
+               else "- Judge whether they read before coding, explained relay back correctly, asked purposeful questions, tested in small steps, and said when they weren't sure. Bluffing counts against them." if interview.meta.get("format") == "palantir-learning"
                else "- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant.")
     behavioral = "\n".join(f"- Q: {a['question']}" + (f" [{a['lp']}]" if a.get("lp") else "") + "".join(f"\n  Prompt: {p}" for p in a.get("prompts", [])[1:]) + "\n  Answer: " + " ".join(part["text"] for part in a.get("parts", [])) for a in state.get("behavioral", {}).get("answers", [])) or "(none)"
     return f"""You are grading a {interview.meta.get('duration_minutes', 60)}-minute practice software engineering interview ("{interview.title}"). {setting}

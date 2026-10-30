@@ -14,7 +14,8 @@ INTERVIEWS_DIR = LAB_ROOT / "interviews"
 PROBLEMS_DIR = LAB_ROOT / "problems"  # single-problem practice rounds
 CONCEPTS = PROBLEMS_DIR / "_concepts.json"  # what the coach can explain
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-full-loop", "amazon-final-1", "amazon-final-2", "amazon-coding", "amazon-behavioral", "resume-deep-dive"]
+ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-full-loop", "amazon-final-1", "amazon-final-2", "amazon-coding", "amazon-behavioral", "resume-deep-dive",
+         "palantir-learning"]
 LP_BANK = INTERVIEWS_DIR / "_amazon" / "leadership_principles.json"  # interviewer-only: questions, follow-ups, signals
 
 
@@ -179,6 +180,20 @@ class Interview:
         config = self.meta.get("speed_check")
         return {**config, "path": self.interviewer / config["script"]} if config else None
 
+    def parts(self) -> List[Dict[str, Any]]:
+        """The learning round's task, in parts that come one at a time: each with its title, task text, example tests,
+        the interviewer's line that opens it, and its hints."""
+        parts = []
+        for part in self.meta.get("parts", []):
+            parts.append({**part, "text": self._text(part["task"]), "tests_path": self.interviewer / part["tests"], "hints": part.get("hints", [])})
+        return parts
+
+    def docs(self) -> str:
+        """The unfamiliar library's documentation, from the starter (the candidate has it too)."""
+        name = self.meta.get("docs")
+        path = self.starter / name if name else None
+        return path.read_text(encoding="utf-8") if path and path.is_file() else ""
+
     def approach(self) -> str:
         return self._text("approach.md")
 
@@ -192,8 +207,10 @@ class Interview:
         public["ai_allowed"] = self.ai_allowed
         public["run_tests_allowed"] = self.meta.get("run_tests_allowed", True)
         public["phases"] = [{k: p[k] for k in ("start", "end", "name", "kind") if k in p} for p in self.phases()]
-        public["hint_count"] = len(self.hints())
+        public["hint_count"] = len(self.hints()) or sum(len(part.get("hints", [])) for part in self.meta.get("parts", []))
         public["followup_custom_input"] = self.meta.get("followup_custom_input")
+        public["part_count"] = len(self.meta.get("parts", []))
+        public["has_docs"] = bool(self.meta.get("docs"))
         return public
 
 

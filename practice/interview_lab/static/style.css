@@ -130,6 +130,7 @@ a { color: var(--cyan); }
 .domain i { width: 6px; height: 6px; background: currentColor; }
 .domain.commerce { color: var(--amber); } .domain.banking { color: var(--cyan); } .domain.repo { color: var(--violet); }
 .domain.amazon { color: var(--acid); } .domain.resume { color: var(--magenta); }
+.domain.palantir { color: var(--text); }
 .status { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); padding: 4px 7px; }
 .status.running { color: var(--acid); border-color: var(--acid-line); }
 .status.submitted { color: var(--cyan); border-color: var(--cyan-line); }
@@ -529,6 +530,13 @@ details.raw pre { margin-top: 8px; padding: 12px 14px; max-height: 260px; overfl
 .time-notes { margin: 14px 0 0; padding: 14px 0 0 16px; border-top: 1px solid var(--line); color: var(--text-2); font-size: 13px; }
 .time-notes li { margin: 5px 0; }
 .time-notes li::marker { color: var(--acid); }
+
+/* The learning round's parts in the Tasks tab, the current one on top */
+#change-text .part { padding: 0 0 18px; margin: 0 0 18px; border-bottom: 1px solid var(--line); }
+#change-text .part:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
+#change-text .part:not(.current) { opacity: .6; }
+.part-state { margin: 0 0 8px; font: 500 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--cyan); }
+.part.done .part-state { color: var(--acid); }
 
 /* Results: how the coding round's interviewer helped, as a log */
 .box .help-list { list-style: none; padding: 0; }

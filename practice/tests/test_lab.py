@@ -1014,3 +1014,163 @@ def test_the_coding_round_report_says_how_much_help_you_needed():
     assert timeline["coding_minutes"] == 27.0 and any("Making it faster took 10 minutes" in n for n in timeline["notes"])
     assert any("stepped in 3 times: 1 check-in and 2 hints" in n for n in timeline["notes"])
     assert not any("without saying your approach's complexity" in n for n in timeline["notes"])   # you said it before coding
+
+
+def test_relay_does_what_its_docs_say(tmp_path):
+    import subprocess
+    from interview_lab.catalog import test_python
+    from interview_lab.verify import LIBRARY_CHECK
+    workspace = create_workspace(get_interview("palantir-learning"), tmp_path)
+    run = subprocess.run([test_python(tmp_path), "-c", LIBRARY_CHECK], cwd=workspace, capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0 and run.stdout.strip() == "ok", run.stderr[-500:]
+
+
+def test_the_learning_round_is_reading_then_four_parts():
+    learning = get_interview("palantir-learning")
+    phases = learning.phases()
+    assert learning.meta["duration_minutes"] == 30 and phases[-1]["end"] == 30 and all(a["end"] == b["start"] for a, b in zip(phases, phases[1:]))
+    assert [p["kind"] for p in phases] == ["learn", "coding", "wrap"] and [c["left"] for c in phases[1]["checks"]] == [10, 5]
+    assert (phases[0]["end"], phases[1]["end"]) == (5, 30) and phases[2]["start"] == phases[2]["end"]   # 5 to read, 25 to build; a wrap-up only with time left
+    parts, cues = learning.parts(), interviewer.cues_for(learning)
+    assert len(parts) == 4 and parts[0]["cue"] == phases[1]["cue"]
+    assert all(part["text"].startswith("## Part") and part["tests_path"].is_file() and part["cue"] in cues and len(part["hints"]) == 2 for part in parts)
+    assert all(name in cues for name in ("pl_intro", "pl_verify", "pl_checkin", "pl_wrap", "pl_wrap_early"))
+    public = learning.public()
+    assert public["part_count"] == 4 and public["has_docs"] and public["hint_count"] == 8 and not learning.ai_allowed
+    assert "## 3. Keys" in learning.docs() and [a for a, _ in grading.areas_for(learning)] == [a for a, _ in grading.LEARNING_AREAS]
+
+
+def test_the_learning_rounds_parts_come_one_at_a_time(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    learning = get_interview("palantir-learning")
+    sessions.start(learning)
+    workspace = tmp_path / learning.id
+    assert sessions.status(learning)["parts"] == [] and sessions.advance_part(learning, passed=True)["event"] is None
+    now[0] = 3 * 60   # ready early: the first part, its example test, and TASKS.md
+    assert sessions.move_on(learning, "pl_part1")["kind"] == "cue:pl_part1"
+    status = sessions.status(learning)
+    assert [p["title"] for p in status["parts"]] == ["Part 1: pull the hospitals in parallel"] and (workspace / "tests" / "test_part1_parallel.py").exists()
+    assert (workspace / "TASKS.md").read_text().startswith("## Part 1")
+    now[0] = 12 * 60   # its tests pass: part 2
+    moved = sessions.advance_part(learning, passed=True)
+    assert moved["event"] == "part" and moved["entry"]["kind"] == "cue:pl_part2" and (workspace / "tests" / "test_part2_failures.py").exists()
+    assert sessions.advance_part(learning, passed=False)["event"] is None   # failing tests alone don't move anything
+    check = sessions.advance_part(learning, passed=False, done=True, scripted=True)
+    assert check["event"] == "verify" and check["entry"]["kind"] == "cue:pl_verify"
+    skip = sessions.advance_part(learning, passed=False, done=True)
+    parts = sessions.status(learning)["parts"]
+    assert skip["event"] == "part" and len(parts) == 3 and parts[1]["skipped"] and parts[1]["done"]
+    assert "Part 3" in (workspace / "TASKS.md").read_text() and (workspace / "TASKS.md").read_text().index("Part 1") < (workspace / "TASKS.md").read_text().index("Part 3")
+    now[0] = 28 * 60   # too late for part 4: the wrap-up, with the time that's left
+    late = sessions.advance_part(learning, passed=True)
+    assert late["event"] == "wrap" and late["entry"]["kind"] == "cue:pl_wrap_early" and len(sessions.status(learning)["parts"]) == 3
+    assert learning.phases()[sessions.status(learning)["phase"]]["kind"] == "wrap"
+    now[0] = 29 * 60   # running the tests again, or asking for the next part, doesn't start the wrap-up twice
+    assert sessions.advance_part(learning, passed=True)["event"] is None and sessions.advance_part(learning, passed=False, done=True)["event"] is None
+    # Without a Ready, the first part comes when reading time runs out; once time's up, nothing moves on.
+    now[0] = base = 100 * 60
+    sessions.start(learning, reset=True)
+    now[0] = base + 5 * 60 + 1
+    assert len(sessions.status(learning)["parts"]) == 1
+    now[0] = base + 30 * 60 + 1
+    assert sessions.status(learning)["overtime"] and sessions.advance_part(learning, passed=True)["event"] is None
+
+
+def test_learning_round_help_follows_the_part(tmp_path):
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    learning = get_interview("palantir-learning")
+    sessions.start(learning)
+    now[0] = 240
+    assert sessions.stuck_help(learning) is None and sessions.take_hint(learning) is None   # it lets you read: no check-ins, no hints
+    sessions.move_on(learning, "pl_part1")
+    sessions.status(learning)
+    assert sessions.stuck_help(learning) is None   # a quiet read isn't held against the first part
+    now[0] = 240 + 151
+    assert sessions.stuck_help(learning) == "checkin"
+    assert sessions.checkin(learning)["answer"] == interviewer.cues_for(learning)["pl_checkin"]
+    first = sessions.take_hint(learning)
+    assert (first["stage"], first["level"], first["total"], first["text"]) == ("part1", 1, 2, learning.parts()[0]["hints"][0])
+    sessions.advance_part(learning, passed=True)
+    second = sessions.take_hint(learning, "stuck")
+    assert (second["stage"], second["level"], second["text"]) == ("part2", 1, learning.parts()[1]["hints"][0])
+    helped = grading.interviewer_help(learning, sessions.load(learning.id))
+    assert [h["text"] for h in helped if h["kind"] == "hint"] == ["Hint 1 of 2 on part 1, when you asked", "Hint 1 of 2 on part 2, when you seemed stuck"]
+
+
+def test_the_docs_answer_says_where(tmp_path):
+    learning = get_interview("palantir-learning")
+    answer = interviewer.answer(learning, "How many times does Retry(times=2) run the job?", False)
+    assert answer["topic"] == "Retry counts" and answer["answer"].startswith("That's in the docs, in section 5. Retries:")
+    open_one = interviewer.answer(learning, "What should happen on other errors, like a ValueError?", False)
+    assert open_one["topic"] == "Other errors" and "docs" not in open_one["answer"]
+
+
+def test_the_learning_interviewer_checks_your_model_and_points_to_the_docs(tmp_path):
+    from interview_lab import coach_ai
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    learning = get_interview("palantir-learning")
+    sessions.start(learning)
+    workspace = tmp_path / learning.id
+    now[0] = 120
+    reading = coach_ai.build_learning_prompt(learning, sessions.status(learning), workspace, "thinking", "So keys mean the jobs run in parallel?")
+    assert coach_ai.ROLE_PALANTIR_LEARNING in reading and learning.docs()[:200] in reading and "keys mean the jobs run in parallel" in reading
+    assert "Don't give them the first part yet" in reading and "(none yet: they're still reading)" in reading
+    assert "What happens to a job that's still queued" in reading   # its understanding questions
+    sessions.move_on(learning, "pl_part1")
+    sessions.status(learning)
+    now[0] = 15 * 60
+    hint = sessions.take_hint(learning, "stuck")
+    stuck = coach_ai.build_learning_prompt(learning, sessions.status(learning), workspace, "hint", "", hint)
+    assert "seems stuck on part 1" in stuck and learning.parts()[0]["hints"][0] in stuck and "Part 1 of 4" in stuck and "[they're on this part]" in stuck
+    code = coach_ai.build_learning_prompt(learning, sessions.status(learning), workspace, "code", "    outcomes = relay.gather(handles)")
+    assert "Name the call" in code and "relay.gather(handles)" in code
+    now[0] = 24 * 60   # the parts ended early: the wrap-up has the time that's left
+    sessions.move_on(learning, "pl_wrap", say="pl_wrap_early")
+    wrap = coach_ai.build_learning_prompt(learning, sessions.status(learning), workspace, "thinking", "It was surprising that queued jobs get cancelled.")
+    assert "It's the wrap-up" in wrap and learning.followups()[0] in wrap
+    now[0] = 30 * 60 + 20   # time's up: it only answers
+    over = coach_ai.build_learning_prompt(learning, sessions.status(learning), workspace, "thinking", "Can I finish this one thing?")
+    assert "The round's time is up" in over and "Minute 30 of 30" in over
+    debrief = coach_ai.build_learning_debrief_prompt(learning, sessions.load(learning.id), {"scores": [], "tests": {"grading": {"passed": 3, "total": 23}}, "missed_cases": [], "help": []}, "diff")
+    assert "## How you learned relay" in debrief and "Part 1: pull the hospitals in parallel: shown at minute" in debrief
+    assert "30 minutes in all: about 5 to read, then 25 for the parts" in debrief
+
+
+def test_the_learning_report_scores_reading_questions_and_parts():
+    learning = get_interview("palantir-learning")
+    cue = lambda name, at: {"at": at, "source": "interviewer", "kind": f"cue:{name}", "answer": "", "question": ""}
+    state = {"questions": [cue("pl_intro", 0),
+                           {"at": 60, "source": "coach-ai", "question": "Does result() raise the job's own exception?", "answer": "", "topic": "What result() raises"},
+                           {"at": 200, "source": "coach-ai", "question": "What should happen on other errors?", "answer": "", "topic": "Other errors"},
+                           cue("pl_wrap", 30 * 60)],   # time ran out on part 3
+             "spoken": [{"at": 90, "text": "So leaving the with block cancels the queued jobs, and jobs with the same key run one at a time. I'm not sure about retries, let me check."},
+                        {"at": 700, "text": "I'll gather the handles and look at each outcome, because I need to know which hospitals failed."}],
+             "parts": [{"at": 300, "reason": "scheduled", "done_at": 900, "skipped": False}, {"at": 900, "reason": "solved", "done_at": 1200, "skipped": True},
+                       {"at": 1200, "reason": "skipped", "done_at": None, "skipped": False}],
+             "coding": {"first_edit": 400, "edits": 20}, "test_runs": [{"at": 850, "failing": []}, {"at": 1100, "failing": ["x"]}], "hints": []}
+    notes = {"plan": "", "assumptions": "", "explanation": "", "patch_review": "", "transcript": ""}
+    tests = {"by_area": {"part1": {"passed": 4, "total": 4}, "part2": {"passed": 3, "total": 6}, "part3": {"passed": 0, "total": 5}, "part4": {"passed": 0, "total": 3}}}
+    scores, context = grading._learning_scores(learning, state, notes, tests, {})
+    # What you explain while you build counts too, and "because" isn't relay's JobFailed "cause".
+    assert scores["understanding"][0] == 2 and "you covered 2 of relay's 7 main ideas" in scores["understanding"][1][0]
+    assert scores["questions"][0] >= 4 and "1 the docs answer, 1 they don't" in scores["questions"][1][0]
+    assert "Grading tests for the parts you reached: 7 of 15 passed." == scores["applying"][1][0]   # part 4 was never shown
+    assert scores["pace"][0] == 3 and scores["pace"][1][0] == "You finished 1 of 4 parts and moved on from 1 without passing."
+    assert scores["pace"][1][-1] == "In 25 minutes of building, two parts is a solid pace and three is strong."
+    assert "said when you weren't sure" in scores["communication"][1][1] and context["questions_missing"] == ["Changing relay"]
+    assert scores["communication"][0] == 4 and not any("at the end" in line for line in scores["communication"][1])   # no time was left for your questions
+    timeline = grading.time_breakdown(learning, state, 31 * 60)
+    assert [(p["part"], p["minutes"], p["planned"]) for p in timeline["parts"]] == [("Reading the docs", 5.0, 5), ("Part 1", 10.0, None), ("Part 2 (moved on)", 5.0, None),
+                                                                                    ("Part 3", 10.0, None)]
+    assert "You finished 1 of 4 parts. Not finishing is normal; how you got there counts more." in timeline["notes"]
+    # The parts ended early: the time that's left is the wrap-up, with your questions.
+    early = {**state, "questions": state["questions"][:-1] + [cue("pl_wrap_early", 26 * 60), {"at": 27 * 60, "source": "coach-ai", "question": "What does your team build?", "answer": ""}],
+             "parts": state["parts"][:2] + [{**state["parts"][2], "done_at": 26 * 60}]}
+    assert [(p["part"], p["minutes"], p["planned"]) for p in grading.time_breakdown(learning, early, 30 * 60)["parts"]][-2:] == [("Part 3", 6.0, None), ("Wrap-up and your questions", 4.0, None)]
+    assert "asked the interviewer questions at the end" in grading._learning_scores(learning, early, notes, tests, {})[0]["communication"][1][1]
+    # Asking for the first part right away gets a note.
+    rushed = {**state, "parts": [{**state["parts"][0], "at": 50}] + state["parts"][1:]}
+    assert "You asked for the first part after less than a minute of reading." in grading.time_breakdown(learning, rushed, 31 * 60)["notes"][0]

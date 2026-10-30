@@ -22,6 +22,7 @@ key. It runs on macOS, Linux, and Windows.
 | `amazon-coding` | Amazon coding round (45 min, no AI): just coding. "Price-drop alerts": the interviewer asks for your approach and its complexity, pushes you past a brute-force solution, gives a hint when you're stuck, then adds a streaming follow-up. | Complexity, optimizing past brute force, monotonic stacks, follow-ups, thinking aloud |
 | `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
 | `resume-deep-dive` | Résumé deep dive (30 min): Claude plays an Amazon engineer interviewing you for the SDE internship, who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks two Leadership Principles questions in their own section, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups, STAR stories |
+| `palantir-learning` | Palantir FDSE Learning round (30 min, no AI): five minutes to learn relay, a job library you've never seen, from its docs, then 25 to extend a hospital network's nightly supply sync with it in up to four parts: parallel pulls, flaky and offline hospitals, a deadline, and live progress. | Reading docs fast, purposeful questions, threads and cancellation, small tested steps, honesty |
 
 These are original simulations, not reproductions of any company's interviews.
 Each one has:
@@ -460,6 +461,74 @@ communication. It also has:
 - **Time:** your approach, the first version, making it faster, the follow-up,
   and the wrap-up, each against the plan.
 - **How to solve it**, from the interviewer's guide.
+
+## Palantir FDSE learning round
+
+`palantir-learning` simulates the Learning round of a Palantir Forward
+Deployed Software Engineer onsite, for a commercial team. It's 30 minutes:
+about five to read an unfamiliar library's docs, then 25 to extend code with
+it in a few short stages. It tests how fast you get from unfamiliar to
+productive, not what you already know. The library here, relay, is made up,
+so nobody knows it in advance.
+
+| Minutes | What happens |
+|---|---|
+| 0–5 | Read relay's docs (the **Docs** tab) and the customer's sync tool (the editor), and ask anything. Press **Ready for the task**, or say "I'm ready". |
+| 5–30 | Extend the sync in up to four parts. Each part shows up in the **Tasks** tab with an example test, and comes as soon as the last one's tests pass. **Next part** moves on without finishing. At 30 minutes, the interviewer calls time. |
+| If time's left | When the parts end early (every part done, or too little time for another): what surprised you about relay, what you'd change, and your questions. |
+
+**The customer and the library.** A six-hospital network's nightly sync pulls
+every hospital's supply inventory, page by page, and reports items below
+par. It's slow, and the hospitals' systems are old. relay runs jobs on worker
+threads, with a few behaviors you only get right by reading:
+- Leaving the `with` block cancels jobs that are still queued.
+- `result()` raises `JobFailed` and puts the job's exception in `.cause`.
+- Jobs with the same key run one at a time.
+- `gather` returns outcomes in finishing order.
+- `Retry(times=2)` means three tries.
+- A running job only stops when it checks `relay.cancelled()`.
+
+**The parts:**
+1. Pull the hospitals in parallel: at most four requests at once, and one at
+   a time per hospital.
+2. Retry dropped connections, up to 3 tries, and report offline hospitals as
+   missing.
+3. A deadline: late hospitals are reported, and they stop getting requests.
+4. A stretch: live progress from callbacks on worker threads.
+
+Hidden grading tests also check the traps the docs warn about.
+
+**The interviewer** plays an engineer on the deployment, friendly and
+collaborative:
+- While you read, it mostly lets you read. When you explain what you've read,
+  it checks your model with questions like "What happens to a job that's
+  still queued when the block ends?" When you're wrong, it sends you back to
+  the right section rather than correcting you.
+- It answers honestly. When the docs cover the question, it says which
+  section. When they don't, it answers from the facts, such as what to do
+  with errors the task doesn't mention. That's the one real ambiguity worth
+  asking about.
+- Before each part, it asks how you'd do it. While you code, it asks what the
+  relay calls you write return, raise, or when they run.
+- When you're stuck on a part, it checks in, then points you to the docs with
+  the part's hints. It helps the same way as in the coding round, but it
+  doesn't interrupt your reading.
+
+**The report** scores six areas: reading and understanding (what you explain
+about relay, while you read and as you use it), questions, applying the
+library, pace through the parts (two parts in the 25 minutes is solid, three
+is strong), code quality, and communication and honesty. It also has:
+- the interviewer's written notes (Claude, on your subscription), which
+  check what you said about relay against its docs
+- how the interviewer helped
+- the time each part took
+- how to solve each part
+
+It's modeled on candidate reports, not official Palantir material. Sources:
+- [Palantir FDSE interview loop and rounds (LeonStaff)](https://leonstaff.com/blogs/palantir-interview-process-decomp-fdse-guide/)
+- [Palantir FDSE decomposition round and the full loop (Vibe Engines)](https://vibeengines.com/handbook/fde-interview-palantir)
+- [Palantir FDE interview guide (Aced)](https://www.aced.io/guides/palantir-forward-deployed-engineer-interview)
+- [Glassdoor: Palantir Forward Deployed Software Engineer interviews](https://www.glassdoor.com/Interview/Palantir-Technologies-Forward-Deployed-Software-Engineer-Interview-Questions-EI_IE236375.0,21_KO22,56.htm)
 
 ## Session flow (60 minutes)
 

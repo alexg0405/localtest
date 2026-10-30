@@ -27,7 +27,7 @@ STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/cs
 GRADE_LOCK = threading.Lock()
 # Rounds where Claude can speak for the interviewer (or coach), and rounds that use your résumé: the résumé deep dive
 # needs it, and the Leadership Principles questions draw on it.
-CLAUDE_FORMATS = ("problem", "resume", "amazon-behavioral", "amazon-final", "amazon-coding")
+CLAUDE_FORMATS = ("problem", "resume", "amazon-behavioral", "amazon-final", "amazon-coding", "palantir-learning")
 RESUME_FORMATS = ("resume", "amazon-behavioral", "amazon-final")
 
 
@@ -128,12 +128,12 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             conversation = fmt == "resume"
             status = sessions.status(interview)
             # The Amazon final rounds: Claude interviews from the coding problem on (the Leadership Principles part has its
-            # own flow). The coding round is all coding, and its interviewer also gives hints.
+            # own flow). The coding round is all coding, and its interviewer also gives hints, as does the learning round's.
             current_kind = next((p.get("kind") for p in status["phases"][status["phase"]:status["phase"] + 1]), "wrap")
-            coding_round = fmt == "amazon-coding"
+            coding_round = fmt in ("amazon-coding", "palantir-learning")
             amazon_coding = (fmt == "amazon-final" and current_kind in ("coding", "wrap")) or coding_round
             if fmt != "problem" and not conversation and not amazon_coding:
-                raise SessionError("The conversational interviewer is available in the practice problems, the résumé deep dive, and the Amazon rounds' coding part.")
+                raise SessionError("The conversational interviewer is available in the practice problems, the résumé deep dive, the Amazon rounds' coding part, and the learning round.")
             trigger = str(body.get("trigger", "message"))
             trigger = trigger if trigger in coach_ai.TRIGGERS else "message"
             message = str(body.get("message", ""))[:6000]
@@ -155,6 +155,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     opening = resume.LP_SECTION
                 prompt = coach_ai.build_resume_prompt(interview, current, saved["text"] if saved else "(no résumé was added)", status["elapsed"], trigger, message,
                                                       start_section=opening is not None)
+            elif fmt == "palantir-learning":
+                prompt = coach_ai.build_learning_prompt(interview, sessions.status(interview), workspace_path(interview, lab.home), trigger, message, hint)
             else:
                 phase = next((p["name"] for p in status["phases"][status["phase"]:status["phase"] + 1]), "overtime")
                 prompt = coach_ai.build_prompt(interview, sessions.load(interview.id), workspace_path(interview, lab.home), status["elapsed"], phase, trigger, message, hint)
@@ -205,6 +207,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                     entry = sessions.checkin(interview)
                 elif trigger == "debug":
                     entry = sessions.debug_nudge(interview)
+                elif trigger == "verify" and fmt == "palantir-learning":
+                    entry = sessions.cue(interview, "pl_verify")
                 elif trigger in ("optimize", "verify"):
                     stage = sessions.stage(sessions.load(interview.id) or {})
                     entry = sessions.cue(interview, "ac_verify" if trigger == "verify" else "ac_optimize_followup" if stage == "followup" else "ac_optimize")
@@ -278,10 +282,14 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             """Streams the interviewer's written notes on the latest submission (NDJSON {"text"} chunks, then {"done"}), and saves them with it."""
             report, folder = grading.latest_report(interview, lab.home)
             state = lab.sessions.load(interview.id)
-            if not report or not state or interview.meta.get("format") != "resume":
-                raise SessionError("Submit the résumé interview first.")
-            saved = resume.load(lab.home)
-            prompt = coach_ai.build_debrief_prompt(interview, state, saved["text"] if saved else "(no résumé)", report)
+            learning = interview.meta.get("format") == "palantir-learning"
+            if not report or not state or not (learning or interview.meta.get("format") == "resume"):
+                raise SessionError("Submit the résumé interview or the learning round first.")
+            if learning:
+                prompt, system = coach_ai.build_learning_debrief_prompt(interview, state, report, (folder / "diff.patch").read_text(encoding="utf-8")), coach_ai.DEBRIEF_LEARNING_SYSTEM
+            else:
+                saved = resume.load(lab.home)
+                prompt, system = coach_ai.build_debrief_prompt(interview, state, saved["text"] if saved else "(no résumé)", report), coach_ai.DEBRIEF_SYSTEM
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -289,7 +297,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
             send = lambda event: (self.wfile.write((json.dumps(event) + "\n").encode("utf-8")), self.wfile.flush())
             text = ""
             try:
-                for chunk in coach_ai.stream(prompt, timeout=180, system=coach_ai.DEBRIEF_SYSTEM):
+                for chunk in coach_ai.stream(prompt, timeout=180, system=system):
                     text += chunk
                     send({"text": chunk})
             except coach_ai.CoachError as error:
@@ -382,6 +390,8 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 elif action == "/api/done":
                     if interview.meta.get("format") == "amazon-coding":   # the interviewer looks at what you have first
                         return self._json(200, self._assess(interview, done=True))
+                    if interview.meta.get("format") == "palantir-learning":
+                        return self._json(200, self._next_part(interview))
                     return self._json(200, sessions.done_coding(interview))
                 elif action == "/api/stuck":
                     # Without Claude: the scripted interviewer steps in, if you still seem stuck (see Sessions.stuck_help).
@@ -456,6 +466,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 "resume": resume.summary(resume.load(lab.home)) if interview.meta.get("format") in RESUME_FORMATS else None,
                 "interview": interview.public(),
                 "task": interview.task(),
+                "docs": interview.docs() or None,
                 "session": status,
                 "api": lab.api.public(usage),
                 "has_report": report is not None,
@@ -518,7 +529,7 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 lab.sessions.record_code_run(interview, result["ok"])
             return result
 
-        def _run_visible(self, interview) -> Dict[str, Any]:
+        def _run_visible(self, interview, advance: bool = True) -> Dict[str, Any]:
             workspace = workspace_path(interview, lab.home)
             if not read_marker(workspace):
                 raise WorkspaceError("Start the interview first, so the workspace exists.")
@@ -539,11 +550,29 @@ def _handler(lab: Lab, port_holder: Dict[str, int]):
                 # The coding round's interviewer first checks whether it's fast enough, and asks for better if it isn't.
                 if interview.meta.get("format") == "amazon-coding" and solved and state["status"] == "running":
                     assessed = self._assess(interview)
+                # The learning round: a part whose tests pass brings the next part.
+                if interview.meta.get("format") == "palantir-learning" and solved and advance:
+                    assessed = lab.sessions.advance_part(interview, passed=True, scripted=not coach_ai.status()["available"])
                 # With Claude available, the page asks the conversational coach instead of the scripted reaction.
                 if not (interview.meta.get("format") == "problem" and coach_ai.status()["available"]):
                     coach = lab.sessions.coach_on_tests(interview, result)
             return {"coach": coach, "assessed": assessed,
                     "result": {**summary(result), "output": result["output"], "cases": [{"name": c["id"].split("::", 1)[-1] if not c["collection_error"] else c["name"], "outcome": c["outcome"], "message": c["message"]} for c in result["cases"]]}}
+
+        def _next_part(self, interview) -> Dict[str, Any]:
+            """The learning round's Ready / Next part: while you read, it starts the first part; after that, it runs the
+            tests and moves on (see Sessions.advance_part), asking you to check your tests first if they fail."""
+            sessions = lab.sessions
+            status = sessions.status(interview)
+            phases = status["phases"]
+            if status["phase"] < len(phases) and phases[status["phase"]].get("kind") == "learn":
+                coding = next((p for p in phases if p.get("kind") == "coding"), None)
+                entry = sessions.move_on(interview, coding["cue"]) if coding and coding.get("cue") else None
+                sessions.status(interview)   # opens the first part
+                return {"event": "part", "entry": entry, "part": 1}
+            ran = self._run_visible(interview, advance=False)
+            passed = ran["result"]["ok"] and ran["result"]["total"] > 0
+            return {**sessions.advance_part(interview, passed=passed, done=True, scripted=not coach_ai.status()["available"]), "result": ran["result"]}
 
         def _assess(self, interview, done: bool = False) -> Dict[str, Any]:
             """The coding round's interviewer looks at the part you're on: is it right, and is it fast? Then optimize,

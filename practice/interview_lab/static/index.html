@@ -183,11 +183,15 @@
       <section class="pane left-pane">
         <nav class="tabs" role="tablist">
           <button class="tab active" data-tab="problem"><svg><use href="#i-doc"/></svg>Problem</button>
+          <button class="tab" data-tab="docs" id="docs-tab" hidden><svg><use href="#i-doc"/></svg>Docs</button>
           <button class="tab" data-tab="interviewer"><svg><use href="#i-chat"/></svg>Interviewer<span class="count" id="q-count" hidden></span></button>
           <button class="tab" data-tab="change" id="change-tab"><svg id="change-icon"><use href="#i-lock"/></svg>Change<span class="new" id="change-new" hidden>NEW</span></button>
         </nav>
         <div class="tab-body" data-panel="problem">
           <div id="task" class="md problem"></div>
+        </div>
+        <div class="tab-body" data-panel="docs" hidden>
+          <div id="docs" class="md problem docs"></div>
         </div>
         <div class="tab-body chat" data-panel="interviewer" hidden>
           <div class="chat-log" id="questions"></div>
@@ -211,7 +215,7 @@
           <div id="change" hidden>
             <div class="change-banner"><svg><use href="#i-bolt"/></svg>Requirement change from the interviewer</div>
             <div id="change-text" class="md problem"></div>
-            <p class="muted small">Also saved as <code>CHANGE_REQUEST.md</code> in your workspace, so your assistant can read it.</p>
+            <p class="muted small" id="change-note">Also saved as <code>CHANGE_REQUEST.md</code> in your workspace, so your assistant can read it.</p>
           </div>
           <div id="change-locked" class="locked">
             <div class="lock-ring"><svg><use href="#i-lock"/></svg></div>

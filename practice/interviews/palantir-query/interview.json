@@ -1,0 +1,237 @@
+{
+  "id": "palantir-query",
+  "title": "Palantir FDSE learning interview: the airline's query language",
+  "company": "palantir",
+  "format": "palantir-learning",
+  "inspired_by": "Modeled on candidate reports of Palantir's Forward Deployed Software Engineer onsite (2025 and 2026), where the most reported Learning-round task is to use an internal SQL-like language to query a customer's data: you get the language's documentation, a few minutes to read it, and the rest of the round to answer questions with it in short stages, while the interviewer watches how you read, what you ask, and how you build. This practice version runs 45 minutes. An original simulation: Weft and the customer are made up.",
+  "level": "FDSE onsite · Learning round",
+  "summary": "A query language you've never seen, its docs, and a regional airline's operations data to query with it: up to ten minutes to read, then 35 to answer the customer's questions, in up to four parts. It looks like SQL and isn't, so read before you write. Ask good questions, explain what you're using, and build in small tested steps. No AI; write and run your code in the browser editor.",
+  "tags": [
+    "python",
+    "45 min",
+    "no AI",
+    "query language",
+    "4 parts",
+    "runs code"
+  ],
+  "duration_minutes": 45,
+  "change_at_minutes": null,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "docs": "weft/DOCS.md",
+  "library": "Weft",
+  "learning": {
+    "about": "an internal query language",
+    "customer": "a regional airline",
+    "task": "using it to answer the customer's questions about their data",
+    "thing": "Weft clause or function",
+    "choices": "(join or join inner, count(*) or count of a column, != or is missing, where latest runs, a parameter or text pasted into the query)",
+    "debug_tip": "running the query in Custom input and printing its rows, adding one clause at a time",
+    "docs_question": "What happens to rows with no match when I join?",
+    "docs_section": "section 5",
+    "checked": "clause order, ==, missing, count, group by, joins, latest, parameters, sorting"
+  },
+  "note_tabs": {
+    "plan": "notes.md",
+    "assumptions": "assumptions.md"
+  },
+  "source_files": [
+    "fleetops/queries.py"
+  ],
+  "editor_files": [
+    "fleetops/queries.py",
+    "fleetops/sample.py",
+    "fleetops/report.py"
+  ],
+  "approach_keywords": [
+    "is missing",
+    "group by",
+    "compute",
+    "count(*)",
+    "join inner",
+    "latest per",
+    "params",
+    "sort"
+  ],
+  "concepts": {
+    "clauses come in a fixed order, from first and select last": [
+      "clause order",
+      "order of the clauses",
+      "order of clauses",
+      "fixed order",
+      "from first",
+      "starts with from",
+      "select last",
+      "select comes last",
+      "select at the end",
+      "select goes last"
+    ],
+    "comparisons with missing are false, even !=; use is missing": [
+      "is missing",
+      "is not missing",
+      "missing is false",
+      "comparison with missing",
+      "comparisons with missing",
+      "never equal",
+      "excludes missing",
+      "drops the missing",
+      "null"
+    ],
+    "== compares, and strings take double quotes": [
+      "double equals",
+      "==",
+      "double quote",
+      "double-quoted",
+      "single quotes"
+    ],
+    "count(*) counts rows; count(col) and avg skip missing": [
+      "count(*)",
+      "count star",
+      "counts rows",
+      "counts every row",
+      "skips missing",
+      "skip missing",
+      "skips the missing",
+      "ignores missing"
+    ],
+    "after group by, only the keys and computed columns are left": [
+      "group key",
+      "group keys",
+      "computed column",
+      "only the keys",
+      "after grouping",
+      "after group by",
+      "after the group by"
+    ],
+    "join keeps unmatched rows unless it's join inner; clashing columns get the table's prefix": [
+      "left join",
+      "join inner",
+      "inner join",
+      "unmatched",
+      "no match",
+      "keeps every row",
+      "prefix",
+      "prefixed",
+      "aircraft.status"
+    ],
+    "latest keeps each key's largest row, before where": [
+      "latest per",
+      "latest row",
+      "largest",
+      "most recent",
+      "dedupe",
+      "deduplicate",
+      "before where",
+      "before the where"
+    ],
+    "parameters are values passed in params, never pasted text": [
+      "parameter",
+      "params",
+      "dollar",
+      "injection",
+      "f-string",
+      "paste"
+    ]
+  },
+  "phases": [
+    {
+      "start": 0,
+      "end": 10,
+      "name": "Read the docs and the code",
+      "cue": "pl_intro",
+      "kind": "learn"
+    },
+    {
+      "start": 10,
+      "end": 45,
+      "name": "Answer the customer's questions, one part at a time",
+      "cue": "pl_part1",
+      "kind": "coding",
+      "checks": [
+        {
+          "left": 10,
+          "cue": "pl_code_10"
+        },
+        {
+          "left": 5,
+          "cue": "pl_code_5"
+        }
+      ]
+    },
+    {
+      "start": 45,
+      "end": 45,
+      "name": "What you learned, and your questions",
+      "cue": "pl_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "parts": [
+    {
+      "title": "Part 1: what can't fly today",
+      "task": "parts/part1.md",
+      "tests": "parts/test_part1_unavailable.py",
+      "cue": "pl_part1",
+      "hints": [
+        "Look at section 3 of the docs: what does != do when a value is missing? Then look at what the example test expects for the two newest aircraft.",
+        "status != \"in service\" is false when status is missing, so those aircraft drop out. Add `or status is missing` to the where, then sort by tail and select the four columns."
+      ]
+    },
+    {
+      "title": "Part 2: who's running late",
+      "task": "parts/part2.md",
+      "tests": "parts/test_part2_delays.py",
+      "cue": "pl_part2",
+      "hints": [
+        "Section 4: which count counts every row, and what does avg do with a cancelled flight's missing delay? Section 7 covers passing the airport and top.",
+        "where origin == $airport, then group by tail compute flights = count(*), avg_delay = round(avg(delay), 1), worst = max(delay), then sort avg_delay desc and limit $top, with both values in params."
+      ]
+    },
+    {
+      "title": "Part 3: hours by aircraft model",
+      "task": "parts/part3.md",
+      "tests": "parts/test_part3_hours.py",
+      "cue": "pl_part3",
+      "hints": [
+        "Section 5: what does a join do with a flight whose tail isn't in the aircraft table? Try your query without the group by and look for rows with no model.",
+        "Use join inner aircraft on tail, keep the flights with date >= $since and arrived is not missing, then group by model and compute count(*) and round(sum(hours_between(departed, arrived)), 1)."
+      ]
+    },
+    {
+      "title": "Part 4 (stretch): the morning defect briefing",
+      "task": "parts/part4.md",
+      "tests": "parts/test_part4_defects.py",
+      "cue": "pl_part4",
+      "hints": [
+        "Section 6: how do you keep each defect's current row, and where does that clause run relative to where? Then section 5: both tables have a status column.",
+        "from defects latest per defect by at, join aircraft on tail, then where status in (\"open\", \"deferred\") and aircraft.status == \"in service\" and base == $base, sort at, and select updated = at."
+      ]
+    }
+  ],
+  "cues": {
+    "pl_intro": "Hi, thanks for joining. I'm an engineer on one of our commercial deployments, a regional airline. This is a learning interview: you'll work with Weft, a query language our team wrote, which you haven't seen before. Its docs are in the Docs tab, and the customer's dashboard queries are in the editor. Take up to ten minutes to read both, and ask me anything as you go. Then you'll answer the customer's questions with Weft, one part at a time, for the rest of our 45 minutes. When you're ready, say so, and I'll give you the first part.",
+    "pl_part1": "Okay, here's the first part, in the Tasks tab. Crew scheduling wants every aircraft that can't fly today. Before you write it, tell me what your query will look like.",
+    "pl_part2": "Okay, part two, in the Tasks tab. Each station manager wants to see which aircraft are running late out of their airport. How would you build that in Weft?",
+    "pl_part3": "Okay, part three, in the Tasks tab. Finance wants flying hours by aircraft model, for our own fleet only. How would you bring the model in?",
+    "pl_part4": "Last part, a stretch, in the Tasks tab. Maintenance control wants the defects that are still open at their base. How would you get each defect's current status?",
+    "pl_code_10": "Quick time check: about ten minutes left.",
+    "pl_code_5": "About five minutes left. Get what you have working.",
+    "pl_verify": "Before we move on, run the tests and tell me what they show.",
+    "pl_checkin": "Where are you at? Tell me what you're looking at right now.",
+    "pl_wrap": "That's time, so let's stop there. Thanks for working through it with me.",
+    "pl_wrap_early": "Okay, that's as far as we'll go with the parts. With the time we have left, tell me what surprised you about Weft, and what you'd change about it, or about the dashboard's queries. Then I'm happy to take your questions."
+  },
+  "closing_prompts": [
+    "What questions do you have for me?"
+  ],
+  "custom_input": "from fleetops import queries, report\n\nreport.show(report.run(queries.fleet_at(\"PDX\")))\nreport.show(report.run(queries.flights_for(\"N602TW\")))\n",
+  "followups": {
+    "understanding": "Take a SQL dialect you haven't used (DuckDB's or SQLite's), give yourself five minutes with its docs, and write five sentences on how it treats NULL, joins, and grouping differently from what you'd have guessed. Check each sentence with a one-line query.",
+    "questions": "Before your next unfamiliar query language or codebase, write down three questions for its owner, and check each against the docs first: only ask the ones the docs don't answer.",
+    "applying": "Re-do part 3 twice, once with join and once with join inner, print the rows before the group by each time, and say out loud which rows the plain join adds and why.",
+    "pace": "Time yourself from reading a new query language's docs to your first correct query. Build each query a clause at a time, running it after each one, and get the first under five minutes.",
+    "code_quality": "Rewrite your four queries so each clause is on its own line, every outside value is a parameter, and a short comment marks the one line a SQL user would get wrong.",
+    "communication": "Read one docs section aloud, then say in one sentence how it differs from SQL before you use it. Do it for every section of Weft's docs."
+  }
+}

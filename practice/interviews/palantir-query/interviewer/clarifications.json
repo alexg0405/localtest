@@ -1,0 +1,296 @@
+[
+  {
+    "topic": "Aircraft with no status",
+    "important": true,
+    "keywords": [
+      "no status",
+      "without a status",
+      "status is missing",
+      "missing status",
+      "status missing",
+      "null status",
+      "empty status",
+      "status is none",
+      "signed off",
+      "new aircraft",
+      "newest aircraft",
+      "aircraft status",
+      "unavailable",
+      "can't fly",
+      "cannot fly",
+      "whose status",
+      "aircraft with",
+      "aircraft whose",
+      "n513tw",
+      "n601tw"
+    ],
+    "answer": "An aircraft with no status hasn't been signed off into service yet, so it can't fly: it counts as unavailable."
+  },
+  {
+    "topic": "Ties in the rankings",
+    "important": true,
+    "keywords": [
+      "tie",
+      "ties",
+      "tied",
+      "tiebreak",
+      "tie-break",
+      "tie break",
+      "same average",
+      "same delay",
+      "same number",
+      "equal average"
+    ],
+    "answer": "Break ties by tail, A to Z, so the panel doesn't reshuffle every time it refreshes."
+  },
+  {
+    "topic": "Clause order",
+    "docs": "2. Clauses and their order",
+    "keywords": [
+      "clause order",
+      "order of clauses",
+      "order of the clauses",
+      "clauses",
+      "select first",
+      "select last",
+      "select at the end",
+      "where after",
+      "before where",
+      "comes first",
+      "which order do"
+    ],
+    "answer": "A query starts with from, then latest, join, where, group by, compute, sort, limit, and select last. Each runs on what the one before produced, and a clause out of order is an error."
+  },
+  {
+    "topic": "Equality and strings",
+    "docs": "3. Values, comparisons, and missing",
+    "keywords": [
+      "==",
+      "equals",
+      "single equals",
+      "double equals",
+      "quote",
+      "quotes",
+      "single quote",
+      "double quote",
+      "string",
+      "strings"
+    ],
+    "answer": "Compare with ==; a single = only names a column in compute and select. Strings take double quotes; single quotes are an error."
+  },
+  {
+    "topic": "Missing values",
+    "docs": "3. Values, comparisons, and missing",
+    "keywords": [
+      "missing",
+      "null",
+      "nulls",
+      "none",
+      "is missing",
+      "not equal",
+      "!=",
+      "empty value"
+    ],
+    "answer": "Every comparison with a missing value is false, != included, so status != \"x\" leaves out rows with no status. Test for it with is missing or is not missing. In Python, missing is None."
+  },
+  {
+    "topic": "Counting and averages",
+    "docs": "4. Grouping",
+    "keywords": [
+      "count",
+      "count(*)",
+      "count(",
+      "avg",
+      "average",
+      "sum",
+      "aggregate",
+      "aggregates",
+      "skip"
+    ],
+    "answer": "count(*) counts the rows in the group; count(x) counts the rows where x isn't missing. sum, avg, min, and max skip missing values, and give missing if the group has none."
+  },
+  {
+    "topic": "Columns after group by",
+    "docs": "4. Grouping",
+    "keywords": [
+      "group by",
+      "grouping",
+      "group",
+      "groups",
+      "other columns",
+      "having",
+      "after grouping"
+    ],
+    "answer": "After group by, the rows are the groups: only the group keys and the computed columns are left. A missing key makes its own group, and groups come out in no particular order."
+  },
+  {
+    "topic": "Rows with no match in a join",
+    "docs": "5. Joins",
+    "keywords": [
+      "join",
+      "no match",
+      "unmatched",
+      "left join",
+      "inner",
+      "match",
+      "outer"
+    ],
+    "answer": "A plain join keeps every row, matched or not: a row with no match keeps going, with the other table's columns missing. join inner keeps only the rows that match."
+  },
+  {
+    "topic": "Clashing column names",
+    "docs": "5. Joins",
+    "keywords": [
+      "same name",
+      "same column",
+      "clash",
+      "clashing",
+      "prefix",
+      "prefixed",
+      "both tables",
+      "column names",
+      "aircraft.status",
+      "which status",
+      "status column",
+      "two status",
+      "after the join",
+      "status after"
+    ],
+    "answer": "If the joined table has a column with the same name as one you already have, other than the on column, it comes back prefixed with its table's name: aircraft.status."
+  },
+  {
+    "topic": "The latest row per key",
+    "docs": "6. The latest row per key",
+    "keywords": [
+      "latest",
+      "dedupe",
+      "deduplicate",
+      "most recent",
+      "current status",
+      "current state",
+      "per key",
+      "append-only",
+      "log",
+      "latest run"
+    ],
+    "answer": "latest per key by column keeps each key's row with the largest value of that column. It comes right after from, so it runs before where."
+  },
+  {
+    "topic": "Parameters",
+    "docs": "7. Parameters",
+    "keywords": [
+      "parameter",
+      "parameters",
+      "param",
+      "params",
+      "$",
+      "dollar",
+      "f-string",
+      "format the",
+      "injection",
+      "bind"
+    ],
+    "answer": "$name stands for a value you pass in params. Parameters are values only, never a column or table name, and a parameter with no value is an error. limit takes one too."
+  },
+  {
+    "topic": "Sorting, limit, and select",
+    "docs": "8. Sorting, limit, and select",
+    "keywords": [
+      "sort",
+      "sorting",
+      "desc",
+      "descending",
+      "ascending",
+      "limit",
+      "top",
+      "order by",
+      "select",
+      "rename",
+      "alias"
+    ],
+    "answer": "sort col desc, other sorts by col, largest first, then other. Missing values always sort last, either way. limit runs after sort. select is last: it picks and names the columns, so earlier clauses can't use its names."
+  },
+  {
+    "topic": "Functions and rounding",
+    "docs": "9. Functions",
+    "keywords": [
+      "function",
+      "functions",
+      "hours_between",
+      "hours",
+      "round",
+      "rounding",
+      "decimal",
+      "lower"
+    ],
+    "answer": "hours_between(start, end) gives the hours between two ISO times, round(x, digits) rounds, and lower lowercases. Each gives missing for a missing argument, and they work around aggregates in compute."
+  },
+  {
+    "topic": "Errors",
+    "docs": "10. Errors",
+    "keywords": [
+      "error",
+      "errors",
+      "queryerror",
+      "exception",
+      "raise",
+      "raises"
+    ],
+    "answer": "Anything wrong with a query raises weft.QueryError, with what's wrong and the line and column."
+  },
+  {
+    "topic": "Times and time zones",
+    "keywords": [
+      "time zone",
+      "time zones",
+      "timezone",
+      "utc",
+      "local time",
+      "mountain",
+      "pacific"
+    ],
+    "answer": "Every time in the warehouse is UTC, as ISO text, so the hours between departure and arrival are the real flying time, even between Portland and Boise."
+  },
+  {
+    "topic": "Coastline Connect's aircraft",
+    "keywords": [
+      "coastline",
+      "partner",
+      "wet lease",
+      "not ours",
+      "n820cc",
+      "n821cc",
+      "not in the aircraft table"
+    ],
+    "answer": "Coastline Connect flies a few routes for us under our flight numbers. Their aircraft show up in flights and sometimes in the defect log, but not in our aircraft table."
+  },
+  {
+    "topic": "Doing it in Python",
+    "keywords": [
+      "python",
+      "post-process",
+      "postprocess",
+      "filter in python",
+      "after the query",
+      "outside the query",
+      "list comprehension",
+      "pandas"
+    ],
+    "answer": "No: the warehouse runs the query next to the data, and the dashboard only gets what it returns. The whole answer has to come from the Weft query; queries.py only builds its text and parameters."
+  },
+  {
+    "topic": "Changing Weft",
+    "important": true,
+    "keywords": [
+      "change weft",
+      "modify weft",
+      "edit weft",
+      "fix weft",
+      "patch weft",
+      "change the language",
+      "add a function",
+      "add a feature"
+    ],
+    "answer": "Don't change Weft: other deployments use it. Work within it, in queries.py."
+  }
+]

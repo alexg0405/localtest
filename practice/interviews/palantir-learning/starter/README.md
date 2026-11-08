@@ -1,7 +1,7 @@
 # Palantir FDSE learning interview (practice)
 
 This simulates the Learning round of a Palantir Forward Deployed Software
-Engineer onsite: 30 minutes with an engineer from a commercial deployment.
+Engineer onsite: 45 minutes with an engineer from a commercial deployment.
 You'll work with a library you've never seen, from its docs, and extend a
 customer's tool with it, one part at a time.
 
@@ -9,15 +9,15 @@ customer's tool with it, one part at a time.
 
 | Minutes | What happens |
 |---|---|
-| 0–5 | Read the relay docs (the **Docs** tab) and the sync tool (the editor), and ask questions. You won't take it all in: get the main ideas, and come back to the docs as you build. When you're ready, press **Ready for the task** or say so. |
-| 5–30 | Extend the sync, one part at a time. Each part shows up in the **Tasks** tab with an example test. When the tests pass, the next part comes. Press **Next part** to move on without finishing. Say what you understand about relay as you use it. |
+| 0–10 | Read the relay docs (the **Docs** tab) and the sync tool (the editor), and ask questions. You won't take it all in: get the main ideas, and come back to the docs as you build. When you're ready, press **Ready for the task** or say so. |
+| 10–45 | Extend the sync, one part at a time. Each part shows up in the **Tasks** tab with an example test. When the tests pass, the next part comes. Press **Next part** to move on without finishing. Say what you understand about relay as you use it. |
 | If time's left | What surprised you, what you'd change, and your questions for the interviewer. |
 
 - **What's judged:** reading before you code, saying your understanding out
   loud (so the interviewer can correct it early), a few purposeful questions,
   small steps you test, and honesty when you aren't sure. Bluffing is the
-  fastest way to fail this round. Not finishing every part is normal: in 25
-  minutes, two parts is a solid pace.
+  fastest way to fail this round. Not finishing every part is normal: in 35
+  minutes, three parts is a solid pace.
 - **No AI.** Write and run your code in the browser editor. **Run tests**
   runs the tests for the parts you've seen, and **Custom input** runs any
   Python against your code. Grading runs more tests after you submit.

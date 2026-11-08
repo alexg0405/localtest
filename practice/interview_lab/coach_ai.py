@@ -106,18 +106,19 @@ How you talk, like a real interviewer on a video call:
 
 DEBRIEF_SYSTEM = """You are a senior software engineer at Amazon writing your interview notes after a 30-minute résumé deep dive with a candidate for the Amazon SDE internship, for the candidate to learn from. Judge them as an intern candidate, not as an experienced engineer. Be specific, honest, and kind. Quote the candidate's own words as evidence. Write to the candidate directly, as "you": don't use their name, and don't call them he or she. Write in Markdown with short sections. Don't invent anything that isn't in the transcript or résumé."""
 
-ROLE_PALANTIR_LEARNING = """You are a FORWARD DEPLOYED ENGINEER at Palantir, on a commercial deployment for a hospital network, running the 30-minute Learning interview of a Forward Deployed Software Engineer onsite. The candidate is learning relay, an internal library they've never seen, from its docs (about five minutes of reading), and extending the customer's sync tool with it in parts (the other 25). You're friendly and collaborative, like a teammate pairing with a new hire: you want to see how fast they learn and how they think, not what they already know.
+# A template: learning_role fills in each learning round's library, customer, and timings.
+ROLE_PALANTIR_LEARNING = """You are a FORWARD DEPLOYED ENGINEER at Palantir, on a commercial deployment for {customer}, running the {duration}-minute Learning interview of a Forward Deployed Software Engineer onsite. The candidate is learning {library}, {about} they've never seen, from its docs (up to {reading} minutes of reading), and {task} in parts (the other {building} or so). You're friendly and collaborative, like a teammate pairing with a new hire: you want to see how fast they learn and how they think, not what they already know.
 How you run it:
 - Reading time is short, so mostly let them read. Answer their questions, and when they explain what they've read, check their model with one of your understanding questions. Keep checking it once the parts start.
 - When their model is wrong, don't correct it outright: ask a question that sends them back to the right section of the docs. If they're still wrong after that, tell them which section to reread. When it's right, say "Right." and move on, with no praise.
-- Answer questions honestly and briefly. If the docs answer it, answer and say which section. If they don't, answer from the facts. Never invent behavior relay doesn't document.
-- Before they code each part, ask how they'd do it with relay. While they code, ask about the relay calls they write: what a call returns, raises, or when it runs.
+- Answer questions honestly and briefly. If the docs answer it, answer and say which section. If they don't, answer from the facts. Never invent behavior {library} doesn't document.
+- Before they code each part, ask how they'd do it with {library}. While they code, let them work: you only speak at a pause, and then question a choice they made (why that {thing} or option over another, what it returns or raises, what happens on a failure) rather than every one. Once they've answered a point clearly, leave it.
 - Honesty is the signal you value most. "I'm not sure" is good: help them find where to look. If they say something confidently that's wrong, ask how they know.
 - Never write their code or hand them a solution. Hints only when you're told to give one, and only as much as the hint, ideally as a pointer to the docs or a question.
 - Keep it moving: if they're stuck on a detail that doesn't matter for the task, say so.
 - Exactly one short question per turn, usually under 20 words, in plain spoken English with contractions. Don't praise or evaluate."""
 
-DEBRIEF_LEARNING_SYSTEM = """You are a Palantir engineer writing your notes after the Learning interview of a Forward Deployed Software Engineer onsite, for the candidate to learn from. The candidate learned relay, an internal library, from its docs, and extended a customer's tool with it in parts. Judge them as an intern or new-grad candidate. Be specific, honest, and kind. Quote the candidate's own words as evidence, and check what they said about relay against its docs. Write to the candidate directly, as "you": don't use their name, and don't call them he or she. Write in Markdown with short sections. Don't invent anything that isn't in the transcript, the code, or the test results."""
+DEBRIEF_LEARNING_SYSTEM = """You are a Palantir engineer writing your notes after the Learning interview of a Forward Deployed Software Engineer onsite, for the candidate to learn from. The candidate learned an internal library or language from its docs, and used it on a customer's tool in parts. Judge them as an intern or new-grad candidate. Be specific, honest, and kind. Quote the candidate's own words as evidence, and check what they said about the library against its docs. Write to the candidate directly, as "you": don't use their name, and don't call them he or she. Write in Markdown with short sections. Don't invent anything that isn't in the transcript, the code, or the test results."""
 
 _status = {"at": 0.0, "value": None}
 _lock = threading.Lock()
@@ -603,8 +604,18 @@ Items on their résumé that they didn't explain well or weren't asked about yet
 One concrete exercise for before their next interview."""
 
 
-def _learning_ask(kind: str, part: int, trigger: str, message: str, hint: Optional[Dict[str, Any]]) -> str:
+def learning_role(interview: Interview) -> str:
+    """The learning round's interviewer, for this round's library, customer, and clock."""
+    minutes = {p.get("kind"): p["end"] - p["start"] for p in interview.phases()}
+    return ROLE_PALANTIR_LEARNING.format(
+        customer=interview.learning("customer", "a customer"), duration=interview.meta.get("duration_minutes", 45), library=interview.library,
+        about=interview.learning("about", "an internal library"), reading=minutes.get("learn", 10), building=minutes.get("coding", 35),
+        task=interview.learning("task", "using it on the customer's tool"), thing=interview.learning("thing", f"{interview.library} call"))
+
+
+def _learning_ask(interview: Interview, kind: str, part: int, trigger: str, message: str, hint: Optional[Dict[str, Any]]) -> str:
     """What the learning round's interviewer is asked to do this turn, by the part of the round and what happened."""
+    library, thing, choices = interview.library, interview.learning("thing", f"{interview.library} call"), interview.learning("choices")
     stuck = bool(hint and hint.get("reason") == "stuck")
     if kind == "over":
         return (f"The round's time is up. The candidate says: \"{message}\"\nIf it's a question for you, answer it briefly. "
@@ -622,24 +633,34 @@ def _learning_ask(kind: str, part: int, trigger: str, message: str, hint: Option
         return f"They've gone quiet on part {part} for a couple of minutes. Check in: ask where they are or what they're looking at, in one short question. Don't give a hint."
     if trigger == "debug":
         return (f"The same tests for part {part} have kept failing for a few minutes. Don't say what's wrong. Suggest one way to find it themselves: rereading the docs "
-                "section for the relay call involved, or printing what a handle's state or an outcome holds.")
+                f"section for the {thing} involved, or {interview.learning('debug_tip', 'printing what it gives back')}.")
     if trigger == "verify":
         return f"They asked to move on, but the tests for part {part} fail. Ask them to run the tests and tell you what they show. Don't say what's wrong."
     if trigger == "code":
-        return (f"The candidate just typed these lines without explaining them:\n{message}\n"
-                "Ask one question that checks they understand how a relay call there behaves: what it returns, what it raises, or when it runs. Name the call.")
+        return (f"The candidate just finished typing these lines, and has paused, without explaining them:\n{message}\n"
+                f"Ask one question about a choice in them: why that {thing} or option over another{(' ' + choices) if choices else ''}, "
+                "or what it returns, raises, or does on a failure. Name it.")
+    if trigger == "answer":
+        return (f"The candidate just answered your last question: \"{message}\"\nCheck it against the docs. If it's right and specific, say \"Right.\" or \"Okay.\" "
+                "and nothing else, so they get back to coding. If it's vague or wrong, ask one follow-up on the same point, ideally pointing at the docs section. "
+                "Don't start a new topic.")
     if kind == "learn":
         return (f"While reading, the candidate says: \"{message}\"\nIf it's a question the docs answer, answer it in a sentence and name the section. If the docs don't "
                 "cover it, answer from the facts. If they're explaining what they've read, check it against the docs: if it's right, say so in a word and let "
                 "them keep reading, or ask one understanding question from your list that they haven't covered; if it's wrong or vague, ask a question that "
-                "sends them back to the right section, without giving the answer. Reading time is only five minutes, so keep it short. Don't give them the "
+                "sends them back to the right section, without giving the answer. Reading time is only ten minutes, so keep it short. Don't give them the "
                 "first part yet.")
     if kind == "wrap":
         return (f"It's the wrap-up, and the candidate says: \"{message}\"\nIf it's a question for you, answer it briefly, as an engineer on the deployment would. "
                 "Otherwise ask the next follow-up question from your list that you haven't asked, one at a time; once you've asked them, ask what questions they have for you.")
+    if trigger == "thinking":   # they're narrating as they code, and have paused
+        return (f"The candidate is coding part {part} and narrating, and has just paused: \"{message}\"\nIf they're planning, make sure they've said how they'll "
+                f"use {library}, and if the plan relies on something {library} doesn't do, ask about that exact behavior. Otherwise, if they just made a choice worth "
+                f"questioning (a {thing} or option, how they handle a failure or an edge case), ask why, or what it does in a case they "
+                "haven't mentioned. If nothing is worth asking, say \"Okay.\" or \"Sounds good, go ahead.\" and let them work.")
     return (f"The candidate is working on part {part} and says: \"{message}\"\nIf it's a question, answer it: name the docs section if the docs answer it, or use the facts. "
-            "If they're planning, make sure they've said how they'll use relay, and if the plan relies on something relay doesn't do, ask about that exact behavior. "
-            "Otherwise ask one question that checks they understand the relay call they're using, or tell them to go ahead.")
+            f"If they're planning, make sure they've said how they'll use {library}, and if the plan relies on something {library} doesn't do, ask about that exact behavior. "
+            f"Otherwise ask one question that checks they understand the {thing} they're using, or tell them to go ahead.")
 
 
 def build_learning_prompt(interview: Interview, status: Dict[str, Any], workspace: Path, trigger: str, message: str = "",
@@ -682,12 +703,12 @@ def build_learning_prompt(interview: Interview, status: Dict[str, Any], workspac
                 + (f", about {max(0, round(end - elapsed / 60))} minutes left in it" if end is not None else "") + "."
                 + (f" Part {part} of {len(parts)}.{on_part} Hints on this part: {used} of {len(parts[part - 1]['hints'])}." if 0 < part <= len(parts) else ""))
     return f"""Your role:
-{ROLE_PALANTIR_LEARNING}
+{learning_role(interview)}
 
 The candidate's task (they can see this):
 {interview.task().strip()}
 
-relay's docs (they have these in the Docs tab):
+{interview.library}'s docs (they have these in the Docs tab):
 <<<
 {interview.docs()}
 >>>
@@ -717,7 +738,7 @@ Their code:
 Conversation so far (most recent last):
 {chr(10).join(history) or "(nothing yet)"}
 
-Now: {_learning_ask(kind, part, trigger, message, hint)}
+Now: {_learning_ask(interview, kind, part, trigger, message, hint)}
 
 Reply as the interviewer, in one or two short spoken sentences."""[-110_000:]
 
@@ -733,12 +754,12 @@ def build_learning_debrief_prompt(interview: Interview, state: Dict[str, Any], r
     plan = {p.get("kind"): p["end"] - p["start"] for p in interview.phases()}
     return f"""Write your notes on this Learning interview for the candidate.
 
-relay's docs, to check their claims against:
+{interview.library}'s docs, to check their claims against:
 <<<
 {interview.docs()[:9000]}
 >>>
 
-The parts and how far they got ({interview.meta.get('duration_minutes', 60)} minutes in all: about {plan.get('learn')} to read, then {plan.get('coding')} for the parts, where two parts is a solid pace):
+The parts and how far they got ({interview.meta.get('duration_minutes', 60)} minutes in all: about {plan.get('learn')} to read, then {plan.get('coding')} for the parts, where three parts is a solid pace):
 {progress}
 
 When you stepped in:
@@ -761,13 +782,13 @@ Rules for evidence: quote only what the candidate said (the "Candidate:" lines) 
 
 Write these sections, in Markdown, about 250–400 words in all (less for a short transcript):
 ## Overall
-Two or three sentences: how fast you got productive with relay, whether the interviewer would move you forward, and why.
-## How you learned relay
+Two or three sentences: how fast you got productive with {interview.library}, whether the interviewer would move you forward, and why.
+## How you learned {interview.library}
 What you understood correctly and what you got wrong, each with a quote, and whether you read before coding.
 ## Your questions
 Which questions were purposeful, which the docs already answered, and the important one you did or didn't ask.
 ## Building it
-How you worked through the parts: small steps, tests, how you used relay's calls, where you got stuck.
+How you worked through the parts: small steps, tests, how you used {interview.library}, where you got stuck.
 ## What to work on
 Three bullets, each specific, with what a stronger candidate would have done.
 ## Practice next

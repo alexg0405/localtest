@@ -1,0 +1,267 @@
+[
+  {
+    "topic": "When a pipeline runs",
+    "docs": "1. The basics",
+    "keywords": [
+      "lazy",
+      "when does it run",
+      "when does the pipeline",
+      "run()",
+      "building",
+      "build the pipeline",
+      "chain",
+      "chaining",
+      "does anything happen"
+    ],
+    "answer": "Pipelines are lazy: building one reads nothing and calls none of your functions. Everything happens in run(), which returns a RunReport. Each run reads the source from the start."
+  },
+  {
+    "topic": "Batch size",
+    "docs": "2. Batches",
+    "keywords": [
+      "batch_size",
+      "batch",
+      "batches",
+      "batch size",
+      "how many records",
+      "chunk",
+      "chunks",
+      "memory"
+    ],
+    "answer": "sluice reads batch_size records at a time, and each batch goes through every step, down to the sink, before the next one is read. map and filter don't notice; aggregates and sinks do."
+  },
+  {
+    "topic": "Changing a record",
+    "docs": "3. Records and steps",
+    "keywords": [
+      "read-only",
+      "read only",
+      "mutate",
+      "mutating",
+      "modify the record",
+      "change the record",
+      "change a record",
+      "typeerror",
+      "assign",
+      "new dict",
+      "copy"
+    ],
+    "answer": "Records are read-only: assigning to one raises TypeError, which counts as an error in that step. Return a new dict, like {**record, 'field': value} or record.replace(field=value)."
+  },
+  {
+    "topic": "Dropping records in a map",
+    "docs": "3. Records and steps",
+    "keywords": [
+      "drop",
+      "return none",
+      "returns none",
+      "filter",
+      "remove records",
+      "throw away"
+    ],
+    "answer": "A map must return a dict; returning anything else is an error. To drop records, use filter, which keeps the ones its function says are truthy."
+  },
+  {
+    "topic": "What an aggregate sees",
+    "docs": "4. Aggregating",
+    "keywords": [
+      "aggregate",
+      "aggregation",
+      "aggregates",
+      "scope",
+      "per batch",
+      "whole run",
+      "group",
+      "group by",
+      "sum",
+      "totals"
+    ],
+    "answer": "Aggregates are per batch by default: a group with records in several batches comes out once per batch, each with that batch's part. scope=\"run\" holds the groups until the end of the run, then puts out one record per group."
+  },
+  {
+    "topic": "Sink modes and re-runs",
+    "docs": "5. Sinks and tables",
+    "keywords": [
+      "sink",
+      "append",
+      "upsert",
+      "replace",
+      "mode",
+      "rerun",
+      "re-run",
+      "run it again",
+      "run twice",
+      "idempotent",
+      "duplicate",
+      "duplicates"
+    ],
+    "answer": "append, the default, adds every record as a new row, so a second run writes everything again. upsert replaces the row with the same key fields, so a re-run leaves the table as it was. replace empties the whole table when the run starts."
+  },
+  {
+    "topic": "Reading tables",
+    "docs": "5. Sinks and tables",
+    "keywords": [
+      "table",
+      "tables",
+      "store",
+      "rows()",
+      "find(",
+      "read the table",
+      "look up",
+      "query"
+    ],
+    "answer": "store.table(name) gives you the table, creating it the first time. table.rows() returns every row as dicts, table.find(field=value) the matching ones, and len(table) the count. Only sinks write tables."
+  },
+  {
+    "topic": "Error policies",
+    "docs": "6. Errors",
+    "keywords": [
+      "on_error",
+      "error",
+      "errors",
+      "skip",
+      "dead letter",
+      "dead_letter",
+      "dead letters",
+      "exception",
+      "raises",
+      "crash"
+    ],
+    "answer": "on_error=\"fail\", the default, stops the run with RunFailed. \"skip\" drops the record and only counts it. \"dead_letter\" drops it from the run but keeps it in report.dead_letters, with the step and the error."
+  },
+  {
+    "topic": "What a failed run leaves behind",
+    "docs": "6. Errors",
+    "keywords": [
+      "failed run",
+      "fails halfway",
+      "halfway",
+      "rollback",
+      "roll back",
+      "transaction",
+      "commit",
+      "committed",
+      "already written",
+      "atomic",
+      "partway"
+    ],
+    "answer": "Batches that reached the sink before the failure stay written; the failing batch and the ones after it write nothing. Nothing is rolled back. A scope=\"run\" aggregate writes nothing past it, since it only puts out records at the end."
+  },
+  {
+    "topic": "The run report",
+    "docs": "7. The run report",
+    "keywords": [
+      "report",
+      "runreport",
+      "records_in",
+      "records_out",
+      "counts",
+      "print the report",
+      "where did",
+      "debug",
+      "written"
+    ],
+    "answer": "run() returns a RunReport: records read, batches, rows written, and each step's records in and out, skipped, and dead-lettered. print(report) shows it as a table, and a step whose out is lower than its in shows where records went."
+  },
+  {
+    "topic": "Changing sluice",
+    "important": true,
+    "keywords": [
+      "change sluice",
+      "modify sluice",
+      "edit sluice",
+      "change the library",
+      "modify the library",
+      "fork",
+      "patch the library"
+    ],
+    "answer": "Don't change sluice: other deployments use it. Fix the job, in meterbill/job.py."
+  },
+  {
+    "topic": "Changing the job's functions",
+    "keywords": [
+      "signature",
+      "parameters",
+      "arguments",
+      "return type",
+      "rename",
+      "keep run_nightly",
+      "change run_nightly",
+      "batch_size parameter"
+    ],
+    "answer": "Keep the functions' names and parameters, and keep returning run reports (run_nightly returns them in a dict by pipeline name). You can add helpers and pipelines. Leave billing.py alone: it's the billing team's."
+  },
+  {
+    "topic": "Readings that don't parse, in meter_gaps",
+    "important": true,
+    "keywords": [
+      "meter_gaps",
+      "meter gaps",
+      "still count",
+      "count toward",
+      "count towards",
+      "counts as a reading",
+      "count as a reading",
+      "corrupt readings count"
+    ],
+    "answer": "Count them: the meter did report, and the field team only cares whether it's talking. A reading that won't parse is the metering team's problem, not a reason to send a truck."
+  },
+  {
+    "topic": "Billing an account with a bad reading",
+    "important": true,
+    "keywords": [
+      "bad reading",
+      "bad readings",
+      "corrupt",
+      "still bill",
+      "bill the account",
+      "rest of the day",
+      "estimate",
+      "estimated",
+      "skip the account"
+    ],
+    "answer": "Bill what we have: the account's other readings for the day. The metering team fixes the bad reading in the morning, and if they re-run the night, it should pick up the fix."
+  },
+  {
+    "topic": "Meters that sent nothing",
+    "keywords": [
+      "no readings",
+      "zero readings",
+      "sent nothing",
+      "didn't send any",
+      "dead meter",
+      "missing meter",
+      "meters that aren't"
+    ],
+    "answer": "They aren't in the readings at all, so the job can't see them. The head-end lists those separately; leave them out."
+  },
+  {
+    "topic": "How big a night is, and its order",
+    "keywords": [
+      "how many readings",
+      "how big",
+      "volume",
+      "scale",
+      "performance",
+      "fast enough",
+      "order of the readings",
+      "sorted",
+      "what order"
+    ],
+    "answer": "About 38 million readings a night from 400,000 meters, exported grouped by account, then meter, then time. It finishes in about 40 minutes, so speed isn't the problem here."
+  },
+  {
+    "topic": "Who reads the tables",
+    "keywords": [
+      "who reads",
+      "who uses",
+      "billing team",
+      "billing system",
+      "usage page",
+      "what is it for",
+      "why does",
+      "customer"
+    ],
+    "answer": "The billing system bills every charges row each morning, and the customer's online usage page shows daily_usage. A wrong row is a wrong bill, so being right matters more than being fast."
+  }
+]

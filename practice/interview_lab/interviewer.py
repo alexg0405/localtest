@@ -203,7 +203,7 @@ def _learning_packet(interview: Interview) -> str:
     phases = "\n".join(f"- {p['start']}-{p['end']} min: {p['name']}" if p["end"] > p["start"] else f"- If time's left after the parts: {p['name']}"
                        for p in interview.phases())
     parts = "\n\n".join(f"{part['text'].strip()}\nHints, smallest first: " + " / ".join(part["hints"]) for part in interview.parts())
-    return f"""You are a Palantir engineer on a commercial deployment, running the Learning interview of a Forward Deployed Software Engineer onsite ({interview.meta.get('duration_minutes', 60)} minutes). The candidate works with relay, an internal library they've never seen, from its docs, and extends a customer's tool with it in parts. You're friendly and collaborative: you want to see how fast they learn, not what they already know.
+    return f"""You are a Palantir engineer on a commercial deployment, running the Learning interview of a Forward Deployed Software Engineer onsite ({interview.meta.get('duration_minutes', 60)} minutes). The candidate works with {interview.library}, {interview.learning('about', 'an internal library')} they've never seen, from its docs, and uses it on a customer's tool in parts ({interview.learning('task', 'using it on the customer tool')}). You're friendly and collaborative: you want to see how fast they learn, not what they already know.
 
 Rules:
 - No AI help for the candidate, and you never write their code.
@@ -221,7 +221,7 @@ Start by introducing yourself and the round.
 === Candidate task (they can see this) ===
 {interview.task()}
 
-=== relay's docs (they can see these) ===
+=== {interview.library}'s docs (they can see these) ===
 {interview.docs()}
 
 === The parts (reveal one at a time) ===

@@ -1,0 +1,220 @@
+{
+  "id": "palantir-batch",
+  "title": "Palantir FDSE learning interview: the utility's nightly billing job",
+  "company": "palantir",
+  "format": "palantir-learning",
+  "inspired_by": "Modeled on candidate reports of Palantir's Forward Deployed Software Engineer onsite (2025 and 2026), where one Learning-round question has you use and debug a batch data processor from its documentation: a few minutes to read, then the rest of the round adding to a customer's job built on it and tracking down the bugs they reported, while the interviewer watches how you read, what you ask, and how you debug. This practice version runs 45 minutes. An original simulation: sluice and the customer are made up.",
+  "level": "FDSE onsite · Learning round",
+  "summary": "A batch processor you've never seen, its docs, and an electric utility's nightly billing job built on it: up to ten minutes to read, then 35 to add to the job and chase down the bugs the customer reported, in up to four parts. Ask good questions, explain what you're using, and reproduce each bug before you fix it. No AI; write and run your code in the browser editor.",
+  "tags": [
+    "python",
+    "45 min",
+    "no AI",
+    "new library",
+    "debugging",
+    "4 parts",
+    "runs code"
+  ],
+  "duration_minutes": 45,
+  "change_at_minutes": null,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "docs": "sluice/DOCS.md",
+  "library": "sluice",
+  "learning": {
+    "about": "an internal batch data processor",
+    "customer": "a regional electric utility",
+    "task": "using it to extend and debug the customer's nightly billing job",
+    "thing": "sluice step",
+    "choices": "(scope=\"batch\" or \"run\", append, upsert, or replace, what goes in the upsert key, skip or dead_letter)",
+    "debug_tip": "printing the run report's per-step counts, or the rows a table holds after a run",
+    "docs_question": "What does batch_size control?",
+    "docs_section": "section 2",
+    "checked": "lazy runs, batches and per-batch aggregates, read-only records, error policies, what a failed run keeps, append, upsert, and replace"
+  },
+  "note_tabs": {
+    "plan": "notes.md",
+    "assumptions": "assumptions.md"
+  },
+  "source_files": [
+    "meterbill/job.py"
+  ],
+  "editor_files": [
+    "meterbill/job.py",
+    "meterbill/billing.py",
+    "meterbill/sample.py"
+  ],
+  "approach_keywords": [
+    "pipeline",
+    "aggregate",
+    "scope",
+    "upsert",
+    "key",
+    "on_error",
+    "dead_letter",
+    "batch"
+  ],
+  "concepts": {
+    "pipelines are lazy: nothing happens until run()": [
+      "lazy",
+      "until run",
+      "until you call run",
+      "nothing happens until",
+      "nothing runs until",
+      "run()"
+    ],
+    "records flow through every step in batches of batch_size": [
+      "batch_size",
+      "batch size",
+      "in batches",
+      "each batch",
+      "batches of",
+      "a batch at a time"
+    ],
+    "aggregates work per batch unless scope=\"run\"": [
+      "per batch",
+      "scope",
+      "whole run",
+      "each batch separately",
+      "across batches",
+      "spans batches",
+      "split across"
+    ],
+    "records are read-only: steps return a new dict": [
+      "read-only",
+      "read only",
+      "new dict",
+      "immutable",
+      "mutate",
+      "can't change the record",
+      "replace("
+    ],
+    "append writes everything again on a re-run; upsert by key doesn't": [
+      "append",
+      "upsert",
+      "idempotent",
+      "re-run",
+      "rerun",
+      "duplicate"
+    ],
+    "on_error: fail stops the run, skip drops, dead_letter keeps the record": [
+      "on_error",
+      "dead letter",
+      "dead_letter",
+      "dead-letter",
+      "skip",
+      "runfailed"
+    ],
+    "a failed run keeps the batches it already wrote": [
+      "already written",
+      "stay written",
+      "stays written",
+      "partial",
+      "batches before",
+      "earlier batches",
+      "rolled back",
+      "rollback"
+    ]
+  },
+  "phases": [
+    {
+      "start": 0,
+      "end": 10,
+      "name": "Read the docs and the code",
+      "cue": "pl_intro",
+      "kind": "learn"
+    },
+    {
+      "start": 10,
+      "end": 45,
+      "name": "Use and fix the billing job, one part at a time",
+      "cue": "pl_part1",
+      "kind": "coding",
+      "checks": [
+        {
+          "left": 10,
+          "cue": "pl_code_10"
+        },
+        {
+          "left": 5,
+          "cue": "pl_code_5"
+        }
+      ]
+    },
+    {
+      "start": 45,
+      "end": 45,
+      "name": "What you learned, and your questions",
+      "cue": "pl_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "parts": [
+    {
+      "title": "Part 1: find the meters that went quiet",
+      "task": "parts/part1.md",
+      "tests": "parts/test_part1_meter_gaps.py",
+      "cue": "pl_part1",
+      "hints": [
+        "Sections 1 and 4: what does an aggregate put out for each group, and which step would keep only the short meters?",
+        "Aggregate by (\"meter\", \"account\") with readings=sluice.Count(), filter on readings < READINGS_PER_DAY, map in the day and missing as a new dict, and sink to store.table(\"meter_gaps\"). Then add its report to run_nightly."
+      ]
+    },
+    {
+      "title": "Part 2: billed twice",
+      "task": "parts/part2.md",
+      "tests": "parts/test_part2_rerun.py",
+      "cue": "pl_part2",
+      "hints": [
+        "Reproduce it first: run run_nightly twice for the same day and print the charges table. Then read section 5 on what each sink mode does on a second run.",
+        "The charges sink uses the default mode, append. Make it mode=\"upsert\" with key=(\"account\", \"day\"): without the day in the key, one day's charge replaces another's. Not \"replace\", which empties the whole table."
+      ]
+    },
+    {
+      "title": "Part 3: our biggest customers are under-billed",
+      "task": "parts/part3.md",
+      "tests": "parts/test_part3_big_accounts.py",
+      "cue": "pl_part3",
+      "hints": [
+        "Print the daily_usage run report for the whole sample night: how many batches are there, and how many records come out of the total step for eleven accounts? Then read section 4.",
+        "The aggregate works per batch by default, so an account whose readings span batches comes out once per batch, and the upsert keeps only the last part. Pass scope=\"run\" to it, and check your meter_gaps for the same thing."
+      ]
+    },
+    {
+      "title": "Part 4 (stretch): one bad reading stopped the night",
+      "task": "parts/part4.md",
+      "tests": "parts/test_part4_bad_readings.py",
+      "cue": "pl_part4",
+      "hints": [
+        "Section 6: which on_error keeps a bad record and its error, instead of stopping the run or dropping the record without a trace?",
+        "Give the parse step on_error=\"dead_letter\", then write each of the report's dead_letters (its record's fields and str of its error) to the bad_readings table, upserted by meter and ts so a re-run doesn't list it twice."
+      ]
+    }
+  ],
+  "cues": {
+    "pl_intro": "Hi, thanks for joining. I'm an engineer on one of our commercial deployments, a regional electric utility. This is a learning interview: you'll work with sluice, a small batch processor our team wrote, which you haven't seen before. Its docs are in the Docs tab, and the utility's nightly billing job, which is built on sluice, is in the editor. Take up to ten minutes to read both, and ask me anything as you go. Then you'll add to the job and track down some bugs the utility reported, one part at a time, for the rest of our 45 minutes. When you're ready, say so, and I'll give you the first part.",
+    "pl_part1": "Okay, here's the first part, in the Tasks tab. The field team wants to know which meters are dropping readings. Before you code, tell me how you'd build that with sluice.",
+    "pl_part2": "Okay, part two is a bug report, in the Tasks tab. Customers were billed twice after a re-run. Before you change anything, how would you reproduce it, and what's your guess?",
+    "pl_part3": "Okay, part three, another bug report, in the Tasks tab. Our biggest customers are under-billed, and nothing errored. Where would you start looking?",
+    "pl_part4": "Last part, a stretch, in the Tasks tab. One bad reading stopped last night's run. How would you keep the night going without losing that reading?",
+    "pl_code_10": "Quick time check: about ten minutes left.",
+    "pl_code_5": "About five minutes left. Get what you have working.",
+    "pl_verify": "Before we move on, run the tests and tell me what they show.",
+    "pl_checkin": "Where are you at? Tell me what you're looking at right now.",
+    "pl_wrap": "That's time, so let's stop there. Thanks for working through it with me.",
+    "pl_wrap_early": "Okay, that's as far as we'll go with the parts. With the time we have left, tell me what surprised you about sluice, and what you'd change about it, or about the job. Then I'm happy to take your questions."
+  },
+  "closing_prompts": [
+    "What questions do you have for me?"
+  ],
+  "custom_input": "import sluice\nfrom meterbill import billing, sample\nfrom meterbill.job import run_nightly\n\nstore = sluice.Store()\nreports = run_nightly(sample.readings(accounts=[\"R-100\", \"R-101\", \"B-300\"]), store, sample.DAY)\nfor report in reports.values():\n    print(report)\nprint(billing.bills(store, sample.DAY))\n",
+  "followups": {
+    "understanding": "Pick a library you haven't used (itertools.groupby, or the csv module's DictReader), give yourself five minutes with its docs, and write five sentences on how it differs from what you'd have guessed. Check each sentence with a tiny script.",
+    "questions": "Before your next unfamiliar codebase, write down three questions for its owner, and check each against the docs first: only ask the ones the docs don't answer.",
+    "applying": "Re-do part 3 from the report alone: print the daily_usage run report at batch_size=50 and at 5000, and say out loud why the total step's records_out changes and what the upsert does with the extra records.",
+    "pace": "Time yourself from reading a bug report to a failing test that reproduces it. Get it under five minutes by writing the reproduction before you read any more code.",
+    "code_quality": "Rewrite run_nightly so every pipeline is safe to re-run, each pipeline is under ten lines, and every step has a name, so the run report reads on its own.",
+    "communication": "For each bug report, say the symptom, your guess at the cause, and how you'll check it, in three sentences, before you change any code."
+  }
+}

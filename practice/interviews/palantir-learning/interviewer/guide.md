@@ -5,8 +5,8 @@ Spoilers: this file has the answers. Keep it out of the candidate's workspace.
 ## What this round simulates
 
 The Learning round of a Palantir Forward Deployed Software Engineer onsite,
-in 30 minutes: about five to read an unfamiliar library's documentation, then
-25 to extend code with it in a few short stages. It tests how fast someone
+in 45 minutes: up to ten to read an unfamiliar library's documentation, then
+about 35 to extend code with it in a few short stages. It tests how fast someone
 gets from unfamiliar to productive. Interviewers watch for:
 - reading the docs before coding, and treating them as the map
 - saying their mental model out loud, so it can be corrected early
@@ -35,7 +35,7 @@ with five ideas the candidate has to learn from DOCS.md:
 
 ## Questions to check understanding
 
-Reading time is only five minutes, so mostly let them read. Ask one of these
+Reading time is only ten minutes, so mostly let them read. Ask one of these
 when they explain what they've read, or as they start to use the part it
 covers, one at a time. Don't give the answer: if they're wrong, ask them to
 look at the section again.
@@ -74,7 +74,7 @@ runs. Trap: calling `on_progress` after `gather` returns, all at once.
 
 ## Follow-up questions to ask
 
-Only if the parts end with time to spare. When the 30 minutes are up, stop.
+Only if the parts end with time to spare. When the 45 minutes are up, stop.
 
 - What surprised you about relay, compared with what you expected from a thread pool? (the with block cancelling queued jobs, JobFailed wrapping, finishing order)
 - Where did the docs leave you unsure, and how did you resolve it?

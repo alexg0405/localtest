@@ -799,7 +799,7 @@ def _score_amazon_communication(interview, state, notes):
     return _clamp(1 + len(present)), evidence, missing
 
 
-LEARNING_PACE = (1, 3, 4, 5, 5)   # the pace score by parts finished in the learning round's 25 minutes of building
+LEARNING_PACE = (1, 2, 3, 4, 5)   # the pace score by parts finished in the learning round's 35 minutes of building
 
 
 def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[str, str], tests: Dict[str, Any], diff: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -810,7 +810,7 @@ def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[st
     first_edit = (state.get("coding") or {}).get("first_edit")
     spoken = state.get("spoken", [])
     asked = [q for q in state.get("questions", []) if q.get("source") != "interviewer" and q.get("question")]
-    # Five minutes is too short to explain all of relay while you read, so what you explain as you use it counts too.
+    # Ten minutes is too short to explain all of the library while you read, so what you explain as you use it counts too.
     said = " ".join([s["text"] for s in spoken] + [q["question"] for q in asked])
     concepts = interview.meta.get("concepts", {})
     lowered = (said + " " + notes["plan"]).lower()
@@ -820,10 +820,10 @@ def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[st
     scores: Dict[str, Any] = {}
 
     if len(said.split()) < 15 and not covered:
-        scores["understanding"] = (None, ["Nothing was said or written about relay, so how you understood it wasn't observed."])
+        scores["understanding"] = (None, [f"Nothing was said or written about {interview.library}, so how you understood it wasn't observed."])
     else:
         points = 1 + 4 * len(covered) / max(1, len(concepts))
-        evidence = [f"Out loud or in your notes, you covered {len(covered)} of relay's {len(concepts)} main ideas"
+        evidence = [f"Out loud or in your notes, you covered {len(covered)} of {interview.library}'s {len(concepts)} main ideas"
                     + (": " + "; ".join(covered) + "." if covered else ".")]
         if missed_concepts:
             evidence.append("Never mentioned: " + "; ".join(missed_concepts) + ".")
@@ -853,7 +853,7 @@ def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[st
     reached = {f"part{i + 1}" for i in range(len(parts))}
     graded = {area: bucket for area, bucket in tests["by_area"].items() if area in reached}
     if not graded:
-        scores["applying"] = (None, ["You didn't get to the first part, so how you applied relay wasn't observed."])
+        scores["applying"] = (None, [f"You didn't get to the first part, so how you applied {interview.library} wasn't observed."])
     else:
         passed, total = sum(b["passed"] for b in graded.values()), sum(b["total"] for b in graded.values())
         scores["applying"] = (_band(passed / total), [f"Grading tests for the parts you reached: {passed} of {total} passed."]
@@ -872,7 +872,7 @@ def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[st
             evidence.append(f"Part {i + 1}: " + (f"{(stop - part['at']) / 60:.0f} minutes, " if stop is not None else "not finished, ")
                             + f"{ran} test run{'' if ran == 1 else 's'}.")
         building = next((p["end"] - p["start"] for p in interview.phases() if p.get("kind") == "coding"), None)
-        evidence.append(f"In {building} minutes of building, two parts is a solid pace and three is strong.")
+        evidence.append(f"In {building} minutes of building, three parts is a solid pace and all four is strong.")
         scores["pace"] = (LEARNING_PACE[min(len(done), len(LEARNING_PACE) - 1)], evidence)
 
     talked = " ".join(s["text"] for s in spoken)
@@ -884,7 +884,7 @@ def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[st
     else:
         checks = [("talked through your thinking (150+ words)", len(talked.split()) >= 150),
                   ("said when you weren't sure, or that you'd check", honest > 0),
-                  ("explained how relay works as you used it", bool(covered))]
+                  (f"explained how {interview.library} works as you used it", bool(covered))]
         if early is not None:
             checks.append(("asked the interviewer questions at the end", bool(theirs)))
         present, missing = [label for label, ok in checks if ok], [label for label, ok in checks if not ok]
@@ -896,7 +896,7 @@ def _learning_scores(interview: Interview, state: Dict[str, Any], notes: Dict[st
 LEARNING_IMPROVEMENTS = {
     "understanding": "Read a section, then say in one sentence what it means before you use it.{concepts}",
     "questions": "Ask fewer, sharper questions: check the docs first, then ask about what they don't cover, such as {topics}.",
-    "applying": "Before you use a relay call, say what it returns, what it raises, and when it runs, and check that against its section of the docs.",
+    "applying": "Before you use {thing}, say what it returns, what it raises, and when it runs, and check that against its section of the docs.",
     "pace": "Get each part working in the smallest step that passes its example test, run the tests, and only then improve it.",
     "communication": "Narrate your mental model as you go, and say \"I'm not sure, let me check\" instead of guessing: the interviewer can only correct what they hear.",
 }
@@ -909,7 +909,8 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
         learned = context.get("learning", {})
         missed = learned.get("concepts_missed", [])[:3]
         return LEARNING_IMPROVEMENTS[area].format(concepts=f" The ideas you didn't explain back: {'; '.join(missed)}." if missed else "",
-                                                  topics="; ".join(learned.get("questions_missing", [])[:2]) or "what to do with errors the task doesn't mention")
+                                                  topics="; ".join(learned.get("questions_missing", [])[:2]) or "what to do with errors the task doesn't mention",
+                                                  thing="a " + context["interview"].learning("thing", f"{context['interview'].library} call"))
     if area == "problem_understanding":
         missed = context["coverage"]["missed"][:3]
         return ("Spend the first five minutes on questions. You did not clarify: " + "; ".join(missed) + ". Ask about each, or write your assumption down.") if missed else "Write your assumptions down explicitly, one line each, before you start coding."
@@ -963,7 +964,7 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
 
 
 NOT_OBSERVED_HELP = {
-    "understanding": "Explain relay out loud (mic) or in the chat as you read and use it, so your understanding can be assessed.",
+    "understanding": "Explain the library out loud (mic) or in the chat as you read and use it, so your understanding can be assessed.",
     "applying": "Press Ready for the task once you've read the docs, so you get to the parts.",
     "pace": "Press Ready for the task once you've read the docs, so you get to the parts.",
     "walkthrough": "Answer the interviewer's first question out loud (mic) or in the chat, so your background walkthrough can be assessed.",
@@ -1472,14 +1473,14 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
     setting = ("This is a simulated Amazon SDE intern final-round interview with no AI assistant (Amazon tells candidates not to use GenAI during interviews). It has Leadership Principles questions with follow-ups, then a coding problem in an editor that can run tests."
                if amazon else ("This is a simulated Amazon SDE intern coding round with no AI assistant: one problem and a follow-up, in an editor that can run tests. The interviewer asked for the complexity, "
                                f"pushed for a faster version when a working one was too slow, and helped when the candidate was stuck ({helped}). Weigh how much help they needed." if interview.meta.get("format") == "amazon-coding"
-                               else ("This is a simulated Palantir FDSE Learning interview with no AI assistant: the candidate learned relay, an internal library, from its docs (in the "
-                                     f"interviewer guide below), and extended a customer's sync with it in parts. The interviewer stepped in: {helped}. Judge how they learned, not only what they built.")
+                               else (f"This is a simulated Palantir FDSE Learning interview with no AI assistant: the candidate learned {interview.library}, {interview.learning('about', 'an internal library')}, from its docs (in the "
+                                     f"interviewer guide below), and used it on a customer's tool in parts. The interviewer stepped in: {helped}. Judge how they learned, not only what they built.")
                                if interview.meta.get("format") == "palantir-learning"
                                else f"This is a single-problem practice round with no AI assistant, in {state.get('mode', 'real')} mode. The candidate used {len(hints)} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}." if problem
                                else "The candidate used an AI coding assistant (Claude Code), which is allowed and expected."))
     ai_rule = ("- Judge Leadership Principles answers on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon
                else "- Judge problem solving on whether the candidate found the faster approach alone, after the interviewer's push, or only with hints, and whether they explained its complexity." if interview.meta.get("format") == "amazon-coding"
-               else "- Judge whether they read before coding, explained relay back correctly, asked purposeful questions, tested in small steps, and said when they weren't sure. Bluffing counts against them." if interview.meta.get("format") == "palantir-learning"
+               else "- Judge whether they read before coding, explained the library back correctly, asked purposeful questions, tested in small steps, and said when they weren't sure. Bluffing counts against them." if interview.meta.get("format") == "palantir-learning"
                else "- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant.")
     behavioral = "\n".join(f"- Q: {a['question']}" + (f" [{a['lp']}]" if a.get("lp") else "") + "".join(f"\n  Prompt: {p}" for p in a.get("prompts", [])[1:]) + "\n  Answer: " + " ".join(part["text"] for part in a.get("parts", [])) for a in state.get("behavioral", {}).get("answers", [])) or "(none)"
     return f"""You are grading a {interview.meta.get('duration_minutes', 60)}-minute practice software engineering interview ("{interview.title}"). {setting}

@@ -23,7 +23,7 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-coding": ["amazon", "Amazon · Coding round"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"], "palantir-learning": ["palantir", "Palantir FDSE · Learning"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-coding": ["amazon", "Amazon · Coding round"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"], "palantir-query": ["palantir", "Palantir FDSE · Query language"], "palantir-batch": ["palantir", "Palantir FDSE · Batch processor"], "palantir-learning": ["palantir", "Palantir FDSE · Learning (relay)"] };
 // Rounds with a coding problem and Amazon's interviewer: the final rounds, and the coding round, which is only coding.
 const AMAZON_CODING = ["amazon-final", "amazon-coding"];
 const AMAZON_NOTES = {
@@ -31,16 +31,16 @@ const AMAZON_NOTES = {
   assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },
   explanation: { hint: "<b>40–45 min.</b> Dry-run your code on the example by hand: the state after each step, then the answer.", placeholder: "## Dry run on the example\n1. \n\n## Complexity\n- " },
 };
-const LEARNING_NOTES = {   // the learning round: your mental model of the library, as you read
-  plan: { hint: "<b>While you read.</b> relay in your own words: what you'd tell a teammate before they used it. Say it out loud too.", placeholder: "## relay, in my words\n- \n\n## Surprises\n- \n\n## Questions to ask\n- " },
+const LEARNING_NOTES = library => ({   // the learning round: your mental model of the library, as you read
+  plan: { hint: `<b>While you read.</b> ${library} in your own words: what you'd tell a teammate before they used it. Say it out loud too.`, placeholder: `## ${library}, in my words\n- \n\n## Surprises\n- \n\n## Questions to ask\n- ` },
   assumptions: { hint: "<b>Any time.</b> What you assumed where the docs or the task didn't say.", placeholder: "- I'm assuming…" },
-};
+});
 const TALK_NOTES = {   // the behavioral round and the résumé deep dive: nothing to plan in code
   plan: { hint: "<b>Any time.</b> The stories and numbers you want to bring up, and your questions for the interviewer.", placeholder: "## Stories to tell\n- \n\n## Numbers to mention\n- \n\n## Questions for the interviewer\n- " },
 };
 const notesFor = () => {
   const format = latest && latest.interview.format;
-  return AMAZON_CODING.includes(format) ? { ...NOTES, ...AMAZON_NOTES } : format === "palantir-learning" ? { ...NOTES, ...LEARNING_NOTES }
+  return AMAZON_CODING.includes(format) ? { ...NOTES, ...AMAZON_NOTES } : format === "palantir-learning" ? { ...NOTES, ...LEARNING_NOTES(latest.interview.library || "The library") }
     : format === "amazon-behavioral" || format === "resume" ? { ...NOTES, ...TALK_NOTES } : NOTES;
 };
 
@@ -544,6 +544,7 @@ async function openCode(path) {
 function codeChanged() {
   if (code.loading || !code.path) return;
   active(); progressed();
+  code.editedAt = Date.now();   // the learning round's interviewer waits until you stop typing
   code.dirty = true;
   markCodeTab();
   $("saved").textContent = "Saving…";
@@ -706,6 +707,7 @@ function speakNewSentences(text, from) {
 async function coachChat(body, path = "api/coach") {
   if (pop.streaming) return null;
   pop.streaming = true;
+  pop.repliedAt = Date.now();   // any reply counts toward the gap before the interviewer asks something on its own
   $("pop-toggle").classList.add("busy");
   const live = $("pop-text");
   const empty = $("pop-log").querySelector(".pop-empty");
@@ -777,22 +779,33 @@ function coachOnThinking(text) {
   const amazon = probingNow();   // Amazon's interviewer, or the learning round's: both ask about what you say and write
   if (!coach && !phaseNow().nudge && !amazon) return;   // a real interviewer lets you code in peace (except Amazon's, who questions your choices)
   const said = thought.join(" ");
+  const pace = pacing();
   // Your reply to the interviewer's question gets its follow-up right away; otherwise it waits its turn.
   const answering = amazon && probe.awaiting > 0;
-  if (said.split(/\s+/).length < (answering ? 4 : 8) || (!answering && Date.now() - lastThinkingReply < (coach ? 15000 : amazon ? 30000 : 45000))) return;
+  const since = Date.now() - Math.max(lastThinkingReply, amazon ? pop.repliedAt || 0 : 0);
+  if (said.split(/\s+/).length < (answering ? 4 : 8) || (!answering && since < (coach ? 15000 : amazon ? pace.thinking : 45000))) return;
   clearTimeout(voice.nudgeTimer);
   const spokeAt = voice.spokeAt;
-  voice.nudgeTimer = setTimeout(() => {
-    if (voice.spokeAt !== spokeAt || voice.speaking || pop.streaming) return;
+  const check = () => {
+    if (voice.spokeAt !== spokeAt || voice.speaking || pop.streaming) return;   // you kept talking: your next words re-arm this
+    if (Date.now() - (code.editedAt || 0) < pace.typingPause) { voice.nudgeTimer = setTimeout(check, 2000); return; }   // still typing
     lastThinkingReply = Date.now();
     thought = [];
     if (amazon) probeChat({ trigger: answering ? "answer" : "thinking", message: said.slice(-1500) });
     else coachChat({ trigger: "thinking", message: said.slice(-1500) });
-  }, 3000);
+  };
+  voice.nudgeTimer = setTimeout(check, 3000);
 }
 
-// The Amazon rounds' interviewer asks about the code you type, once you pause typing without explaining it, and follows
-// up on your answer to its question (at most twice in a row) before letting you get back to coding.
+// How the interviewer that questions your choices paces itself: the least time between questions of its own (from its
+// last reply of any kind), how long you must have stopped typing first, and how many follow-ups an answer can get. The
+// learning round's interviewer waits for real pauses and lets you code; the Amazon rounds' asks more often.
+const pacing = () => learningNow()
+  ? { thinking: 90000, code: 90000, typingPause: 6000, codePause: 15000, followups: 1 }
+  : { thinking: 30000, code: 45000, typingPause: 0, codePause: 8000, followups: 2 };
+
+// The interviewer asks about the code you type, once you pause typing without explaining it, and follows up on your
+// answer to its question (pacing().followups times at most) before letting you get back to coding.
 const probe = { seen: {}, timer: null, awaiting: 0 };
 async function probeChat(body) {
   await saveCode();   // it reads your code from the workspace
@@ -800,21 +813,23 @@ async function probeChat(body) {
   if (!result) return;   // the interviewer was already replying
   const { entry, failed } = result;
   const asked = !failed && !!entry && /\?\s*$/.test(entry.answer || "");
-  probe.awaiting = !asked ? 0 : body.trigger === "answer" ? probe.awaiting - 1 : 2;
+  probe.awaiting = !asked ? 0 : body.trigger === "answer" ? probe.awaiting - 1 : pacing().followups;
   if (code.path) probe.seen[code.path] = codeValue();
 }
 function probeCodeLater() {
   if (!probingNow() || !aiOn() || !code.path || (learningNow() && latest.session.overtime)) return;   // once the learning round's time is up, your code isn't questioned
   clearTimeout(probe.timer);
-  probe.timer = setTimeout(() => {
+  const pace = pacing();
+  probe.timer = setTimeout(() => {   // each keystroke restarts this, so it runs once you've stopped typing
     const path = code.path, now = codeValue(), before = probe.seen[path];
     if (before === undefined) { probe.seen[path] = now; return; }
     const old = new Set(before.split("\n").map(line => line.trim()));
     const added = now.split("\n").filter(line => line.trim() && !old.has(line.trim()));
-    if (added.length < 3 || Date.now() - lastThinkingReply < 45000 || pop.streaming || voice.speaking || Date.now() - voice.spokeAt < 5000) return;
+    const since = Date.now() - Math.max(lastThinkingReply, pop.repliedAt || 0);
+    if (added.length < 3 || since < pace.code || pop.streaming || voice.speaking || Date.now() - voice.spokeAt < 5000) return;
     lastThinkingReply = Date.now();
     probeChat({ trigger: "code", message: added.join("\n").slice(-1500) });
-  }, 8000);
+  }, pace.codePause);
 }
 
 const HINT_ASK = /\b(hint|i'?m stuck|stuck|give me a clue|clue|nudge|help me out|can you help)\b/i;

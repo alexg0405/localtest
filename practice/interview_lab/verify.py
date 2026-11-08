@@ -956,80 +956,13 @@ def verify_coding_round_workflow(interview, home: Path, c: Checker) -> None:
         server.server_close()
 
 
-# The learning round's library against its docs: run in a workspace, it prints "ok" or fails with what's wrong.
-LIBRARY_CHECK = '''
-import threading, time
-import relay
-
-def slow(n):
-    time.sleep(0.05)
-    return n
-
-with relay.Runner(workers=1) as runner:
-    handles = [runner.submit(slow, i) for i in range(3)]
-    time.sleep(0.02)   # the first one starts; the other two are still queued when the block ends
-assert handles[0].result() == 0 and all(h.state == "cancelled" for h in handles[1:]), "the with block cancels queued jobs"
-
-def boom():
-    raise ValueError("bad")
-
-with relay.Runner() as runner:
-    handle = runner.submit(boom)
-    try:
-        handle.result()
-        raise AssertionError("result() should raise")
-    except relay.JobFailed as failed:
-        assert isinstance(failed.cause, ValueError), "JobFailed carries the cause"
-
-running, peak, lock = [0], [0], threading.Lock()
-def tracked():
-    with lock:
-        running[0] += 1
-        peak[0] = max(peak[0], running[0])
-    time.sleep(0.03)
-    with lock:
-        running[0] -= 1
-
-with relay.Runner(workers=4) as runner:
-    relay.gather([runner.submit(tracked, key="same") for _ in range(3)])
-assert peak[0] == 1, "jobs with the same key run one at a time"
-
-with relay.Runner(workers=2) as runner:
-    first, second = runner.submit(time.sleep, 0.15), runner.submit(time.sleep, 0.01)
-    assert [o.handle for o in relay.gather([first, second])] == [second, first], "gather returns outcomes in finishing order"
-
-calls = [0]
-def flaky():
-    calls[0] += 1
-    raise ConnectionError("dropped")
-
-with relay.Runner() as runner:
-    handle = runner.submit(flaky, retry=relay.Retry(times=2, wait=0.001))
-    relay.gather([handle])
-assert calls[0] == 3 and handle.attempts == 3, "Retry(times=2) runs the job three times"
-
-def patient():
-    for _ in range(100):
-        if relay.cancelled():
-            raise relay.Cancelled("stopped")
-        time.sleep(0.01)
-    return "finished"
-
-with relay.Runner() as runner:
-    handle = runner.submit(patient)
-    outcome = relay.gather([handle], timeout=0.05)[0]
-assert not outcome.ok and isinstance(outcome.error, relay.Cancelled) and handle.state == "cancelled", "a timeout cancels a job that checks"
-print("ok")
-'''
-
-
 def verify_learning_round(interview, home: Path, python: str, workspace: Path, scratch: Path, c: Checker) -> None:
     """The learning round: the starter works but is slow, each part's example fails on it and passes on the reference,
-    relay does what its docs say, and the parts come one at a time."""
+    the library does what its docs say, and the parts come one at a time."""
     from .session import PARTS_FILE
     parts = interview.parts()
     visible = run_pytest(python, workspace, ["tests"])
-    c.check("the starter's own tests pass: it works, one hospital at a time", visible["ok"] and visible["total"] > 0)
+    c.check("the starter's own tests pass: the customer's code works before the parts", visible["ok"] and visible["total"] > 0)
     starter, solved = scratch / "starter", scratch / "solved"
     build_starter(interview, starter, home)
     build_starter(interview, solved, home)
@@ -1046,9 +979,11 @@ def verify_learning_round(interview, home: Path, python: str, workspace: Path, s
             f"{solved_visible['passed']} visible, {solved_hidden['passed']}/{solved_hidden['total']} grading")
     c.check("each part has its task, example test, line, and hints, and the docs are there",
             bool(interview.docs()) and all(part["text"].strip() and part["tests_path"].is_file() and part["cue"] in interviewer.cues_for(interview) and part["hints"] for part in parts))
-    probe = subprocess.run([python, "-c", LIBRARY_CHECK], cwd=workspace, capture_output=True, encoding="utf-8", errors="replace", timeout=60)
-    c.check("relay does what its docs say (the with block, JobFailed, keys, gather's order, retries, cancellation)", probe.returncode == 0 and probe.stdout.strip() == "ok",
-            (probe.stdout + probe.stderr).strip()[-300:])
+    # The round's library against its docs: interviewer/library_check.py, run in the workspace, prints "ok" or fails with what's wrong.
+    check = interview.interviewer / "library_check.py"
+    probe = subprocess.run([python, "-c", check.read_text(encoding="utf-8")], cwd=workspace, capture_output=True, encoding="utf-8", errors="replace", timeout=60) if check.is_file() else None
+    c.check(f"{interview.library} does what its docs say ({interview.learning('checked', 'its main ideas')})", probe is not None and probe.returncode == 0 and probe.stdout.strip() == "ok",
+            (probe.stdout + probe.stderr).strip()[-300:] if probe else "no interviewer/library_check.py")
 
     clock = FakeClock()
     sessions = Sessions(home, clock=clock)
@@ -1090,9 +1025,10 @@ def verify_learning_workflow(interview, home: Path, c: Checker) -> None:
 
     try:
         start = _http(port, "/api/start", {"interview": iid, "reset": True})
-        c.check("the dashboard gets relay's docs, and no part yet", start["docs"] == interview.docs() and start["session"]["parts"] == [])
-        entry = _http(port, "/api/ask", {"interview": iid, "question": "What happens to queued jobs when the with block ends?"})["entry"]
-        c.check("a question the docs answer gets its answer and the section", entry["matched"] and "section 1" in entry["answer"], entry["answer"][:60])
+        c.check(f"the dashboard gets {interview.library}'s docs, and no part yet", start["docs"] == interview.docs() and start["session"]["parts"] == [])
+        question, section = interview.learning("docs_question"), interview.learning("docs_section")
+        entry = _http(port, "/api/ask", {"interview": iid, "question": question})["entry"]
+        c.check("a question the docs answer gets its answer and the section", bool(question) and entry["matched"] and section in entry["answer"], entry["answer"][:60])
         clock.now += 240
         c.check("quiet while you read: the interviewer lets you read", _http(port, f"/api/stuck?interview={iid}")["help"] is None)
         ready = _http(port, "/api/done", {"interview": iid})
@@ -1175,8 +1111,8 @@ def verify_learning_claude(interview, port: int, c: Checker) -> None:
         _http(port, "/api/start", {"interview": interview.id, "reset": True})
         events = coach({"trigger": "thinking", "message": "So jobs with the same key run in parallel?"})
         prompt = next(r for path, r in seen if path == "/api/claude-code")["prompt"]
-        c.check("while you read, Claude has relay's docs and checks your model without giving the task away",
-                events[-1].get("done") and coach_ai.ROLE_PALANTIR_LEARNING in prompt and interview.docs()[:80] in prompt
+        c.check(f"while you read, Claude has {interview.library}'s docs and checks your model without giving the task away",
+                events[-1].get("done") and coach_ai.learning_role(interview) in prompt and interview.docs()[:80] in prompt
                 and "same key run in parallel" in prompt and "Don't give them the first part yet" in prompt)
         before = len(seen)
         quiet = coach({"trigger": "stuck"})

@@ -3,22 +3,34 @@
   "title": "Palantir FDSE learning interview: the hospital supply sync",
   "company": "palantir",
   "format": "palantir-learning",
-  "inspired_by": "Modeled on candidate reports of Palantir's Forward Deployed Software Engineer onsite (2025 and 2026): the Learning round gives you documentation for an unfamiliar library, about five minutes to read it, and the rest of a 30-minute round to extend code with it in short stages, while the interviewer watches how you read, what you ask, and how you build. An original simulation: relay and the customer are made up.",
+  "inspired_by": "Modeled on candidate reports of Palantir's Forward Deployed Software Engineer onsite (2025 and 2026): the Learning round gives you documentation for an unfamiliar library, a few minutes to read it, and the rest of the round to extend code with it in short stages, while the interviewer watches how you read, what you ask, and how you build. This practice version runs 45 minutes. An original simulation: relay and the customer are made up.",
   "level": "FDSE onsite · Learning round",
-  "summary": "A library you've never seen, its docs, and a hospital network's nightly sync to extend with it: five minutes to read, then 25 to build, in up to four parts. Ask good questions, explain what you're using, and build in small tested steps. No AI; write and run your code in the browser editor.",
+  "summary": "A library you've never seen, its docs, and a hospital network's nightly sync to extend with it: up to ten minutes to read, then 35 to build, in up to four parts. Ask good questions, explain what you're using, and build in small tested steps. No AI; write and run your code in the browser editor.",
   "tags": [
     "python",
-    "30 min",
+    "45 min",
     "no AI",
     "new library",
     "4 parts",
     "runs code"
   ],
-  "duration_minutes": 30,
+  "duration_minutes": 45,
   "change_at_minutes": null,
   "ai_allowed": false,
   "run_tests_allowed": true,
   "docs": "relay/DOCS.md",
+  "library": "relay",
+  "learning": {
+    "about": "an internal job library",
+    "customer": "a hospital network",
+    "task": "extending the customer's nightly supply sync with it",
+    "thing": "relay call",
+    "choices": "(result() or gather, which exceptions the retry covers, where the with block ends, how many workers)",
+    "debug_tip": "printing what a handle's state or an outcome holds",
+    "docs_question": "What happens to queued jobs when the with block ends?",
+    "docs_section": "section 1",
+    "checked": "the with block, JobFailed, keys, gather's order, retries, cancellation"
+  },
   "note_tabs": {
     "plan": "notes.md",
     "assumptions": "assumptions.md"
@@ -106,14 +118,14 @@
   "phases": [
     {
       "start": 0,
-      "end": 5,
+      "end": 10,
       "name": "Read the docs and the code",
       "cue": "pl_intro",
       "kind": "learn"
     },
     {
-      "start": 5,
-      "end": 30,
+      "start": 10,
+      "end": 45,
       "name": "Extend the sync, one part at a time",
       "cue": "pl_part1",
       "kind": "coding",
@@ -129,8 +141,8 @@
       ]
     },
     {
-      "start": 30,
-      "end": 30,
+      "start": 45,
+      "end": 45,
       "name": "What you learned, and your questions",
       "cue": "pl_wrap",
       "kind": "wrap",
@@ -180,7 +192,7 @@
     }
   ],
   "cues": {
-    "pl_intro": "Hi, thanks for joining. I'm an engineer on one of our commercial deployments, a network of six hospitals. This is a learning interview: you'll work with relay, a small job library our team wrote, which you haven't seen before. Its docs are in the Docs tab, and the customer's sync tool is in the editor. Take about five minutes to read both, and ask me anything as you go. Then you'll extend the sync, one part at a time, for the rest of our half hour. When you're ready, say so, and I'll give you the first part.",
+    "pl_intro": "Hi, thanks for joining. I'm an engineer on one of our commercial deployments, a network of six hospitals. This is a learning interview: you'll work with relay, a small job library our team wrote, which you haven't seen before. Its docs are in the Docs tab, and the customer's sync tool is in the editor. Take up to ten minutes to read both, and ask me anything as you go. Then you'll extend the sync, one part at a time, for the rest of our 45 minutes. When you're ready, say so, and I'll give you the first part.",
     "pl_part1": "Okay, here's the first part, in the Tasks tab. The sync pulls one hospital at a time and takes forty minutes, so make it pull them in parallel with relay. Before you code, tell me how you'd do it.",
     "pl_part2": "Okay, part two, in the Tasks tab. One hospital's system drops connections now and then, and another goes offline for maintenance. How would you handle each with relay?",
     "pl_part3": "Okay, part three, in the Tasks tab. The report has to be ready by six, so pull_all gets a deadline. How would you stop the slow hospitals in time?",

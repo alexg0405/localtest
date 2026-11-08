@@ -15,7 +15,7 @@ PROBLEMS_DIR = LAB_ROOT / "problems"  # single-problem practice rounds
 CONCEPTS = PROBLEMS_DIR / "_concepts.json"  # what the coach can explain
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-full-loop", "amazon-final-1", "amazon-final-2", "amazon-coding", "amazon-behavioral", "resume-deep-dive",
-         "palantir-learning"]
+         "palantir-query", "palantir-batch", "palantir-learning"]
 LP_BANK = INTERVIEWS_DIR / "_amazon" / "leadership_principles.json"  # interviewer-only: questions, follow-ups, signals
 
 
@@ -194,6 +194,15 @@ class Interview:
         path = self.starter / name if name else None
         return path.read_text(encoding="utf-8") if path and path.is_file() else ""
 
+    @property
+    def library(self) -> str:
+        """The learning round's unfamiliar library or language, by name ("relay")."""
+        return self.meta.get("library", "the library")
+
+    def learning(self, key: str, default: str = "") -> str:
+        """A learning round's own wording for the interviewer: its customer, their tool, what to ask about, and so on."""
+        return (self.meta.get("learning") or {}).get(key, default)
+
     def approach(self) -> str:
         return self._text("approach.md")
 
@@ -202,7 +211,7 @@ class Interview:
 
     def public(self) -> Dict[str, Any]:
         """What the dashboard may show before submission: nothing from the interviewer folder."""
-        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes", "company", "format", "note_tabs", "tags", "editor_files", "custom_input", "number", "difficulty", "leetcode")
+        keys = ("id", "title", "inspired_by", "level", "summary", "duration_minutes", "change_at_minutes", "company", "format", "note_tabs", "tags", "editor_files", "custom_input", "number", "difficulty", "leetcode", "library")
         public = {key: self.meta.get(key) for key in keys}
         public["ai_allowed"] = self.ai_allowed
         public["run_tests_allowed"] = self.meta.get("run_tests_allowed", True)

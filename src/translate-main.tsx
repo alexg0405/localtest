@@ -1,0 +1,1 @@
+import React from 'react';import{createRoot}from'react-dom/client';import TranslateApp from'./TranslateApp';import'./translate.css';createRoot(document.getElementById('root')!).render(<React.StrictMode><TranslateApp/></React.StrictMode>);

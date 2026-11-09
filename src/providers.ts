@@ -169,31 +169,34 @@ export class ClaudeCodeProvider implements LLMProvider {
   answer(question: string, context: string, mode: Mode, onChunk?: (text: string) => void, signal?: AbortSignal) { return this.stream({ model: this.model, system: instructions, prompt: userMessage(context, question, mode) }, onChunk, signal); }
   /** Skips the Claude Code process kept waiting for answers (warm: false), so the next answer still starts right away. */
   complete(system: string, prompt: string, signal?: AbortSignal) { return this.stream({ model: this.model, system, prompt, warm: false }, undefined, signal); }
-  private async stream(body: { model: ClaudeModel; system: string; prompt: string; warm?: boolean }, onChunk?: (text: string) => void, signal?: AbortSignal) {
-    const response = await fetch('/api/claude-code', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!response.ok) throw new Error(await bridgeError(response));
-    if (!response.body) throw new Error('The Claude Code bridge returned no answer.');
-    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let full = '';
-    const consume = (line: string) => {
-      if (!line.trim()) return;
-      const event = JSON.parse(line);
-      if (typeof event.error === 'string') throw new Error(event.error);
-      if (typeof event.text === 'string') { full += event.text; onChunk?.(event.text); }
-    };
-    try {
-      while (true) {
-        const { value, done } = await reader.read(); if (done) break;
-        buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() ?? '';
-        for (const line of lines) consume(line);
-      }
-      consume(buffer + decoder.decode());
-    } catch (reason) { void reader.cancel().catch(() => undefined); throw reason; }
-    return full;
-  }
+  private stream(body: ClaudeCodeRequest, onChunk?: (text: string) => void, signal?: AbortSignal) { return streamClaudeCode(body, onChunk, signal); }
   /** Has the bridge start Claude Code before the first question, so that answer does not wait for it to boot. Uses none of your Claude usage. */
   static warm(model: ClaudeModel) {
     void fetch('/api/claude-code/warm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, system: instructions }) }).catch(() => undefined);
   }
+}
+export type ClaudeCodeRequest = { model: ClaudeModel; system: string; prompt: string; warm?: boolean };
+/** One reply from Claude through the Claude Code bridge, streamed: each piece goes to onChunk, and the whole reply is returned. */
+export async function streamClaudeCode(body: ClaudeCodeRequest, onChunk?: (text: string) => void, signal?: AbortSignal) {
+  const response = await fetch('/api/claude-code', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!response.ok) throw new Error(await bridgeError(response));
+  if (!response.body) throw new Error('The Claude Code bridge returned no answer.');
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let full = '';
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line);
+    if (typeof event.error === 'string') throw new Error(event.error);
+    if (typeof event.text === 'string') { full += event.text; onChunk?.(event.text); }
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() ?? '';
+      for (const line of lines) consume(line);
+    }
+    consume(buffer + decoder.decode());
+  } catch (reason) { void reader.cancel().catch(() => undefined); throw reason; }
+  return full;
 }
 async function bridgeError(response: Response) {
   if (response.status === 404) return 'Answers from your Claude subscription need the local dev server. Start Roomside with `npm start`.';

@@ -90,7 +90,9 @@ export function startClaude(binary: string, model: ClaudeModel, system: string, 
   return child;
 }
 
-const running = (child: ChildProcessWithoutNullStreams) => child.pid !== undefined && child.exitCode === null && child.signalCode === null && !child.killed;
+// Asks the system too: on Windows a process can be gone a moment before Node hears that it exited.
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; } };
+const running = (child: ChildProcessWithoutNullStreams) => child.pid !== undefined && child.exitCode === null && child.signalCode === null && !child.killed && alive(child.pid);
 
 /** Keeps one Claude Code process booted and waiting for the next question, so answers skip its startup. */
 export class WarmClaude {

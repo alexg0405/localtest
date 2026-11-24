@@ -6,7 +6,8 @@ import { claudeModels, isClaudeModel } from '../src/claude';
 import { childEnv, claudeArgs, claudeCommand, findClaudeBinary, startClaude, streamAnswer, translateLine, WarmClaude, type BridgeEvent } from './claude-code-bridge';
 
 const root = mkdtempSync(join(tmpdir(), 'roomside-bridge-test-'));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// Windows won't delete a folder that's a running process's working directory, so wait out processes still stopping.
+afterAll(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 const windows = process.platform === 'win32';
 
@@ -224,7 +225,9 @@ describe('WarmClaude', () => {
       const [first] = startedPids(cwd);
       await vi.waitFor(() => expect(startedPids(cwd)).toHaveLength(2), soon); // Swapped before the 400 ms limit.
       await vi.waitFor(() => expect(stopped(first)).toBe(true), soon);
-      expect(claude.take(binary, 'claude-haiku-4-5', 'Be brief.').pid).toBe(startedPids(cwd)[1]);
+      const taken = claude.take(binary, 'claude-haiku-4-5', 'Be brief.');
+      expect(taken.pid).toBe(startedPids(cwd)[1]);
+      taken.kill();   // nothing answers with it, and a process left waiting keeps its folder from being deleted on Windows
     } finally { claude.close(); }
   });
 

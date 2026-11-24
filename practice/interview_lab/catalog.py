@@ -15,16 +15,29 @@ PROBLEMS_DIR = LAB_ROOT / "problems"  # single-problem practice rounds
 CONCEPTS = PROBLEMS_DIR / "_concepts.json"  # what the coach can explain
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 ORDER = ["commerce-orders", "banking-ledger", "unfamiliar-repo", "amazon-full-loop", "amazon-final-1", "amazon-final-2", "amazon-coding", "amazon-behavioral", "resume-deep-dive",
-         "palantir-query", "palantir-batch", "palantir-learning"]
-LP_BANK = INTERVIEWS_DIR / "_amazon" / "leadership_principles.json"  # interviewer-only: questions, follow-ups, signals
+         "rednote-second-round", "palantir-query", "palantir-batch", "palantir-learning"]
 
-
-def leadership_bank() -> List[Dict[str, Any]]:
-    return json.loads(LP_BANK.read_text(encoding="utf-8")) if LP_BANK.exists() else []
+# Who interviews you in the rounds that ask behavioral questions (the Amazon rounds, and other companies' rounds in the
+# "amazon-final" format), as the prompts, the page, and the report name them. A round's "persona" in interview.json
+# replaces any of these: the RedNote round has its own company, section, and question bank.
+AMAZON_PERSONA = {
+    "company": "Amazon",
+    "interviewer": "a software engineer at Amazon",
+    "candidate": "a candidate for the Amazon SDE internship, usually a sophomore or junior",
+    "round": "an SDE intern final round",
+    "section": "Leadership Principles",              # the behavioral part, as headings and score labels name it
+    "questions": "Leadership Principles questions",  # and in running text
+    "about": "Amazon's Leadership Principles",       # what the behavioral questions are based on
+    "intro": ("Let's switch gears. For the next few minutes I'll ask a couple of behavioral questions, based on Amazon's Leadership Principles. "
+              "Use a specific example, and tell me what you did yourself. "),   # said before the first one, after a résumé deep dive
+    "bank": "_amazon/leadership_principles.json",    # interviewer-only: questions, follow-ups, signals
+    "no_ai": "Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted",
+    "stories": "Prepare 8–12 STAR stories mapped to different Leadership Principles, since each round asks for new ones.",
+}
 
 # The default 60-minute AI-assisted flow. An interview can define its own "phases" in interview.json.
 # "cue" names the interviewer's line at the start of the phase; "nudge" lets it ask follow-ups when you pause;
-# "kind": "behavioral" turns what you say into answers to its Leadership Principles questions.
+# "kind": "behavioral" turns what you say into answers to its behavioral questions.
 DEFAULT_PHASES = [
     {"start": 0, "end": 5, "name": "Read the task and clarify requirements", "cue": "start"},
     {"start": 5, "end": 15, "name": "Explore the repository and explain a plan", "cue": "plan", "nudge": "plan"},
@@ -162,6 +175,15 @@ class Interview:
         """Leadership Principles questions with their follow-ups (interviewer-only: which principle each probes)."""
         return self._json("behavioral.json", [])
 
+    def persona(self) -> Dict[str, str]:
+        """Who's interviewing and what the behavioral part is called: Amazon's, unless the round has its own (AMAZON_PERSONA)."""
+        return {**AMAZON_PERSONA, **(self.meta.get("persona") or {})}
+
+    def behavioral_bank(self) -> List[Dict[str, Any]]:
+        """The bank this round's behavioral questions come from, by principle or theme (each entry's "lp")."""
+        path = INTERVIEWS_DIR / self.persona()["bank"]
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+
     def hints(self) -> List[str]:
         return self._json("hints.json", [])
 
@@ -220,6 +242,8 @@ class Interview:
         public["followup_custom_input"] = self.meta.get("followup_custom_input")
         public["part_count"] = len(self.meta.get("parts", []))
         public["has_docs"] = bool(self.meta.get("docs"))
+        if self.meta.get("behavioral"):
+            public["persona"] = {key: self.persona()[key] for key in ("company", "section")}
         return public
 
 

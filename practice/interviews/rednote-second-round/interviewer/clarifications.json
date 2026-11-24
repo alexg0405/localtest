@@ -1,0 +1,80 @@
+[
+  {
+    "topic": "Several notes on one day",
+    "important": true,
+    "keywords": ["duplicate", "repeated", "same day", "twice", "more than one", "multiple notes", "several notes", "two notes"],
+    "answer": "A day shows up once for every note posted that day. It still counts as one day of the streak."
+  },
+  {
+    "topic": "Order of the days",
+    "important": true,
+    "keywords": ["sorted", "unsorted", "in order", "order", "ascending", "chronological"],
+    "answer": "They're in no particular order. Don't assume they're sorted."
+  },
+  {
+    "topic": "No notes yet",
+    "important": true,
+    "keywords": ["empty", "no notes", "no days", "nothing posted", "new creator", "zero notes"],
+    "answer": "If the list is empty, the creator has no streak yet, so return 0."
+  },
+  {
+    "topic": "What counts as consecutive",
+    "important": true,
+    "keywords": ["consecutive", "in a row", "next day", "gap", "skip", "miss", "break"],
+    "answer": "Consecutive means each day is exactly one more than the day before. Missing a single day ends the streak."
+  },
+  {
+    "topic": "Input size and performance",
+    "important": true,
+    "keywords": ["size", "how many", "large", "scale", "big", "performance", "efficient", "constraints", "million", "complexity"],
+    "answer": "A creator can have a few hundred thousand notes, with day numbers up to about a million. It should run in well under a second."
+  },
+  {
+    "topic": "Day numbers",
+    "important": false,
+    "keywords": ["negative", "day 0", "day number", "range", "integer", "time zone", "timezone", "timestamp", "date"],
+    "answer": "Days are whole numbers from 0, the day they joined. Don't worry about time zones: the days are already in the creator's local time."
+  },
+  {
+    "topic": "What to return",
+    "important": false,
+    "keywords": ["return", "which days", "the days themselves", "start day", "output"],
+    "answer": "Just the length of the longest streak, as a number."
+  },
+  {
+    "topic": "Freezes at the edges",
+    "important": false,
+    "keywords": ["freeze", "freezes", "before the first", "after the last", "edges", "unused", "leftover", "extra freezes"],
+    "answer": "In the follow-up, a streak still starts and ends on a day with a note. Freezes only cover missing days in between, so leftover freezes don't make it longer."
+  },
+  {
+    "topic": "Behavioral examples",
+    "important": false,
+    "keywords": ["school", "class", "example from", "personal", "project", "club", "hackathon", "doesn't have to be work"],
+    "answer": "School projects, internships, clubs, hackathons, or part-time jobs all count. Pick the example where you personally did the most."
+  },
+  {
+    "topic": "Length of answers",
+    "important": false,
+    "keywords": ["how long", "too long", "detail", "should i keep"],
+    "answer": "Two to three minutes per story is about right. I'll ask follow-ups if I want more."
+  },
+  {
+    "topic": "Language",
+    "important": false,
+    "keywords": ["chinese", "mandarin", "english", "language"],
+    "answer": "English is fine for the whole interview."
+  },
+  {
+    "topic": "The team and RedNote",
+    "important": false,
+    "keywords": ["team", "intern", "day to day", "typical day", "work on", "mentor", "culture", "new york", "office", "rednote", "xiaohongshu"],
+    "answer": "We're a newer team here in New York, so people own a lot end to end and work with colleagues in China across time zones. What are you hoping to learn on your next team?"
+  },
+  {
+    "topic": "Running the code",
+    "important": false,
+    "keywords": ["run", "execute", "compile", "test it", "run it"],
+    "answer": "Yes, you can run it: Run tests runs the example, and the Custom input tab runs any Python you write. Walk me through the example by hand too."
+  }
+]

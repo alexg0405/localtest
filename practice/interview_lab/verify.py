@@ -61,6 +61,12 @@ def test_tie_is_alphabetical():
 def test_tie_is_alphabetical():
     assert top_late_carriers([("a", "Zed", 1, 2), ("b", "Amy", 1, 2)], 2) == ["Amy", "Zed"]
 ''',
+    "rednote-second-round": '''from streaks.posting_streaks import longest_streak
+
+
+def test_several_notes_on_one_day_count_once():
+    assert longest_streak([4, 4, 5]) == 2
+''',
     "amazon-final-2": '''from fulfillment.robot_moves import min_moves
 
 
@@ -417,9 +423,8 @@ def verify_conversational_coach(interview, port: int, c: Checker) -> None:
 
 
 def verify_behavioral_round(interview, home: Path, workspace: Path, scratch: Path, c: Checker) -> None:
-    from .catalog import leadership_bank
     c.check("no-AI round: the workspace tells the assistant not to help", "Do not help with the exercise" in (workspace / "CLAUDE.md").read_text(encoding="utf-8"))
-    bank = {entry["lp"]: entry for entry in leadership_bank()}
+    bank = {entry["lp"]: entry for entry in interview.behavioral_bank()}
     c.check("the bank covers all 16 Leadership Principles with two questions and three follow-ups each",
             len(bank) == 16 and all(len(e["questions"]) == 2 and all(len(q["followups"]) == 3 for q in e["questions"]) for e in bank.values()))
     rotation_home = scratch / "rotation"  # a fresh history, so earlier checks' questions don't count
@@ -490,7 +495,7 @@ def verify_resume_round(interview, home: Path, workspace: Path, scratch: Path, c
     c.check("each session asks two different Leadership Principles from the intern-relevant ones", len({item["lp"] for item in asked}) == 2 and all(item["lp"] in focus for item in asked), ", ".join(item["lp"] for item in asked))
     c.check("they come after the deep dives, in their own section", plan[3].get("section") == "Leadership Principles" and plan[3]["question"].startswith("Let's switch gears") and plan[4].get("lp") and "questions do you have" in plan[5]["question"])
     opening = coach_ai.build_resume_prompt(interview, state, sample, 18.4 * 60, "message", "That's how StudySync matched schedules.", start_section=True)
-    first = asked[0]["question"].replace(resume.LP_INTRO, "")
+    first = resume.plain_question(asked[0])
     c.check("Claude opens the section out loud: a transition, then the first principles question", "Now start the Leadership Principles section" in opening and first in opening and "up to three" in opening)
     during = coach_ai.build_resume_prompt(interview, state, sample, 22 * 60, "message", "I owned the migration.")
     c.check("during the section, Claude has both questions, their follow-ups, and what to listen for", all(item["lp"] in during and item["followups"][0] in during for item in asked) and "Spend about half the section" in during)
@@ -781,13 +786,14 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         c.check("submitting the untouched starter scores correctness low", scores["correctness"] <= 2 and starter_report["missed_cases"], f"correctness {scores['correctness']}")
         amazon = interview.meta.get("format") == "amazon-final"
         if amazon:
-            c.check("Leadership Principles are 'not observed' before any answer", scores["leadership"] is None and "ai_instructions" not in scores)
+            c.check("the behavioral questions are 'not observed' before any answer", scores["leadership"] is None and "ai_instructions" not in scores)
             plan = _http(port, f"/api/state?interview={interview.id}")["session"]["state"]["behavioral"]["plan"]
             deep_dive = grading.resume_deep_dive(interview)
             principles = [item for item in plan if item.get("lp")]
-            c.check("this session's principles come from the round's focus list", len(principles) == 2 and all(item["lp"] in interview.meta["behavioral"]["focus"] for item in principles))
+            count = interview.meta["behavioral"].get("count", 2)
+            c.check("this session's principles come from the round's focus list", len(principles) == count and all(item["lp"] in interview.meta["behavioral"]["focus"] for item in principles))
             if deep_dive:
-                c.check("the full interview opens with one résumé deep dive, then the principles", [item["kind"] for item in plan] == ["depth", "leadership", "leadership"])
+                c.check("the full interview opens with one résumé deep dive, then the principles", [item["kind"] for item in plan] == ["depth"] + ["leadership"] * count)
             story = "During my internship last summer I noticed our deploy script had no owner, so I decided to fix it. I rewrote it, tested it, and documented it. As a result deploys dropped from 40 minutes to 8 minutes. I learned to ask who owns something early."
             first = _http(port, "/api/behavioral", {"interview": interview.id})["entry"]
             _http(port, "/api/answer", {"interview": interview.id, "text": story})
@@ -840,7 +846,7 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         c.check("a regression test that fails on the starter is credited", report["tests"]["your_tests_that_catch_starter_bugs"] >= 1)
         if amazon:
             evidence = next(x["evidence"] for x in report["scores"] if x["area"] == "leadership")
-            c.check("Leadership Principles answers are scored with evidence", scores["leadership"] is not None and any("words" in line for line in evidence), f"{scores['leadership']}/5")
+            c.check("the behavioral answers are scored with evidence", scores["leadership"] is not None and any("words" in line for line in evidence), f"{scores['leadership']}/5")
             if deep_dive:
                 depth = next(x["evidence"] for x in report["scores"] if x["area"] == "depth")
                 c.check("the résumé deep dive is scored as technical depth, apart from the principles", scores["depth"] is not None and "websockets" in depth[1]
@@ -853,7 +859,7 @@ def verify_workflow(interview, home: Path, c: Checker) -> None:
         interviewer_prompt = _http(port, f"/api/packet?interview={interview.id}&kind=interviewer")["text"]
         c.check("copyable grading and interviewer prompts are produced", "not observed" in grading_prompt and interview.change_request()[:40] in interviewer_prompt)
         if amazon:
-            c.check("the grading prompt includes the Leadership Principles answers", "deploy script" in grading_prompt)
+            c.check("the grading prompt includes the behavioral answers", "deploy script" in grading_prompt)
         feedback = _http(port, "/api/feedback", {"interview": interview.id})
         c.check("API feedback degrades gracefully with API mode off", feedback.get("api_error", {}).get("kind") == "off")
         if amazon:

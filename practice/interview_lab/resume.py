@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .catalog import AMAZON_PERSONA
+
 MAX_CHARS = 40_000
 
 SECTION = re.compile(r"^(work |professional |relevant |research |leadership |personal |technical |software )?(experience|employment|projects?|research|leadership|activities|work history)( experience)?:?$", re.I)
@@ -173,9 +175,7 @@ def terms(text: str) -> List[str]:
     return list(seen.values())[:80]
 
 
-LP_SECTION = "Leadership Principles"
-LP_INTRO = ("Let's switch gears. For the next few minutes I'll ask a couple of behavioral questions, based on Amazon's Leadership Principles. "
-            "Use a specific example, and tell me what you did yourself. ")
+LP_SECTION, LP_INTRO = AMAZON_PERSONA["section"], AMAZON_PERSONA["intro"]   # another company's round passes its own to plan
 
 
 CONTENT_WORD = re.compile(r"[a-z]{4,}")
@@ -186,18 +186,24 @@ def _words(text: str) -> set:
     return {w for w in CONTENT_WORD.findall(text.lower()) if w not in COMMON}
 
 
+def plain_question(item: Dict[str, Any]) -> str:
+    """A behavioral question without the line that opens its section, which the first one is said with."""
+    return item["question"].replace(item.get("intro", LP_INTRO), "")
+
+
 def closest_principle(line: str, asked: List[Dict[str, Any]]) -> Optional[int]:
     """Which principles question an interviewer's line asks (Claude words it its own way), if it's clearly one of them."""
     said = _words(line)
-    best = max(((len(said & _words(item["question"].replace(LP_INTRO, ""))) / max(1, len(_words(item["question"].replace(LP_INTRO, "")))), i)
+    best = max(((len(said & _words(plain_question(item))) / max(1, len(_words(plain_question(item)))), i)
                 for i, item in enumerate(asked)), default=(0, None))
     return best[1] if best[0] >= 0.4 else None
 
 
-def plan(text: str, principles: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+def plan(text: str, principles: Optional[List[Dict[str, Any]]] = None, section: str = LP_SECTION, intro: str = LP_INTRO) -> List[Dict[str, Any]]:
     """The interview's questions: a walkthrough, two deep dives on things from the résumé, the Leadership Principles section
-    (this session's principles, from the shared bank), then the candidate's questions. Claude's interviewer gets the
-    principles questions from here; the scripted one, used when Claude isn't available, asks all of them in order."""
+    (this session's principles, from the shared bank; another company's round names its own section and intro line),
+    then the candidate's questions. Claude's interviewer gets the principles questions from here; the scripted one, used
+    when Claude isn't available, asks all of them in order."""
     found = items(text)
     projects = [label for kind, label in found if kind == "project"]
     roles = [label for kind, label in found if kind == "role"]
@@ -218,7 +224,7 @@ def plan(text: str, principles: Optional[List[Dict[str, Any]]] = None) -> List[D
               ["Who used it, and how did it help them?",
                "Why that tech stack? How did you use it there?",
                "If you built it again, what would you change?"]),
-        *[{**item, "kind": "leadership", **({"section": LP_SECTION, "question": LP_INTRO + item["question"]} if i == 0 else {})}
+        *[{**item, "kind": "leadership", **({"section": section, "intro": intro, "question": intro + item["question"]} if i == 0 else {})}
           for i, item in enumerate(principles or [])],
         entry("questions", "wrap", "That's all I had. What questions do you have for me?", []),
     ]

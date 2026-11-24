@@ -1,0 +1,161 @@
+{
+  "id": "rednote-second-round",
+  "title": "RedNote second round: your experience, behavioral questions, and a light coding problem",
+  "company": "rednote",
+  "format": "amazon-final",
+  "inspired_by": "Modeled on how RedNote's recruiter described the round (mostly behavioral, possibly with coding, with an engineer in New York) and on candidate reports of Xiaohongshu interviews: a deep dive on one project from your résumé, then an easy-to-medium coding problem. An original simulation, not a real RedNote question.",
+  "level": "Second round · mostly behavioral",
+  "summary": "An hour with an engineer from RedNote's New York office: a deep dive on a project from your résumé, three behavioral questions with follow-ups, then a light coding problem on creators' posting streaks, plus a follow-up. No AI; write and run your code in the browser editor.",
+  "tags": [
+    "python",
+    "60 min",
+    "no AI",
+    "behavioral + light coding",
+    "your résumé",
+    "runs code"
+  ],
+  "package": "streaks",
+  "duration_minutes": 60,
+  "change_at_minutes": 45,
+  "ai_allowed": false,
+  "run_tests_allowed": true,
+  "note_tabs": {
+    "plan": "approach.md",
+    "assumptions": "assumptions.md",
+    "explanation": "dry_run.md"
+  },
+  "source_files": [
+    "streaks/posting_streaks.py"
+  ],
+  "editor_files": [
+    "streaks/posting_streaks.py"
+  ],
+  "approach_keywords": [
+    "a set",
+    "hash set",
+    "hashset",
+    "set of",
+    "set(",
+    "sort",
+    "previous day",
+    "day before",
+    "day - 1",
+    "day minus one",
+    "sliding window",
+    "two pointers"
+  ],
+  "change_keywords": [
+    "freeze",
+    "freezes",
+    "window",
+    "gap",
+    "missing days"
+  ],
+  "phases": [
+    {
+      "start": 0,
+      "end": 3,
+      "name": "Introductions",
+      "cue": "amz_intro",
+      "kind": "intro"
+    },
+    {
+      "start": 3,
+      "end": 32,
+      "name": "Your experience: a project deep dive, then behavioral questions",
+      "cue": "amz_behavioral",
+      "kind": "behavioral"
+    },
+    {
+      "start": 32,
+      "end": 35,
+      "name": "Read and clarify the coding problem",
+      "cue": "amz_clarify",
+      "kind": "coding",
+      "ends_on_edit": true,
+      "keeps_length": true
+    },
+    {
+      "start": 35,
+      "end": 52,
+      "name": "Code it and talk it through",
+      "cue": "amz_code",
+      "kind": "coding",
+      "checks": [
+        {
+          "left": 10,
+          "cue": "amz_code_10"
+        },
+        {
+          "left": 5,
+          "cue": "amz_code_5"
+        }
+      ]
+    },
+    {
+      "start": 52,
+      "end": 60,
+      "name": "Dry run, complexity, and your questions",
+      "cue": "amz_wrap",
+      "kind": "wrap",
+      "nudge": "explain"
+    }
+  ],
+  "cues": {
+    "amz_intro": "Hi, thanks for joining, and thanks for making the time. I'm an engineer on RedNote's team here in New York, and I'll be your interviewer today. We have an hour: I'd like to spend most of it on your experience, a project you've worked on and a few situations you've been in, then a short coding problem, and we'll save time for your questions at the end. There's no AI in this round. To start, tell me a little about yourself, and what interests you about RedNote.",
+    "amz_behavioral": "Thanks. Let's start with a project from your résumé, and then I'll ask about a few situations you've been in.",
+    "amz_clarify": "Thanks, that's all I had on your experience. Let's do a short coding problem. It's in the Problem tab and in README.md in your workspace. Take a minute to read it, and ask me anything that's unclear before you start.",
+    "amz_code": "We have about {left} minutes for coding. Whenever you're ready, go ahead and code it in the editor, in streaks slash posting streaks dot py. You can run the example tests or your own code as you go. Keep talking me through your approach.",
+    "change": "Okay, let's extend it. I've added a follow-up to the Follow-up tab: creators can now spend streak freezes to cover days they missed. How would you change your approach?",
+    "amz_wrap": "We have about eight minutes left, so let's stop coding there. Walk me through your solution with the example, and tell me the time and space complexity. Then I'm happy to take any questions you have about RedNote or the team.",
+    "amz_code_10": "Quick time check: about ten minutes left for coding.",
+    "amz_code_5": "About five minutes left. Start wrapping up, so we have time to walk through it.",
+    "amz_wrap_early": "Okay, let's stop coding there. Walk me through your solution with the example, and tell me the time and space complexity. Then I'm happy to take any questions you have about RedNote or the team."
+  },
+  "closing_prompts": [
+    "What's the time and space complexity of your solution?",
+    "What edge cases would you test?",
+    "Do you have any questions for me?"
+  ],
+  "followups": {
+    "depth": "For the project you'd most want to be asked about, write its architecture in five boxes, one decision with the alternative you rejected and why, and the hardest bug you hit. Then explain it aloud in three minutes without notes.",
+    "problem_understanding": "Before writing code for any problem this week, list the three ambiguities you would ask about (duplicates, ordering, empty input) and the answer you'd assume for each.",
+    "leadership": "Write six STAR stories: building for users, ownership when it was unclear, working across teams or time zones, a disagreement, a setback, and learning something fast. Say each aloud in under 2.5 minutes, with one number in the result and one sentence on what you'd do differently.",
+    "problem_solving": "Re-solve the streak problem without looking: give the sort-based O(n log n) version, then the set-based O(n) one, and explain why each day is visited only a constant number of times.",
+    "correctness": "List every edge case of longest_streak (several notes on one day, unsorted days, an empty list, one day, the longest streak last) and walk your code through each by hand.",
+    "testing": "Walk your solution through the example out loud, tracking the current streak after each day, then write those steps as tests.",
+    "code_quality": "Rewrite your solution in under 12 lines with clear names, and explain each line in one sentence.",
+    "communication": "Record yourself solving a LeetCode easy-to-medium problem in 15 minutes while narrating continuously; listen back for silent stretches longer than 20 seconds."
+  },
+  "behavioral": {
+    "bank": "resume",
+    "count": 3,
+    "resume_items": [
+      "deep-1"
+    ],
+    "focus": [
+      "Building for users",
+      "Ownership when it's unclear",
+      "Working across teams and time zones",
+      "Disagreement and feedback",
+      "Learning fast",
+      "Setbacks and mistakes",
+      "Moving fast",
+      "Going beyond the task"
+    ]
+  },
+  "persona": {
+    "company": "RedNote",
+    "interviewer": "a software engineer on RedNote's team in New York",
+    "candidate": "a student candidate for a software engineering role on RedNote's growing US team",
+    "round": "a second-round interview that's mostly behavioral, with a light coding problem",
+    "section": "Behavioral questions",
+    "questions": "behavioral questions",
+    "about": "how they work: with users, with teammates across time zones, and on problems nobody has defined yet",
+    "intro": "Let's switch gears. For the next part I'll ask about a few situations you've been in. For each one, pick one specific example, and tell me what you did yourself. ",
+    "bank": "_rednote/behavioral.json",
+    "no_ai": "it's a live interview with an engineer, not a take-home",
+    "stories": "Prepare 8–10 STAR stories that cover users, ownership when things were unclear, working across teams or time zones, a disagreement, a setback, and learning fast, so each question gets a fresh one."
+  },
+  "custom_input": "from streaks.posting_streaks import longest_streak\n\ndays = [5, 1, 2, 9, 3, 2, 10]\nprint(longest_streak(days))\n"
+}

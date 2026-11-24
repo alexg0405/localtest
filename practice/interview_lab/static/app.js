@@ -23,13 +23,13 @@ const SUGGESTED = [
   "Can I change public function signatures?",
   "Is concurrency or persistence in scope?",
 ];
-const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-coding": ["amazon", "Amazon · Coding round"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"], "palantir-query": ["palantir", "Palantir FDSE · Query language"], "palantir-batch": ["palantir", "Palantir FDSE · Batch processor"], "palantir-learning": ["palantir", "Palantir FDSE · Learning (relay)"] };
+const DOMAINS = { "commerce-orders": ["commerce", "Commerce"], "banking-ledger": ["banking", "Banking"], "unfamiliar-repo": ["repo", "Unfamiliar repo"], "amazon-full-loop": ["amazon", "Amazon · Full interview"], "rednote-second-round": ["rednote", "RedNote · Second round"], "amazon-final-1": ["amazon", "Amazon final · Round 1"], "amazon-final-2": ["amazon", "Amazon final · Round 2"], "amazon-coding": ["amazon", "Amazon · Coding round"], "amazon-behavioral": ["amazon", "Amazon · Behavioral"], "resume-deep-dive": ["amazon", "Amazon · Résumé deep dive"], "palantir-query": ["palantir", "Palantir FDSE · Query language"], "palantir-batch": ["palantir", "Palantir FDSE · Batch processor"], "palantir-learning": ["palantir", "Palantir FDSE · Learning (relay)"] };
 // Rounds with a coding problem and Amazon's interviewer: the final rounds, and the coding round, which is only coding.
 const AMAZON_CODING = ["amazon-final", "amazon-coding"];
 const AMAZON_NOTES = {
   plan: { hint: "<b>Before you code.</b> Your approach: data structures, time and space complexity, and the edge cases you'll handle. Say it out loud too.", placeholder: "## Approach\n- \n\n## Complexity\n- Time: \n- Space: \n\n## Edge cases\n- " },
   assumptions: { hint: "<b>Any time.</b> What you assumed when the interviewer didn't specify.", placeholder: "- I'm assuming…" },
-  explanation: { hint: "<b>40–45 min.</b> Dry-run your code on the example by hand: the state after each step, then the answer.", placeholder: "## Dry run on the example\n1. \n\n## Complexity\n- " },
+  explanation: { hint: "<b>When your code works.</b> Dry-run your code on the example by hand: the state after each step, then the answer.", placeholder: "## Dry run on the example\n1. \n\n## Complexity\n- " },
 };
 const LEARNING_NOTES = library => ({   // the learning round: your mental model of the library, as you read
   plan: { hint: `<b>While you read.</b> ${library} in your own words: what you'd tell a teammate before they used it. Say it out loud too.`, placeholder: `## ${library}, in my words\n- \n\n## Surprises\n- \n\n## Questions to ask\n- ` },
@@ -383,7 +383,7 @@ function applyFormat(info) {
   document.querySelector("#change-locked h3").textContent = learning ? "Comes when you're ready" : codingRound ? "Comes once your solution works" : `Unlocks at ${info.change_at_minutes}:00`;
   document.querySelector("#change-locked p").textContent = learning ? "Read the docs and the code first, and explain them to the interviewer. When you're ready, press Ready for the task (or say so), and the first part shows up here. It comes at 10:00 either way."
     : codingRound ? `When your solution passes the example and it's fast enough, the interviewer extends the problem, as Amazon interviewers usually do (or at ${info.change_at_minutes}:00, if it works but is still slow). Keep going.`
-    : amazon ? "Partway through the coding problem, the interviewer adds a follow-up, as Amazon interviewers usually do. Keep going." : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
+    : amazon ? `Partway through the coding problem, the interviewer adds a follow-up${(info.persona || {}).company === "Amazon" ? ", as Amazon interviewers usually do" : ""}. Keep going.` : "Halfway through, the interviewer changes a requirement, just like in a real loop. Keep building.";
   document.querySelector(".change-banner").lastChild.textContent = learning ? "The task, one part at a time" : amazon ? "Follow-up from the interviewer" : "Requirement change from the interviewer";
   $("change-note").innerHTML = learning ? "Also in <code>TASKS.md</code> in your workspace. Each part's example test is in <code>tests/</code>." : "Also saved as <code>CHANGE_REQUEST.md</code> in your workspace, so your assistant can read it.";
   $("docs-tab").hidden = !info.has_docs;
@@ -646,7 +646,7 @@ function scrollPop() { const body = $("pop-body"); body.scrollTop = body.scrollH
 function sectionDivider(name) {
   // Marks where a section of the interview starts, such as the résumé interview's Leadership Principles questions.
   const asked = ((latest && latest.session.state.behavioral && latest.session.state.behavioral.plan) || []).filter(item => item.lp).length;
-  const principles = name === "Leadership Principles";
+  const principles = name === (((latest && latest.interview.persona) || {}).section || "Leadership Principles");   // the round's behavioral section
   return `<div class="section-divider" role="separator"><span><em><b>${escapeHtml(name)}</b></em></span>`
     + (principles ? `<small>${asked ? `${asked} behavioral questions. ` : ""}Answer each with one real example: the situation, what you did yourself, the result, and what you learned.</small>` : "") + "</div>";
 }
@@ -1492,7 +1492,7 @@ function renderReport(report) {
   $("report-title").textContent = report.title;
   const lps = report.lp_breakdown || [];
   const lpColor = n => (n >= 4 ? "var(--green)" : n === 3 ? "var(--amber)" : "var(--red)");
-  const lpSection = lps.length ? `<h3 class="section-title">Leadership Principles, story by story</h3>
+  const lpSection = lps.length ? `<h3 class="section-title">${escapeHtml(((latest && latest.interview.persona) || {}).section || "Leadership Principles")}, story by story</h3>
     <div class="box"><table class="lp-table">${lps.map(l => `<tr><td class="lp">${escapeHtml(l.lp || "Story")}<div class="q">${escapeHtml(l.question)}</div></td><td class="n" style="color:${lpColor(l.score)}">${l.score}/5</td><td>${l.missing.length ? "Missing: " + escapeHtml(l.missing.join("; ")) : "Hit every signal."}</td></tr>`).join("")}</table></div>` : "";
   const lpAverage = lps.length ? lps.reduce((sum, l) => sum + l.score, 0) / lps.length : 0;
   const tl = report.timeline;

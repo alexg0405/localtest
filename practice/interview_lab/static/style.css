@@ -130,7 +130,7 @@ a { color: var(--cyan); }
 .domain i { width: 6px; height: 6px; background: currentColor; }
 .domain.commerce { color: var(--amber); } .domain.banking { color: var(--cyan); } .domain.repo { color: var(--violet); }
 .domain.amazon { color: var(--acid); } .domain.resume { color: var(--magenta); }
-.domain.palantir { color: var(--text); }
+.domain.palantir { color: var(--text); } .domain.rednote { color: var(--red); }
 .status { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); padding: 4px 7px; }
 .status.running { color: var(--acid); border-color: var(--acid-line); }
 .status.submitted { color: var(--cyan); border-color: var(--cyan-line); }

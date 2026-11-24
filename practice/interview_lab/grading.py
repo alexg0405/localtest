@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import interviewer, resume
-from .catalog import Interview, leadership_bank, test_python
+from .catalog import Interview, test_python
 from .session import CHANGE_FILE, PARTS_FILE, Sessions
 from .testing import run_pytest, summary
 from .workspace import build_starter, diff_against_starter, iter_files, workspace_path
@@ -98,9 +98,10 @@ def resume_deep_dive(interview: Interview) -> bool:
 
 
 def areas_for(interview: Interview):
-    if resume_deep_dive(interview):
-        return [AMAZON_AREAS[0], ("depth", "Technical depth"), *AMAZON_AREAS[1:]]
-    return {"amazon-final": AMAZON_AREAS, "amazon-coding": CODING_ROUND_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS,
+    if interview.meta.get("format") == "amazon-final":   # the behavioral area is named for the round's company (Interview.persona)
+        areas = [(area, interview.persona()["section"] if area == "leadership" else label) for area, label in AMAZON_AREAS]
+        return [areas[0], ("depth", "Technical depth"), *areas[1:]] if resume_deep_dive(interview) else areas
+    return {"amazon-coding": CODING_ROUND_AREAS, "amazon-behavioral": BEHAVIORAL_AREAS, "problem": PROBLEM_AREAS,
             "resume": RESUME_AREAS, "palantir-learning": LEARNING_AREAS}.get(interview.meta.get("format"), AREAS)
 
 
@@ -538,7 +539,7 @@ def _story(answer: Dict[str, Any], bank: Dict[str, Dict[str, Any]]) -> Dict[str,
 
 
 def _stories(interview, state) -> List[Dict[str, Any]]:
-    bank = {entry["lp"]: entry for entry in leadership_bank()}
+    bank = {entry["lp"]: entry for entry in interview.behavioral_bank()}
     for item in Sessions.behavioral_questions(interview, state):
         bank.setdefault(item.get("lp") or "", {"signals": item.get("signals", [])})
     # Only the principles questions: a résumé deep dive in the same part of the interview is scored as technical depth.
@@ -556,7 +557,7 @@ def _stories(interview, state) -> List[Dict[str, Any]]:
 def _score_leadership(interview, state):
     stories = _stories(interview, state)
     if not stories:
-        return None, ["No Leadership Principles answers were recorded. Answer out loud with the mic, or type in the chat, while the interviewer asks its questions."], []
+        return None, [f"No answers to the {interview.persona()['questions']} were recorded. Answer out loud with the mic, or type in the chat, while the interviewer asks its questions."], []
     evidence, missing_all = [], set()
     for story in stories:
         missing_all.update(story["missing"])
@@ -565,7 +566,7 @@ def _score_leadership(interview, state):
                         + (f"Missing: {'; '.join(story['missing'])}." if story["missing"] else "Hit every signal.") + f" You said: {_quote(story['text'], 120)}")
     asked = len([item for item in Sessions.behavioral_questions(interview, state) if item.get("lp")])
     if len(stories) < asked:
-        evidence.append(f"Answered {len(stories)} of {asked} Leadership Principles questions.")
+        evidence.append(f"Answered {len(stories)} of {asked} {interview.persona()['questions']}.")
     average = sum(story["score"] for story in stories) / len(stories)
     return _clamp(average - (0.5 if len(stories) < asked else 0)), evidence, sorted(missing_all)
 
@@ -641,12 +642,12 @@ def resume_principles(interview: Interview, state: Dict[str, Any], turns: Option
     """One story per principle asked, scored like the Amazon behavioral round."""
     asked = [item for item in Sessions.behavioral_questions(interview, state) if item.get("lp")]
     turns = resume_turns(interview, state) if turns is None else turns
-    bank = {entry["lp"]: entry for entry in leadership_bank()}
+    bank = {entry["lp"]: entry for entry in interview.behavioral_bank()}
     stories = []
     for i, item in enumerate(asked):
         mine = [t for t in turns if t["kind"] == "leadership" and t["principle"] == i]
         if mine:
-            answer = {"question": item["question"].replace(resume.LP_INTRO, ""), "lp": item["lp"],
+            answer = {"question": resume.plain_question(item), "lp": item["lp"],
                       "prompts": [t["prompt"] for t in mine], "parts": [{"text": t["text"]} for t in mine]}
             stories.append(_story(answer, bank))
     return stories
@@ -936,7 +937,7 @@ def _improvement(area: str, context: Dict[str, Any]) -> str:
         return ("Clean up before submitting: " + "; ".join(context["smells"]) + ".") if context["smells"] else "Keep the diff focused: small helpers, clear names, and no unrelated changes."
     if area == "leadership":
         missing = context.get("leadership_missing", [])
-        return ("Tighten your STAR stories: " + "; ".join(missing[:3]) + ". Keep each story about what you did (“I”), end with a measurable result, and close with what you learned.") if missing else "Prepare 8–12 STAR stories mapped to different Leadership Principles, since each round asks for new ones."
+        return ("Tighten your STAR stories: " + "; ".join(missing[:3]) + ". Keep each story about what you did (“I”), end with a measurable result, and close with what you learned.") if missing else context["interview"].persona()["stories"]
     if area == "depth":
         return RESUME_IMPROVEMENTS["depth"]
     if area == "star":
@@ -969,7 +970,7 @@ NOT_OBSERVED_HELP = {
     "pace": "Press Ready for the task once you've read the docs, so you get to the parts.",
     "walkthrough": "Answer the interviewer's first question out loud (mic) or in the chat, so your background walkthrough can be assessed.",
     "depth": "Answer the résumé deep-dive questions out loud (mic) or in the chat, so the interviewer can ask how your projects work.",
-    "leadership": "Answer the interviewer's Leadership Principles questions out loud (mic) or in the chat, so they can be assessed.",
+    "leadership": "Answer the interviewer's {questions} out loud (mic) or in the chat, so they can be assessed.",
     "problem_solving": "Say or write your approach and its time and space complexity, so problem solving can be assessed.",
     "problem_understanding": "Ask clarification questions in the dashboard and record your assumptions, so problem understanding can be assessed.",
     "repository_exploration": "Write your plan in the dashboard (which files, which call path, what you will change), so exploration can be assessed.",
@@ -1077,11 +1078,11 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         if len(improvements) >= 3:
             break
         if scores[area][0] is None and area in NOT_OBSERVED_HELP:
-            improvements.append(NOT_OBSERVED_HELP[area])
+            improvements.append(NOT_OBSERVED_HELP[area].replace("{questions}", interview.persona()["questions"]))
     while len(improvements) < 3:
         improvements.append(["Try the follow-up exercise below under a 20-minute timer.", "Repeat this interview after a week without looking at your previous diff.", "Try a different interview from the lab to practice an unfamiliar domain."][len(improvements) % 3])
     weakest = observed[0] if observed else areas[0][0]  # nothing observed: practice the round's main skill
-    follow_up = {"area": weakest, "label": LABELS[weakest], "exercise": interview.meta.get("followups", {}).get(weakest, "")}
+    follow_up = {"area": weakest, "label": dict(areas).get(weakest, LABELS[weakest]), "exercise": interview.meta.get("followups", {}).get(weakest, "")}
 
     assumptions = []
     failed_topics = {m["topic"] for m in tests["missed"] if m.get("topic")}
@@ -1122,7 +1123,7 @@ def grade(interview: Interview, home: Path, sessions: Sessions) -> Dict[str, Any
         "patch_review": {"found": patch["found"], "needed": patch["needed"], "answer": patch["expected"]} if patch["expected"] else None,
         "format_note": ("A conversation about your résumé, scored from what you said. The scores are heuristics; the interviewer's written notes below are the fuller picture." if resume_round
                         else "A learning round, scored from what you said, asked, and built. The scores are heuristics; the interviewer's written notes below are the fuller picture." if learning
-                        else "No AI in this round: Amazon tells candidates not to use GenAI tools during interviews unless explicitly permitted, so the AI areas are not scored." if amazon or behavioral_only or coding_round
+                        else f"No AI in this round: {interview.persona()['no_ai']}, so the AI areas are not scored." if amazon or behavioral_only or coding_round
                         else (f"Coach mode: you used {len(state.get('hints', []))} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}. Try it again in real mode once it feels easy." if problem and state.get("mode") == "coach"
                               else (f"Real mode: {len(state.get('hints', []))} hint(s) used." if problem else None))),
         "mode": state.get("mode", "real") if problem else None,
@@ -1366,7 +1367,7 @@ def time_breakdown(interview: Interview, state: Dict[str, Any], elapsed: float) 
     lp_start = answers[0]["asked_at"] if answers else None
     lp_stop = problem_at if final else wrap_at
     part("Introductions", 0.0, lp_start if lp_start is not None else lp_stop, span(phases[0]) if phases and phases[0].get("kind") == "intro" else None)
-    part("Leadership Principles", lp_start, lp_stop, span(lp_phase))
+    part(interview.persona()["section"], lp_start, lp_stop, span(lp_phase))
     coding_minutes = None
     if final and problem_at is not None:
         part("Reading and clarifying", problem_at, first_edit if first_edit is not None else wrap_at, span(clarify_phase))
@@ -1386,7 +1387,7 @@ def time_breakdown(interview: Interview, state: Dict[str, Any], elapsed: float) 
     stories = []
     for i, answer in enumerate(answers):
         stop = answers[i + 1]["asked_at"] if i + 1 < len(answers) else lp_stop
-        stories.append({"lp": answer.get("lp"), "minutes": minutes((elapsed if stop is None else stop) - answer["asked_at"]), "followups": max(0, len(answer.get("prompts", [])) - 1)})
+        stories.append({"lp": answer.get("lp") or ("Résumé deep dive" if str(answer.get("id", "")).startswith("deep") else None), "minutes": minutes((elapsed if stop is None else stop) - answer["asked_at"]), "followups": max(0, len(answer.get("prompts", [])) - 1)})
 
     notes: List[str] = []
     if final:
@@ -1470,7 +1471,8 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
     problem = interview.meta.get("format") == "problem"
     hints = state.get("hints", [])
     helped = "; ".join(f"minute {item['at']:.0f}: {item['text']}" for item in (report.get("help") or [])) or "it never needed to"
-    setting = ("This is a simulated Amazon SDE intern final-round interview with no AI assistant (Amazon tells candidates not to use GenAI during interviews). It has Leadership Principles questions with follow-ups, then a coding problem in an editor that can run tests."
+    persona = interview.persona()
+    setting = (f"This is a simulated {persona['company']} interview ({persona['round']}) with no AI assistant ({persona['no_ai']}). It has {persona['questions']} with follow-ups, then a coding problem in an editor that can run tests."
                if amazon else ("This is a simulated Amazon SDE intern coding round with no AI assistant: one problem and a follow-up, in an editor that can run tests. The interviewer asked for the complexity, "
                                f"pushed for a faster version when a working one was too slow, and helped when the candidate was stuck ({helped}). Weigh how much help they needed." if interview.meta.get("format") == "amazon-coding"
                                else (f"This is a simulated Palantir FDSE Learning interview with no AI assistant: the candidate learned {interview.library}, {interview.learning('about', 'an internal library')}, from its docs (in the "
@@ -1478,7 +1480,7 @@ def grading_prompt(interview: Interview, report: Dict[str, Any], diff_text: str,
                                if interview.meta.get("format") == "palantir-learning"
                                else f"This is a single-problem practice round with no AI assistant, in {state.get('mode', 'real')} mode. The candidate used {len(hints)} hint(s){' and opened the reference approach' if state.get('approach_revealed') else ''}." if problem
                                else "The candidate used an AI coding assistant (Claude Code), which is allowed and expected."))
-    ai_rule = ("- Judge Leadership Principles answers on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon
+    ai_rule = (f"- Judge the answers to the {persona['questions']} on STAR structure, personal ownership, measurable results, and how well follow-ups were handled." if amazon
                else "- Judge problem solving on whether the candidate found the faster approach alone, after the interviewer's push, or only with hints, and whether they explained its complexity." if interview.meta.get("format") == "amazon-coding"
                else "- Judge whether they read before coding, explained the library back correctly, asked purposeful questions, tested in small steps, and said when they weren't sure. Bluffing counts against them." if interview.meta.get("format") == "palantir-learning"
                else "- Do not treat using less AI as better. Judge how well the candidate directed and checked the assistant.")
@@ -1492,7 +1494,7 @@ Rules:
 {ai_rule}
 Then list: missed cases, questionable assumptions, three concrete improvements, and one short follow-up exercise for the weakest observed skill.
 
-=== Leadership Principles answers ===
+=== Behavioral answers ({persona['section']}) ===
 {clip(behavioral, 40000)}
 
 === Rubric ===

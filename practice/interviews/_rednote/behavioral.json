@@ -1,0 +1,310 @@
+[
+  {
+    "lp": "Building for users",
+    "look_for": "Starts from what real users did or said, changes the plan because of it, and checks whether it helped.",
+    "signals": [
+      "user",
+      "users",
+      "feedback",
+      "survey",
+      "talked to",
+      "watched",
+      "usage",
+      "analytics",
+      "retention",
+      "complain",
+      "pain point",
+      "creator",
+      "customer"
+    ],
+    "questions": [
+      {
+        "id": "rn-users-1",
+        "q": "Tell me about a time you changed what you were building because of what users told you, or what you saw them do.",
+        "followups": [
+          "How did you find out what they actually needed?",
+          "What did you change, and what did it cost you?",
+          "How did you know the change helped them?"
+        ]
+      },
+      {
+        "id": "rn-users-2",
+        "q": "Tell me about something you built that people didn't use the way you expected. What did you do about it?",
+        "followups": [
+          "When did you realize it wasn't working?",
+          "What did you do about it yourself?",
+          "What would you do differently from the start?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Ownership when it's unclear",
+    "look_for": "Makes an unclear problem concrete, decides what they can on their own, and owns the outcome.",
+    "signals": [
+      "unclear",
+      "ambiguous",
+      "no one",
+      "nobody",
+      "owned",
+      "took it on",
+      "decided",
+      "prototype",
+      "assumption",
+      "scoped",
+      "proposal",
+      "on my own"
+    ],
+    "questions": [
+      {
+        "id": "rn-own-1",
+        "q": "Tell me about a time you had to deliver something when the requirements were unclear or kept changing.",
+        "followups": [
+          "What did you do first to make it less unclear?",
+          "What did you decide on your own, and why?",
+          "How did it turn out?"
+        ]
+      },
+      {
+        "id": "rn-own-2",
+        "q": "Tell me about a time you noticed a problem that nobody owned, and you fixed it yourself.",
+        "followups": [
+          "How did you notice it?",
+          "Why did you take it on instead of just flagging it?",
+          "What happened as a result?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Working across teams and time zones",
+    "look_for": "Works well with people who are far away or think differently: adapts how they communicate, writes things down, and gets to a shared decision.",
+    "signals": [
+      "time zone",
+      "time difference",
+      "remote",
+      "async",
+      "language",
+      "culture",
+      "designer",
+      "product manager",
+      "documented",
+      "wrote up",
+      "wrote a doc",
+      "aligned",
+      "meeting",
+      "overlap"
+    ],
+    "questions": [
+      {
+        "id": "rn-across-1",
+        "q": "Tell me about a time you worked with people in a different time zone, language, or background to get something done.",
+        "followups": [
+          "What made it hard?",
+          "What did you change about how you communicated?",
+          "What would you keep doing the same way next time?"
+        ]
+      },
+      {
+        "id": "rn-across-2",
+        "q": "Tell me about a time you worked closely with a designer, a product manager, or someone outside engineering, and you saw things differently.",
+        "followups": [
+          "What did they want that you didn't, at first?",
+          "How did you get to a decision?",
+          "What did you learn about working with them?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Disagreement and feedback",
+    "look_for": "Disagrees with evidence, listens to the other side, commits to the decision, and takes feedback without getting defensive.",
+    "signals": [
+      "disagree",
+      "pushed back",
+      "the data",
+      "evidence",
+      "compromise",
+      "listened",
+      "their point",
+      "changed my mind",
+      "feedback",
+      "convinced",
+      "trade-off",
+      "tradeoff"
+    ],
+    "questions": [
+      {
+        "id": "rn-disagree-1",
+        "q": "Tell me about a time you disagreed with a teammate or your lead about a technical decision.",
+        "followups": [
+          "What was your argument, and what was theirs?",
+          "How did you handle the disagreement?",
+          "What happened in the end, and would you do it the same way again?"
+        ]
+      },
+      {
+        "id": "rn-disagree-2",
+        "q": "Tell me about a time you got critical feedback on your work.",
+        "followups": [
+          "What exactly was the feedback?",
+          "How did you react at first?",
+          "What did you change because of it?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Learning fast",
+    "look_for": "Gets productive quickly in something new: has a way of learning, asks for help at the right time, and knows what they still don't know.",
+    "signals": [
+      "learned",
+      "documentation",
+      "the docs",
+      "tutorial",
+      "read the code",
+      "prototype",
+      "asked for help",
+      "mentor",
+      "experiment",
+      "first time",
+      "new to",
+      "picked up"
+    ],
+    "questions": [
+      {
+        "id": "rn-learn-1",
+        "q": "Tell me about a time you had to learn a new technology or codebase quickly to deliver something.",
+        "followups": [
+          "How did you go about learning it?",
+          "What was hardest to get right?",
+          "How long did it take before you were productive?"
+        ]
+      },
+      {
+        "id": "rn-learn-2",
+        "q": "Tell me about a time you were stuck on a problem for a long time. How did you get unstuck?",
+        "followups": [
+          "What had you already tried?",
+          "When did you ask for help, and who did you ask?",
+          "What do you do differently now when you're stuck?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Setbacks and mistakes",
+    "look_for": "Owns a real mistake or failure, says plainly what their part was, fixes it, and changes something so it doesn't happen again.",
+    "signals": [
+      "mistake",
+      "failed",
+      "failure",
+      "broke",
+      "bug",
+      "outage",
+      "root cause",
+      "fixed",
+      "prevent",
+      "postmortem",
+      "my fault",
+      "responsib",
+      "learned"
+    ],
+    "questions": [
+      {
+        "id": "rn-setback-1",
+        "q": "Tell me about a time something you shipped broke or didn't work. What happened?",
+        "followups": [
+          "How did you find out?",
+          "What did you do first?",
+          "What did you change so it wouldn't happen again?"
+        ]
+      },
+      {
+        "id": "rn-setback-2",
+        "q": "Tell me about a project that failed, or one you'd do completely differently now.",
+        "followups": [
+          "What went wrong, and what was your part in it?",
+          "When did you realize it?",
+          "What do you do differently today because of it?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Moving fast",
+    "look_for": "Under time pressure, picks what matters, cuts scope on purpose, says who they told, and manages the risk of shipping early.",
+    "signals": [
+      "deadline",
+      "prioritiz",
+      "cut the",
+      "cutting",
+      "scope",
+      "mvp",
+      "trade-off",
+      "tradeoff",
+      "shipped",
+      "iterate",
+      "good enough",
+      "risk"
+    ],
+    "questions": [
+      {
+        "id": "rn-fast-1",
+        "q": "Tell me about a time you had more to do than time to do it. How did you decide what to cut?",
+        "followups": [
+          "What were the options?",
+          "What did you cut, and who did you tell?",
+          "How did it turn out?"
+        ]
+      },
+      {
+        "id": "rn-fast-2",
+        "q": "Tell me about a time you shipped something quickly that wasn't perfect. How did you decide it was good enough?",
+        "followups": [
+          "What did you leave out on purpose?",
+          "How did you lower the risk?",
+          "What happened after it shipped?"
+        ]
+      }
+    ]
+  },
+  {
+    "lp": "Going beyond the task",
+    "look_for": "Improves something nobody asked them to, gets other people to use it, and can say what changed because of it.",
+    "signals": [
+      "initiative",
+      "nobody asked",
+      "on my own",
+      "side project",
+      "automated",
+      "script",
+      "tool",
+      "improved",
+      "saved",
+      "adopted",
+      "proposed",
+      "volunteered"
+    ],
+    "questions": [
+      {
+        "id": "rn-beyond-1",
+        "q": "Tell me about something you built or improved that nobody asked you to.",
+        "followups": [
+          "Why did you think it was worth doing?",
+          "How did you get people to use it?",
+          "What changed because of it?"
+        ]
+      },
+      {
+        "id": "rn-beyond-2",
+        "q": "Tell me about a time you made a process or a tool better for the people you worked with.",
+        "followups": [
+          "What was slow or painful before?",
+          "What did you change yourself?",
+          "How did you know it was better?"
+        ]
+      }
+    ]
+  }
+]

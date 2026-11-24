@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import interviewer, resume
-from .catalog import DEFAULT_PHASES, Interview, leadership_bank
+from .catalog import DEFAULT_PHASES, Interview
 from .workspace import create_workspace, reset_workspace, workspace_path
 
 PHASES = DEFAULT_PHASES
@@ -123,24 +123,25 @@ class Sessions:
             return state
 
     def _behavioral_plan(self, interview: Interview) -> List[Dict[str, Any]]:
-        """Picks this session's Leadership Principles questions from the shared bank: different principles, and the
-        questions you were asked least recently, so repeat sessions don't repeat questions."""
+        """Picks this session's behavioral questions from the round's bank (Amazon's Leadership Principles, unless its
+        persona names another): different principles or themes, and the questions you were asked least recently, so
+        repeat sessions don't repeat questions."""
         config = interview.meta.get("behavioral")
         if not config:
             return []
-        principles = self._pick_principles(config.get("focus"), config.get("count", 2))
+        principles = self._pick_principles(interview.behavioral_bank(), config.get("focus"), config.get("count", 2))
         if config.get("bank") == "resume":  # the résumé interview: questions from your résumé, then its principles section
-            saved = resume.load(self.home)
-            plan = resume.plan(saved["text"] if saved else "", principles)
+            saved, persona = resume.load(self.home), interview.persona()
+            plan = resume.plan(saved["text"] if saved else "", principles, section=persona["section"], intro=persona["intro"])
             # A round that borrows only some of the résumé questions (the full Amazon interview: one deep dive, then the principles).
             keep = config.get("resume_items")
             return [item for item in plan if keep is None or item["id"] in keep or item["kind"] == "leadership"]
         return principles
 
-    def _pick_principles(self, focus: Optional[List[str]], count: int) -> List[Dict[str, Any]]:
-        """This session's principles questions, shared by every round that asks them, so a principle you were just asked
-        in one round comes up later in another."""
-        bank = {entry["lp"]: entry for entry in leadership_bank()}
+    def _pick_principles(self, entries: List[Dict[str, Any]], focus: Optional[List[str]], count: int) -> List[Dict[str, Any]]:
+        """This session's principles questions, with a history shared by every round that asks them, so a principle you
+        were just asked in one round comes up later in another."""
+        bank = {entry["lp"]: entry for entry in entries}
         history_path = self.home / ".lab" / "behavioral_history.json"
         try:
             history = {k: v for k, v in json.loads(history_path.read_text(encoding="utf-8")).items() if isinstance(v, list)}
@@ -683,7 +684,7 @@ class Sessions:
                     self.save(state)
                     return None
                 current = questions[flow["question"]]
-                flow["answers"].append({"question": current["question"], "lp": current.get("lp"), "id": current.get("id"), "prompts": [], "parts": [], "asked_at": round(now, 1)})
+                flow["answers"].append({"question": resume.plain_question(current), "lp": current.get("lp"), "id": current.get("id"), "prompts": [], "parts": [], "asked_at": round(now, 1)})
                 step = {"kind": "behavioral:question", "text": ("In the interest of time, let's move on. " if hurried else "") + current["question"], "hurried": hurried}
                 section, left = self._lp_clock(interview, state, flow, questions, now)
             flow["awaiting"] = True

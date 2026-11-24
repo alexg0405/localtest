@@ -239,30 +239,31 @@ Start by introducing yourself and the round.
 
 
 def _amazon_packet(interview: Interview) -> str:
-    from .catalog import leadership_bank
+    """An Amazon round's interviewer, or another company's in the same format (see Interview.persona)."""
+    persona = interview.persona()
     focus = interview.meta.get("behavioral", {}).get("focus")
-    bank = [entry for entry in leadership_bank() if not focus or entry["lp"] in focus]
+    bank = [entry for entry in interview.behavioral_bank() if not focus or entry["lp"] in focus]
     questions = "\n".join(f"- {entry['lp']} (look for: {entry['look_for']})\n" + "\n".join(f"  - {q['q']} Follow-ups: {' / '.join(q['followups'])}" for q in entry["questions"]) for entry in bank)
     qa = "\n".join(f"- {e['topic']}: {e['answer']}" for e in interview.clarifications())
     phases = "\n".join(f"- {p['start']}-{p['end']} min: {p['name']}" for p in interview.phases())
     change = f"=== Follow-up to give at minute {interview.meta['change_at_minutes']} ===\n{interview.change_request()}\n" if interview.meta.get("change_at_minutes") is not None else ""
     count = interview.meta.get("behavioral", {}).get("count", 2)
-    return f"""You are an Amazon software engineer interviewing a candidate for an SDE internship in a {interview.meta.get('duration_minutes', 45)}-minute practice round. Be warm but rigorous, like a real Amazon interviewer.
+    return f"""You are {persona['interviewer']}, interviewing {persona['candidate']}, in a {interview.meta.get('duration_minutes', 45)}-minute practice round ({persona['round']}). Be warm but rigorous, like a real {persona['company']} interviewer.
 
 Rules:
 - No AI help for the candidate, and you never write code for them or reveal the reference solution or grading tests.
 - Follow this timeline:
 {phases}
-- Ask {count} Leadership Principles questions from different principles in the bank below. After each answer, ask its follow-ups one at a time, and push for specifics: what the candidate personally did, numbers, and what they'd do differently.
+- Ask {count} {persona['questions']}, each on a different topic from the bank below. After each answer, ask its follow-ups one at a time, and push for specifics: what the candidate personally did, numbers, and what they'd do differently.
 - During coding, answer clarifying questions from the answer key, ask about time and space complexity, and ask them to dry-run the example.
-- At the end, take their questions about the team, then evaluate: score each area 1-5 or "not observed" (problem understanding, each Leadership Principle asked, problem solving and complexity, correctness and edge cases, testing and dry run, code quality, communication), cite evidence, list missed cases, give three concrete improvements, and one follow-up exercise for the weakest area.
+- At the end, take their questions about the team, then evaluate: score each area 1-5 or "not observed" (problem understanding, each of the {persona['questions']} asked, problem solving and complexity, correctness and edge cases, testing and dry run, code quality, communication), cite evidence, list missed cases, give three concrete improvements, and one follow-up exercise for the weakest area.
 
 Start by introducing yourself and asking the candidate to introduce themselves.
 
 === Candidate task (they can see this) ===
 {interview.task()}
 
-{change}=== Leadership Principles question bank (interviewer only) ===
+{change}=== Question bank: {persona['section']} (interviewer only) ===
 {questions}
 
 === Clarification answer key (interviewer only) ===

@@ -28,7 +28,7 @@ def roomside() -> str:
 TRIGGERS = ("message", "hint", "tests", "nudge", "thinking", "open", "code", "answer", "stuck", "optimize", "verify", "debug")
 
 # One system prompt for every role, so the bridge's warm Claude Code process serves any of them; the role comes per request.
-SYSTEM = """You play one role in a timed practice interview: a supportive coach or a realistic interviewer for a coding problem, an engineer asking behavioral (Leadership Principles) questions, or a senior engineer interviewing the candidate about their résumé. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
+SYSTEM = """You play one role in a timed practice interview: a supportive coach or a realistic interviewer for a coding problem, an engineer asking behavioral questions, or a senior engineer interviewing the candidate about their résumé. Each request tells you which role and gives the context. The candidate is talking to you out loud, so everything you write is read aloud by text-to-speech.
 
 Always:
 - Keep replies short: one to three sentences, about 60 words at most. Plain spoken English: no markdown, no bullet points, no headings, no code blocks. If code is truly needed, say it in words or give at most one short inline expression.
@@ -50,7 +50,8 @@ ROLE_REAL = """You are the INTERVIEWER: a realistic, professional software engin
 - Hints only when they explicitly ask: one short sentence at the level you're given, said neutrally. Hints count against them, so don't volunteer them.
 - Keep it to one or two short sentences."""
 
-ROLE_AMAZON_CODING = """You are the INTERVIEWER: a software engineer at Amazon in the coding part of an SDE intern final round, watching the candidate type in a shared editor and listening as they narrate. No AI is allowed in this round. Your main job now is to find out whether they understand what they're writing, the way a real Amazon interviewer does:
+# A template: final_coding_role fills in the company and the round (Amazon's, or the round's persona: catalog.AMAZON_PERSONA).
+ROLE_FINAL_CODING = """You are the INTERVIEWER: {interviewer}, in the coding part of {round}, watching the candidate type in a shared editor and listening as they narrate. No AI is allowed in this round. Your main job now is to find out whether they understand what they're writing, the way a real {company} interviewer does:
 - Question their choices as they make them: why this data structure (a dict, a Counter, a heap, a sort), what a step or loop costs, the overall time and space complexity, and why not a simpler or faster option. Push back once on a choice ("Why sort all of them if you only need k?") and see whether they can defend it.
 - Be specific: name the variable, function, or line you're asking about ("What's latest holding there?", "What does that loop do when k is bigger than the number of carriers?").
 - Probe edge cases from the problem facts (ties, duplicates, k of zero, empty input) by asking what their code does with them. Never say it's wrong or point out a bug, and never hint at the fix.
@@ -92,7 +93,8 @@ How you talk, like a real engineer on a video call:
 - No hints, no teaching, no evaluating or praising: never call an answer good, solid, nice, or the right call, or say what it shows ("that shows initiative"). If they're stuck, you can narrow it once ("Say it crashes right after the pop. Then what?").
 - Follow the interview plan and the clock, and switch topics with a quick, natural transition ("Cool, let's switch to StudySync.")."""
 
-ROLE_BEHAVIORAL = """You are an ENGINEER AT AMAZON running the behavioral part of an interview (Amazon's Leadership Principles) with a candidate for the Amazon SDE internship, usually a sophomore or junior. Friendly, calm, and curious: you want the real story behind each example, with specifics.
+# A template, like ROLE_FINAL_CODING: behavioral_role fills it in.
+ROLE_BEHAVIORAL = """You are the INTERVIEWER, {interviewer}, running the behavioral part of an interview (questions based on {about}) with {candidate}. Friendly, calm, and curious: you want the real story behind each example, with specifics.
 
 The questions and the order of follow-ups are planned for you; each turn says which one comes next. Your job is to say it the way a person would, tied to what the candidate just told you.
 
@@ -100,7 +102,7 @@ How you talk, like a real interviewer on a video call:
 - Exactly one short question per turn, usually under 25 words. Never two questions at once.
 - Plain spoken English with contractions. Vary how you start: often go straight to the question, sometimes react in a few words to something specific they said ("Two weeks before the demo, okay."). Don't open every turn with "Great" or "Got it".
 - Use their words: name the project, team, tool, person, or number they mentioned.
-- Never evaluate or praise ("great answer", "nice", "makes sense", "that shows ownership"), never coach or teach, and never name the principle behind a question.
+- Never evaluate or praise ("great answer", "nice", "makes sense", "that shows ownership"), never coach or teach, and never name the principle or theme behind a question.
 - Never talk about the plan: don't say you'll ask something different, that they already covered something, or how many questions are left. Just ask.
 - A vague, hypothetical, or "we did" answer gets pulled back to one specific time and what they did themselves."""
 
@@ -259,7 +261,7 @@ def _round_ask(state: Dict[str, Any], trigger: str, message: str, hint: Optional
 def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, elapsed: float, phase: str,
                  trigger: str, message: str = "", hint: Optional[Dict[str, Any]] = None) -> str:
     """Everything the coach or interviewer needs for one reply, kept within the bridge's limits. In an Amazon final
-    round's coding part, the interviewer questions the candidate's choices as they code (ROLE_AMAZON_CODING). In the
+    round's coding part, the interviewer questions the candidate's choices as they code (ROLE_FINAL_CODING). In the
     coding round, it also pushes for a faster version, gives hints, and helps when you're stuck (ROLE_AMAZON_CODING_ROUND)."""
     code_parts = []
     for name in interview.meta.get("editor_files", []):
@@ -356,7 +358,7 @@ def build_prompt(interview: Interview, state: Dict[str, Any], workspace: Path, e
     hint_section = (f"Hint ladder (for you only; give a level only when asked for a hint; {used} of {len(hints)} used so far):\n{hint_ladder}\n\n" if hints else "")
     standing = f"\nWhere things stand (for you only):\n{_round_status(interview, state)}\n" if coding_round else ""
     return f"""Your role:
-{ROLE_COACH if coach else ROLE_AMAZON_CODING_ROUND if coding_round and amazon else ROLE_AMAZON_CODING if amazon else ROLE_REAL}
+{ROLE_COACH if coach else ROLE_AMAZON_CODING_ROUND if coding_round and amazon else final_coding_role(interview) if amazon else ROLE_REAL}
 
 Problem the candidate is solving:
 {_problem_text(interview)}
@@ -433,8 +435,8 @@ def _section_pacing(state: Dict[str, Any], asked: List[Dict[str, Any]], minutes:
 
 
 def _plain_question(item: Dict[str, Any]) -> str:
-    from .resume import LP_INTRO
-    return item["question"].replace(LP_INTRO, "")
+    from .resume import plain_question
+    return plain_question(item)
 
 
 def build_resume_prompt(interview: Interview, state: Dict[str, Any], resume_text: str, elapsed: float, trigger: str, message: str = "",
@@ -551,11 +553,11 @@ def build_behavioral_prompt(interview: Interview, state: Dict[str, Any], resume_
                   else "The candidate hasn't added a résumé.")
     conversation = _resume_conversation(state)[-20_000:] or "(nothing yet)"
     return f"""Your role:
-{ROLE_BEHAVIORAL}
+{behavioral_role(interview)}
 
 {background}
 
-This session's questions, in order (the principle in brackets is for you only; never say it):
+This session's questions, in order (the principle or theme in brackets is for you only; never say it):
 {listed}
 
 Clock: {clock}.
@@ -602,6 +604,18 @@ One or two sentences per principle asked: how well the story showed it (STAR, wh
 Items on their résumé that they didn't explain well or weren't asked about yet, and the question you'd expect for each.
 ## Practice next
 One concrete exercise for before their next interview."""
+
+
+def final_coding_role(interview: Interview) -> str:
+    """The interviewer in a final round's coding part, for this round's company (see catalog.AMAZON_PERSONA)."""
+    persona = interview.persona()
+    return ROLE_FINAL_CODING.format(interviewer=persona["interviewer"], round=persona["round"], company=persona["company"])
+
+
+def behavioral_role(interview: Interview) -> str:
+    """The interviewer asking this round's behavioral questions, for its company."""
+    persona = interview.persona()
+    return ROLE_BEHAVIORAL.format(interviewer=persona["interviewer"], about=persona["about"], candidate=persona["candidate"])
 
 
 def learning_role(interview: Interview) -> str:

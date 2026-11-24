@@ -1,0 +1,21 @@
+{
+  "test_example_from_the_problem": {"area": "core", "description": "The example from the problem"},
+  "test_example": {"area": "core", "description": "The example from the problem"},
+  "test_several_notes_on_one_day_count_once": {"area": "edge", "description": "Several notes on one day count as one day", "topic": "Several notes on one day"},
+  "test_days_in_any_order": {"area": "edge", "description": "The days can come in any order", "topic": "Order of the days"},
+  "test_one_day": {"area": "edge", "description": "A single day is a streak of 1"},
+  "test_no_notes": {"area": "edge", "description": "No notes is a streak of 0", "topic": "No notes yet"},
+  "test_a_missed_day_ends_the_streak": {"area": "edge", "description": "Missing one day ends the streak", "topic": "What counts as consecutive"},
+  "test_the_longest_streak_is_last": {"area": "edge", "description": "The longest streak can be the last one"},
+  "test_a_long_streak_is_fast": {"area": "performance", "description": "One streak of 200,000 days finishes within 3 seconds", "topic": "Input size and performance"},
+  "test_large_input_is_fast": {"area": "performance", "description": "300,000 random days finish within 3 seconds", "topic": "Input size and performance"},
+  "test_change_example": {"area": "change", "description": "Follow-up: the example with one freeze"},
+  "test_change_no_freezes_is_the_plain_streak": {"area": "change", "description": "Follow-up: with no freezes, it's the plain streak"},
+  "test_change_freezes_cover_several_gaps": {"area": "change", "description": "Follow-up: freezes can cover several gaps"},
+  "test_change_a_gap_too_big_ends_the_streak": {"area": "change", "description": "Follow-up: a gap bigger than the freezes ends the streak"},
+  "test_change_freezes_dont_reach_past_the_last_note": {"area": "change", "description": "Follow-up: a streak starts and ends on a day with a note", "topic": "Freezes at the edges"},
+  "test_change_several_notes_on_one_day_count_once": {"area": "change", "description": "Follow-up: several notes on one day count once"},
+  "test_change_no_notes": {"area": "change", "description": "Follow-up: no notes is a streak of 0"},
+  "test_change_matches_every_window_on_random_days": {"area": "change", "description": "Follow-up: matches checking every window, on random days"},
+  "test_change_large_input_is_fast": {"area": "performance", "description": "Follow-up: 300,000 random days finish within 4 seconds"}
+}

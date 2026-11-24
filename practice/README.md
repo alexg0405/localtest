@@ -22,6 +22,7 @@ key. It runs on macOS, Linux, and Windows.
 | `amazon-coding` | Amazon coding round (45 min, no AI): just coding. "Price-drop alerts": the interviewer asks for your approach and its complexity, pushes you past a brute-force solution, gives a hint when you're stuck, then adds a streaming follow-up. | Complexity, optimizing past brute force, monotonic stacks, follow-ups, thinking aloud |
 | `amazon-behavioral` | Amazon behavioral round (45 min): four Leadership Principles per session from a bank covering all 16, with three follow-ups each. | STAR, ownership, measurable impact, follow-ups, self-awareness |
 | `resume-deep-dive` | Résumé deep dive (30 min): Claude plays an Amazon engineer interviewing you for the SDE internship, who reads your résumé, has you walk through your background, goes deep on two of your projects or roles, asks two Leadership Principles questions in their own section, then takes your questions. | Explaining what you built, decisions and tradeoffs, ownership, follow-ups, STAR stories |
+| `rednote-second-round` | RedNote second round (60 min, no AI): an engineer from RedNote's New York office digs into one project from your résumé, asks three behavioral questions with follow-ups, then gives a light coding problem (creators' posting streaks) with a follow-up. | STAR stories, project deep dives, hash sets, sliding windows, questions for the team |
 | `palantir-query` | Palantir FDSE Learning round (45 min, no AI): up to ten minutes to learn Weft, an internal SQL-like query language you've never seen, from its docs, then 35 to answer a regional airline's questions about its fleet, flights, and defects in up to four parts: missing values, grouping with parameters, a join whose default keeps unmatched rows, and the latest row per key. | Reading docs fast, where a SQL-like language differs from SQL, missing values, joins, honesty |
 | `palantir-batch` | Palantir FDSE Learning round (45 min, no AI): up to ten minutes to learn sluice, a batch data processor you've never seen, from its docs, then 35 to use it and debug an electric utility's nightly billing job in up to four parts: a new report, then bug reports to investigate (bills doubled after a re-run, big customers under-billed, one bad reading stopping the night). | Reading docs fast, reproducing a bug before fixing it, batches and idempotent writes, error handling, honesty |
 | `palantir-learning` | Palantir FDSE Learning round (45 min, no AI): up to ten minutes to learn relay, a job library you've never seen, from its docs, then 35 to extend a hospital network's nightly supply sync with it in up to four parts: parallel pulls, flaky and offline hospitals, a deadline, and live progress. | Reading docs fast, purposeful questions, threads and cancellation, small tested steps, honesty |
@@ -399,6 +400,52 @@ every loop differs. The questions are original. Sources:
 - [Amazon SDE intern 2026 interview experiences on takeUforward](https://takeuforward.org/community/interview-experiences/amazon-sde-intern-interview-experience-2026-hackon-6-month-internship-selected)
 - [Glassdoor: Amazon SDE intern interviews](https://www.glassdoor.com/Interview/Amazon-Software-Development-Engineer-Intern-Interview-Questions-EI_IE6036.0,6_KO7,43.htm)
 - [IT Pro on Amazon's GenAI interview policy](https://itpro.com/business/careers-and-training/amazon-bans-ai-tools-during-job-interviews)
+
+## RedNote second round
+
+`rednote-second-round` simulates a 60-minute second-round interview with an
+engineer from RedNote's New York office. RedNote's recruiter described the round
+as mostly behavioral, possibly with coding. It runs on the Amazon final rounds'
+engine (the same clock, editor, follow-up, and report), with RedNote's own
+interviewer and questions:
+
+| Minutes | What happens |
+|---|---|
+| 0–3 | Introductions: tell the interviewer about yourself and what interests you about RedNote, then press Enter. |
+| 3–32 | One project from your résumé in depth, then three behavioral questions with follow-ups. |
+| 32–35 | Read the coding problem and ask clarifying questions. |
+| 35–52 | Code it and talk it through. The follow-up comes at minute 45, or as soon as your tests pass. |
+| 52–60 | Walk through your code, give the complexity, and ask your questions. |
+
+- **The interviewer** is an engineer on RedNote's New York team (Claude, on
+  your subscription), in English. It reads your résumé (add it above the
+  round), digs into one project, then asks the behavioral questions in its own
+  words and follows up on your stories.
+- **The questions** come from RedNote's bank (`interviews/_rednote/behavioral.json`):
+  eight themes a new US team that works with colleagues in China would ask
+  about, such as building for users, ownership when it's unclear, and working
+  across time zones. Each has two questions with three follow-ups, and each
+  session picks three themes, preferring questions you haven't had recently.
+  They're common behavioral topics, not RedNote's official values: no reliable
+  source for those turned up.
+- **The coding problem** is light: a creator's longest posting streak from
+  unsorted note days with repeats (O(n) with a set, or O(n log n) by sorting).
+  The follow-up adds streak freezes, which takes a sliding window.
+- **The report** scores each story (STAR, "I" against "we", a number in the
+  result, how you handled the follow-ups), the résumé deep dive as technical
+  depth, and the coding areas.
+
+Each company's interviewer, its behavioral section, and its question bank come
+from the round's `persona` in `interview.json` (Amazon's by default; see
+`AMAZON_PERSONA` in `interview_lab/catalog.py`), so another company's round
+needs only its own persona, bank, and problem.
+
+It's an original simulation, based on the recruiter's description and on
+public reports. Sources:
+- [RedNote's US expansion, with New York and Palo Alto offices (Tubefilter)](https://www.tubefilter.com/2026/04/15/red-note-us-expansion-social-shop-hiring-creators/)
+- [RedNote hiring founding teams in New York and Palo Alto (Dealroom)](https://app.dealroom.co/news/feed/rednote-expands-to-us-with-palo-alto-and-new-york-offices-despite-saturated-market)
+- [Xiaohongshu interview reports (Glassdoor)](https://www.glassdoor.com/Interview/Xiaohongshu-Interview-Questions-E3301858.htm)
+- Xiaohongshu second rounds with project deep dives and coding: [Nowcoder](https://www.nowcoder.com/discuss/353157802875101184), [iamshuaidi](https://www.iamshuaidi.com/31301.html)
 
 ## Amazon coding round
 

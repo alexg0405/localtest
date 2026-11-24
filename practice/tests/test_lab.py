@@ -777,7 +777,7 @@ def test_amazon_interviewer_questions_your_choices_while_you_code(tmp_path):
     (workspace / "deliveries" / "late_carriers.py").write_text("def top_late_carriers(records, k):\n    latest = {}\n    return sorted(latest)[:k]\n", encoding="utf-8")
     state = {"questions": [], "spoken": [{"at": 1500, "text": "I'll keep the latest record per package in a dict."}], "change_revealed_at": None}
     prompt = coach_ai.build_prompt(loop, state, workspace, 26 * 60, "Code it and talk it through", "thinking", "I'll sort the carriers and take the first k.")
-    assert coach_ai.ROLE_AMAZON_CODING in prompt and coach_ai.ROLE_REAL not in prompt
+    assert coach_ai.final_coding_role(loop) in prompt and "a software engineer at Amazon, in the coding part" in prompt and coach_ai.ROLE_REAL not in prompt
     assert "latest = {}" in prompt and "I'll sort the carriers" in prompt and "Check their understanding" in prompt
     assert "heapq" in prompt and "Hint ladder" not in prompt   # the guide's notes on the problem stand in for an approach file
     assert "adds a follow-up later" in prompt and loop.change_request()[:60] not in prompt   # the follow-up stays hidden until it's revealed
@@ -787,7 +787,7 @@ def test_amazon_interviewer_questions_your_choices_while_you_code(tmp_path):
     assert "follow up once on the same point" in answer and loop.change_request()[:60] in answer
     # Practice problems keep their own interviewer.
     problem = next(i for i in all_interviews() if i.meta.get("format") == "problem")
-    assert coach_ai.ROLE_AMAZON_CODING not in coach_ai.build_prompt(problem, {"questions": [], "spoken": []}, tmp_path, 60, "Approach", "thinking", "hmm")
+    assert "in the coding part of" not in coach_ai.build_prompt(problem, {"questions": [], "spoken": []}, tmp_path, 60, "Approach", "thinking", "hmm")
 
 
 def test_the_coding_round_is_45_minutes_of_coding_with_hints_and_a_follow_up(tmp_path):
@@ -975,7 +975,7 @@ def test_the_coding_round_interviewer_pushes_for_better_and_helps_when_stuck(tmp
     workspace = create_workspace(coding, tmp_path)
     reading = {"questions": [], "spoken": [], "hints": []}
     before = coach_ai.build_prompt(coding, reading, workspace, 3 * 60, coding.phases()[0]["name"], "thinking", "I'd look ahead from every day, so n squared.")
-    assert coach_ai.ROLE_AMAZON_CODING_ROUND in before and coach_ai.ROLE_AMAZON_CODING not in before
+    assert coach_ai.ROLE_AMAZON_CODING_ROUND in before and "in the coding part of" not in before
     assert "ask once whether they can do better" in before and "haven't started coding" in before and "O(n) time" in before
     assert "Hint ladder" not in before and coding.hints()[2] not in before   # hints only when one is due
     slow = {**reading, "coding": {"first_edit": 300}, "speed": {"main": [{"at": 700, "status": "slow", "seconds": 1.9}]}, "optimize": {"main": 700}}
@@ -1211,3 +1211,39 @@ def test_every_learning_round_reads_then_builds_four_parts(interview_id):
     for heading in ("Questions to check understanding", "The parts"):
         assert learning.guide_section(heading)
     assert learning.followups()
+
+
+def test_the_rednote_round_has_its_own_interviewer_and_questions(tmp_path):
+    from interview_lab import coach_ai, resume
+    from interview_lab.workspace import workspace_path
+    rednote, amazon = get_interview("rednote-second-round"), get_interview("amazon-full-loop")
+    persona, bank = rednote.persona(), rednote.behavioral_bank()
+    themes = {entry["lp"]: entry for entry in bank}
+    assert persona["company"] == "RedNote" and amazon.persona()["company"] == "Amazon" and rednote.public()["persona"] == {"company": "RedNote", "section": "Behavioral questions"}
+    assert set(rednote.meta["behavioral"]["focus"]) <= set(themes) and all(len(q["followups"]) == 3 for entry in bank for q in entry["questions"])
+    # A deep dive on the résumé, then three questions from RedNote's bank, opened by its own line.
+    now = [0.0]
+    sessions = Sessions(tmp_path, clock=lambda: now[0])
+    sessions.start(rednote)
+    plan = sessions.load(rednote.id)["behavioral"]["plan"]
+    assert [item["kind"] for item in plan] == ["depth", "leadership", "leadership", "leadership"] and len({item["lp"] for item in plan[1:]}) == 3
+    assert plan[1]["section"] == "Behavioral questions" and plan[1]["question"].startswith(persona["intro"])
+    assert resume.plain_question(plan[1]) in [q["q"] for q in themes[plan[1]["lp"]]["questions"]]
+    # Claude interviews as RedNote's engineer, with nothing of Amazon's.
+    now[0] = 4 * 60
+    step = sessions.behavioral_step(rednote)
+    asked = coach_ai.build_behavioral_prompt(rednote, sessions.load(rednote.id), "", now[0], step, opening=True)
+    coding = coach_ai.build_prompt(rednote, sessions.load(rednote.id), workspace_path(rednote, tmp_path), 40 * 60, "Code it and talk it through", "thinking", "I'll put the days in a set.")
+    for text in (asked, coding, interviewer.interviewer_packet(rednote)):
+        assert "RedNote" in text and "Amazon" not in text and "Leadership Principles" not in text
+    assert coach_ai.behavioral_role(rednote) in asked and coach_ai.final_coding_role(rednote) in coding
+    assert "Amazon's Leadership Principles" in coach_ai.behavioral_role(amazon)   # Amazon's rounds keep theirs
+    # The report names the behavioral part for RedNote, and the story's question without the line that opened the section.
+    assert dict(grading.areas_for(rednote))["leadership"] == "Behavioral questions" and dict(grading.areas_for(amazon))["leadership"] == "Leadership Principles"
+    sessions.behavioral_next(rednote)
+    sessions.record_answer(rednote, "I built the sync service myself because polling was too slow, so I chose websockets.")
+    while (entry := sessions.behavioral_next(rednote)) and entry["kind"] != "behavioral:question":
+        sessions.record_answer(rednote, "I measured it: from 40 seconds to 4.")
+    sessions.record_answer(rednote, "Nobody owned our flaky deploy script, so I took it on, rewrote it, and deploys went from 40 minutes to 8. I learned to ask who owns something early.")
+    story = grading.lp_breakdown(rednote, sessions.load(rednote.id))[0]
+    assert story["lp"] == plan[1]["lp"] and story["question"] == resume.plain_question(plan[1])
